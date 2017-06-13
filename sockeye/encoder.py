@@ -411,3 +411,25 @@ class BiDirectionalRNNEncoder(Encoder):
         Returns a list of RNNCells used by this encoder.
         """
         return self.forward_rnn.get_rnn_cells() + self.reverse_rnn.get_rnn_cells()
+
+
+class GraphConvEncoder(Encoder):
+    """
+    A Graph Convolutional Network encoder. See Bastings et al. (NMT,2017)
+    """
+
+    def __init__(self,
+                 prefix: str = C.GCN_PREFIX,
+                 layout: str = C.TIME_MAJOR,
+                 fused: bool = False):
+        self.layout = layout
+        self.fused = fused
+        self.gcn = anmt.gcn.get_gcn(prefix)
+
+    def encode(self, data: mx.sym.Symbol, adj:mx.sym.Symbol,
+               data_length: mx.sym.Symbol, seq_len: int):
+        """
+        Convolve data using adj and the GCN parameters
+        """
+        outputs = self.gcn.convolve(data, adj)
+        return outputs
