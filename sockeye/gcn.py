@@ -15,7 +15,7 @@ class GCNParams(object):
     ----------
     prefix : str
         All variables' name created by this container will
-        be prepended with prefix
+        be prepended with prefix.
     """
 
     def __init__(self, prefix=''):
