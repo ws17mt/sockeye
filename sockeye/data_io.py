@@ -102,7 +102,8 @@ def get_data_iter(data_source: str, data_target: str,
 
     buckets = define_parallel_buckets(max_seq_len, bucket_width, length_ratio) if bucketing else [
         (max_seq_len, max_seq_len)]
-    return ParallelBucketSentenceIter(source_sentences, target_sentences, buckets, batch_size, eos_id, C.PAD_ID,
+    return ParallelBucketSentenceIter(source_sentences, target_sentences, source_graphs,
+                                      buckets, batch_size, eos_id, C.PAD_ID,
                                       vocab_target[C.UNK_SYMBOL], fill_up=fill_up)
 
 
@@ -290,6 +291,7 @@ class ParallelBucketSentenceIter(mx.io.DataIter):
 
     :param source_sentences: List of source sentences (integer-coded).
     :param target_sentences: List of target sentences (integer-coded).
+    :param source_graphs: List of source graphs (tuples of index pairs).
     :param buckets: List of buckets.
     :param batch_size: Batch_size of generated data batches.
            Incomplete batches are discarded if fill_up == None, or filled up according to the fill_up strategy.
@@ -304,6 +306,7 @@ class ParallelBucketSentenceIter(mx.io.DataIter):
     def __init__(self,
                  source_sentences: List[List[int]],
                  target_sentences: List[List[int]],
+                 source_graphs: List[Tuple[int, int]],
                  buckets: List[Tuple[int, int]],
                  batch_size: int,
                  eos_id: int,
@@ -336,9 +339,10 @@ class ParallelBucketSentenceIter(mx.io.DataIter):
         self.data_length = [[] for _ in self.buckets]
         self.data_target = [[] for _ in self.buckets]
         self.data_label = [[] for _ in self.buckets]
+        self.data_src_graphs = [[] for _ in self.buckets]
 
         # assign sentence pairs to buckets
-        self._assign_to_buckets(source_sentences, target_sentences)
+        self._assign_to_buckets(source_sentences, target_sentences, source_graphs)
 
         # convert to single numpy array for each bucket
         self._convert_to_array()
@@ -383,13 +387,13 @@ class ParallelBucketSentenceIter(mx.io.DataIter):
                 break
         return bucket
 
-    def _assign_to_buckets(self, source_sentences, target_sentences):
+    def _assign_to_buckets(self, source_sentences, target_sentences, source_graphs):
         ndiscard = 0
         tokens_source = 0
         tokens_target = 0
         num_of_unks_source = 0
         num_of_unks_target = 0
-        for source, target in zip(source_sentences, target_sentences):
+        for source, target, src_graph in zip(source_sentences, target_sentences, source_graphs):
             tokens_source += len(source)
             tokens_target += len(target)
             num_of_unks_source += source.count(self.unk_id)
