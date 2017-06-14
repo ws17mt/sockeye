@@ -67,6 +67,7 @@ def get_bucket(seq_len: int, buckets: List[int]) -> Optional[int]:
 
 
 def get_data_iter(data_source: str, data_target: str,
+                  data_source_graph: str,
                   vocab_source: Dict[str, int], vocab_target: Dict[str, int],
                   batch_size: int,
                   fill_up: str,
@@ -78,6 +79,7 @@ def get_data_iter(data_source: str, data_target: str,
 
     :param data_source: Path to source data.
     :param data_target: Path to target data.
+    :param data_source_graph: Path to graphs for source data.
     :param vocab_source: Source vocabulary.
     :param vocab_target: Target vocabulary.
     :param batch_size: Batch size.
@@ -88,8 +90,10 @@ def get_data_iter(data_source: str, data_target: str,
     :return: Data iterator for parallel data.
     """
     source_sentences = read_sentences(data_source, vocab_source, add_bos=False)
+    source_graphs = read_graphs(data_source_graph)
     target_sentences = read_sentences(data_target, vocab_target, add_bos=True)
     assert len(source_sentences) == len(target_sentences)
+    assert len(source_sentences) == len(source_graphs)
     eos_id = vocab_target[C.EOS_SYMBOL]
 
     length_ratio = sum(len(s) / float(len(t)) for s, t in zip(source_sentences, target_sentences)) / len(
@@ -104,6 +108,7 @@ def get_data_iter(data_source: str, data_target: str,
 
 def get_training_data_iters(source: str, target: str,
                             validation_source: str, validation_target: str,
+                            source_graph: str, val_source_graph: str,
                             vocab_source: Dict[str, int], vocab_target: Dict[str, int],
                             batch_size: int,
                             fill_up: str,
@@ -117,6 +122,8 @@ def get_training_data_iters(source: str, target: str,
     :param target: Path to target training data.
     :param validation_source: Path to source validation data.
     :param validation_target: Path to target validation data.
+    :param source_graph: Path to graphs for source training data.
+    :param val_source_graph: Path to graphs for source validation data.
     :param vocab_source: Source vocabulary.
     :param vocab_target: Target vocabulary.
     :param batch_size: Batch size.
@@ -127,10 +134,10 @@ def get_training_data_iters(source: str, target: str,
     :return: Data iterators for parallel data.
     """
     logger.info("Creating train data iterator")
-    train_iter = get_data_iter(source, target, vocab_source, vocab_target, batch_size, fill_up,
+    train_iter = get_data_iter(source, target, source_graph, vocab_source, vocab_target, batch_size, fill_up,
                                max_seq_len, bucketing, bucket_width=bucket_width)
     logger.info("Creating validation data iterator")
-    eval_iter = get_data_iter(validation_source, validation_target, vocab_source, vocab_target, batch_size, fill_up,
+    eval_iter = get_data_iter(validation_source, validation_target, val_source_graph, vocab_source, vocab_target, batch_size, fill_up,
                               max_seq_len, bucketing, bucket_width=bucket_width)
     return train_iter, eval_iter
 
@@ -140,6 +147,8 @@ DataInfo = NamedTuple('DataInfo', [
     ('target', str),
     ('validation_source', str),
     ('validation_target', str),
+    ('source_graph', str),
+    ('val_source_graph', str),
     ('vocab_source', str),
     ('vocab_target', str),
 ])
@@ -239,6 +248,38 @@ def read_sentences(path: str, vocab: Dict[str, int], add_bos=False, limit=None) 
     logger.info("%d sentences loaded from '%s'", len(sentences), path)
     return sentences
 
+
+def read_graphs(path: str, limit=None): #TODO: add return type
+    """
+    Reads graphs from path, creating a list of tuples for each sentence.
+    We assume the format for graphs uses whitespace as separator.
+    This allows us to reuse the reading methods for the sentences.
+
+    TODO: we are ignoring the edge type for now.
+
+    :param path: Path to read data from.
+    :return: List of sequences of integer tuples.
+    """
+    graphs = []
+    for graph_tokens in read_content(path, limit):
+        graph = process_edges(graph_tokens)
+        assert len(graph) > 0, "Empty graph in file %s" % path
+        graphs.append(graph)
+    logger.info("%d graphs loaded from '%s'", len(graphs), path)
+    return graphs
+
+
+def process_edges(graph_tokens: Iterable[str]): #TODO: add typing
+    """
+    Returns sequence of int tuples given a sequence of graph edges.
+    
+    TODO: this can be more efficient...
+
+    :param graph_tokens: List of tokens containing graph edges.
+    :return: List of (int, int) tuples
+    """
+    return [(int(tok.split(',')[0]), int(tok.split(',')[1])) for tok in graph_tokens]
+    
 
 # TODO: consider more memory-efficient data reading (load from disk on demand)
 # TODO: consider using HDF5 format for language data
