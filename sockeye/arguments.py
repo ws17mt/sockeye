@@ -75,6 +75,22 @@ def add_io_args(params):
                              default=False,
                              action="store_true",
                              help='Suppress console logging.')
+
+    #########
+    # Optional graph inputs for GCN decoder
+
+    data_params.add_argument('--source-graph', '-sg',
+                             required=False,
+                             default=None,
+                             help='Source side graphs for GCN (training)')
+
+    data_params.add_argument('--val-source-graph', '-vsg',
+                             required=False,
+                             default=None,
+                             help='Source side graphs for GCN (validation)')
+    
+    #########
+    
     return params
 
 
@@ -187,6 +203,14 @@ def add_model_parameters(params):
                               help="Enables a context gate which adaptively weighs the decoder input against the"
                                    "source context vector before each update of the decoder hidden state.")
 
+    #####
+    # GCN
+
+    model_params.add_argument('--use-gcn', action="store_true",
+                              help="Put a GCN layer on top of the encoder.")
+    
+    #####
+    
     return params
 
 
