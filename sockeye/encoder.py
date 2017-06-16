@@ -84,13 +84,15 @@ class Encoder:
     Generic encoder interface.
     """
 
-    def encode(self, data: mx.sym.Symbol, data_length: mx.sym.Symbol, seq_len: int) -> mx.sym.Symbol:
+    def encode(self, data: mx.sym.Symbol, data_length: mx.sym.Symbol, seq_len: int,
+               metadata=None) -> mx.sym.Symbol:
         """
         Encodes data given sequence lengths of individual examples and maximum sequence length.
         
         :param data: Input data.
         :param data_length: Vector with sequence lengths.
         :param seq_len: Maximum sequence length.
+        :param metadata: Optional metadata that can be used in more complex encoders.
         :return: Encoded input data.
         """
         raise NotImplementedError()
@@ -196,17 +198,19 @@ class EncoderSequence(Encoder):
     def __init__(self, encoders: List[Encoder]):
         self.encoders = encoders
 
-    def encode(self, data: mx.sym.Symbol, data_length: mx.sym.Symbol, seq_len: int) -> mx.sym.Symbol:
+    def encode(self, data: mx.sym.Symbol, data_length: mx.sym.Symbol, seq_len: int,
+               metadata=None) -> mx.sym.Symbol:
         """
         Encodes data given sequence lengths of individual examples and maximum sequence length.
 
         :param data: Input data.
         :param data_length: Vector with sequence lengths.
         :param seq_len: Maximum sequence length.
+        :param metadata: Optional metadata that can be used in more complex encoders.
         :return: Encoded input data.
         """
         for encoder in self.encoders:
-            data = encoder.encode(data, data_length, seq_len)
+            data = encoder.encode(data, data_length, seq_len, metadata=metadata)
         return data
 
     def get_num_hidden(self) -> int:
@@ -424,12 +428,15 @@ class GraphConvEncoder(Encoder):
                  fused: bool = False):
         self.layout = layout
         self.fused = fused
-        self.gcn = sockeye.gcn.get_gcn(prefix)
+        #self.gcn = sockeye.gcn.get_gcn(prefix)
 
-    def encode(self, data: mx.sym.Symbol, adj:mx.sym.Symbol,
-               data_length: mx.sym.Symbol, seq_len: int):
+    def encode(self, data: mx.sym.Symbol, 
+               data_length: mx.sym.Symbol, seq_len: int, metadata=None):
         """
         Convolve data using adj and the GCN parameters
         """
-        outputs = self.gcn.convolve(data, adj)
+        adj = metadata
+        #outputs = self.gcn.convolve(data, adj)
+        print(adj)
+        outputs = data
         return outputs

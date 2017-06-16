@@ -74,6 +74,7 @@ class TrainingModel(sockeye.model.SockeyeModel):
         """
         source = mx.sym.Variable(C.SOURCE_NAME)
         source_length = mx.sym.Variable(C.SOURCE_LENGTH_NAME)
+        src_graph = mx.sym.Variable(C.SRC_GRAPH_NAME)
         target = mx.sym.Variable(C.TARGET_NAME)
         labels = mx.sym.reshape(data=mx.sym.Variable(C.TARGET_LABEL_NAME), shape=(-1,))
 
@@ -89,7 +90,8 @@ class TrainingModel(sockeye.model.SockeyeModel):
             """
             source_seq_len, target_seq_len = seq_lens
 
-            source_encoded = self.encoder.encode(source, source_length, seq_len=source_seq_len)
+            source_encoded = self.encoder.encode(source, source_length, seq_len=source_seq_len,
+                                                 metadata=src_graph)
             source_lexicon = self.lexicon.lookup(source) if self.lexicon else None
 
             logits = self.decoder.decode(source_encoded, source_seq_len, source_length,
