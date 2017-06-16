@@ -424,7 +424,7 @@ class GraphConvEncoder(Encoder):
                  fused: bool = False):
         self.layout = layout
         self.fused = fused
-        self.gcn = anmt.gcn.get_gcn(prefix)
+        self.gcn = sockeye.gcn.get_gcn(prefix)
 
     def encode(self, data: mx.sym.Symbol, adj:mx.sym.Symbol,
                data_length: mx.sym.Symbol, seq_len: int):

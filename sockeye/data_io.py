@@ -372,6 +372,9 @@ class ParallelBucketSentenceIter(mx.io.DataIter):
         self.nd_length = []
         self.nd_target = []
         self.nd_label = []
+        #####
+        # GCN
+        self.nd_src_graph = []
 
         self.reset()
 
@@ -397,7 +400,7 @@ class ParallelBucketSentenceIter(mx.io.DataIter):
             tokens_source += len(source)
             tokens_target += len(target)
             num_of_unks_source += source.count(self.unk_id)
-            num_of_unks_source += target.count(self.unk_id)
+            num_of_unks_target += target.count(self.unk_id)
 
             buck_idx, buck = self._get_bucket(self.buckets, len(source), len(target))
             if buck is None:
@@ -414,6 +417,10 @@ class ParallelBucketSentenceIter(mx.io.DataIter):
             self.data_length[buck_idx].append(len(source))
             self.data_target[buck_idx].append(buff_target)
             self.data_label[buck_idx].append(buff_label)
+            #####
+            # GCN
+            self.data_src_graphs[buck_idx].append(src_graph)
+            #####
 
         logger.info("Source words: %d", tokens_source)
         logger.info("Target words: %d", tokens_target)
@@ -437,7 +444,12 @@ class ParallelBucketSentenceIter(mx.io.DataIter):
             self.data_length[i] = np.asarray(self.data_length[i], dtype=self.dtype)
             self.data_target[i] = np.asarray(self.data_target[i], dtype=self.dtype)
             self.data_label[i] = np.asarray(self.data_label[i], dtype=self.dtype)
+            #####
+            # GCN
+            self.data_src_graphs[i] = np.asarray(self.data_src_graphs[i], dtype=self.dtype)
+            #####
 
+            
             n = len(self.data_source[i])
             if n % self.batch_size != 0:
                 buck_shape = self.buckets[i]
@@ -458,6 +470,12 @@ class ParallelBucketSentenceIter(mx.io.DataIter):
                                                          axis=0)
                     self.data_label[i] = np.concatenate((self.data_label[i], self.data_label[i][random_indices, :]),
                                                         axis=0)
+                    ####
+                    # GCN: we add an empty list as padding
+                    self.data_src_graph = np.concatenate((self.data_src_graph[i], self.data_src_graph[i][random_indices, :]),
+                                                         axis=0)
+                    ####
+                    
 
     def reset(self):
         """
@@ -471,6 +489,10 @@ class ParallelBucketSentenceIter(mx.io.DataIter):
         self.nd_length = []
         self.nd_target = []
         self.nd_label = []
+        #####
+        # GCN
+        self.nd_src_graph = []
+        #####
         for i in range(len(self.data_source)):
             # shuffle indices within each bucket
             indices = np.random.permutation(len(self.data_source[i]))
@@ -478,6 +500,7 @@ class ParallelBucketSentenceIter(mx.io.DataIter):
             self.nd_length.append(mx.nd.array(self.data_length[i].take(indices, axis=0), dtype=self.dtype))
             self.nd_target.append(mx.nd.array(self.data_target[i].take(indices, axis=0), dtype=self.dtype))
             self.nd_label.append(mx.nd.array(self.data_label[i].take(indices, axis=0), dtype=self.dtype))
+            self.nd_src_graph.append(mx.nd.array(self.data_src_graph[i].take(indices, axis=0), dtype=self.dtype))           
 
     def iter_next(self) -> bool:
         """
@@ -498,7 +521,8 @@ class ParallelBucketSentenceIter(mx.io.DataIter):
         source = self.nd_source[i][j:j + self.batch_size]
         length = self.nd_length[i][j:j + self.batch_size]
         target = self.nd_target[i][j:j + self.batch_size]
-        data = [source, length, target]
+        src_graph = self.nd_src_graph[i][j:j + self.batch_size]
+        data = [source, length, target, src_graph]
         label = [self.nd_label[i][j:j + self.batch_size]]
 
         provide_data = [mx.io.DataDesc(name=n, shape=x.shape, layout=C.BATCH_MAJOR) for n, x in

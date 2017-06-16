@@ -127,7 +127,7 @@ def main():
                                              os.path.abspath(args.validation_source),
                                              os.path.abspath(args.validation_target),
                                              os.path.abspath(args.source_graph),
-                                             os.path.abspath(args.val_source_graph)
+                                             os.path.abspath(args.val_source_graph),
                                              args.source_vocab,
                                              args.target_vocab)
 
