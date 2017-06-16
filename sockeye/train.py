@@ -180,7 +180,8 @@ def main():
                                                  data_info=data_info,
                                                  loss=args.loss,
                                                  normalize_loss=args.normalize_loss,
-                                                 smoothed_cross_entropy_alpha=args.smoothed_cross_entropy_alpha)
+                                                 smoothed_cross_entropy_alpha=args.smoothed_cross_entropy_alpha,
+                                                 use_gcn=args.use_gcn)
 
         # create training model
         model = sockeye.training.TrainingModel(model_config=model_config,

@@ -1,0 +1,3 @@
+(6,1,ccomp) (6,2,punct) (4,3,compound) (6,4,nsubj) (6,5,cop) (0,6,advmod) (9,7,case) (9,8,amod) (6,9,nmod) (0,10,punct)
+(1,0,amod) (6,1,nsubj) (4,2,case) (4,3,amod) (1,4,nmod) (6,5,aux) (10,7,det) (10,8,amod) (10,9,compound) (6,10,dobj) (6,11,punct)
+(2,0,det) (2,1,amod) (2,3,acl) (7,4,case) (7,5,det) (7,6,amod) (3,7,nmod) (2,8,punct)

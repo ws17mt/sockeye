@@ -33,6 +33,7 @@ def get_encoder(num_embed: int,
                 cell_type: str,
                 residual: bool,
                 dropout: float,
+                use_gcn: bool,
                 forget_bias: float,
                 fused: bool = False) -> 'Encoder':
     """
@@ -75,6 +76,8 @@ def get_encoder(num_embed: int,
                                      cell_type=cell_type,
                                      residual=residual,
                                      forget_bias=forget_bias))
+    if use_gcn:
+        encoders.append(GraphConvEncoder())
 
     return EncoderSequence(encoders)
 
@@ -210,7 +213,8 @@ class EncoderSequence(Encoder):
         :return: Encoded input data.
         """
         for encoder in self.encoders:
-            data = encoder.encode(data, data_length, seq_len, metadata=metadata)
+            print(encoder)
+            data = encoder.encode(data, data_length, seq_len)#, metadata=metadata)
         return data
 
     def get_num_hidden(self) -> int:
@@ -437,6 +441,20 @@ class GraphConvEncoder(Encoder):
         """
         adj = metadata
         #outputs = self.gcn.convolve(data, adj)
-        print(adj)
+        #print(adj)
+        logger.info("I am here!")
+        logger.info(str(adj))
         outputs = data
         return outputs
+
+    def get_num_hidden(self) -> int:
+        """
+        Return the representation size of this encoder.
+        """
+        return 0
+
+    def get_rnn_cells(self) -> List[mx.rnn.BaseRNNCell]:
+        """
+        Returns a list of RNNCells used by this encoder.
+        """
+        return []
