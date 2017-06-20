@@ -48,8 +48,17 @@ BLEU results reported or with results corresponding to older checkpoints. This
 is expected behaviour and sockeye internally keeps track of the results in the
 correct order.
 
-Note that evaluation metrics for training data and held-out validation data are written in a 
-tab-separated file called `metrics`.
+Note that evaluation metrics for training data and held-out validation data are
+written in a tab-separated file called `metrics`.
+
+At each checkpoint, the internal state of the training process is stored to
+disk. If the training is interrupted (e.g. due to a hardware failure), you can
+start sockeye again, with the same parameters as for the initial call, and
+training will resume from the last checkpoint. Note that this is different to
+using the `--params` argument. This argument is used only to initialize the
+training with pre-computed values for the parameters of the model, but the
+parameters of the optimizer and other parts of the system are initialized from
+scratch.
 
 ### Monitoring training progress with tensorboard
 
@@ -69,7 +78,7 @@ Then start tensorboard and point it to the model directory (or any parent direct
 ### CPU/GPU training
 
 By default, training is carried out on the first GPU device of your machine.
-You can specify alternative devices with the `--device-ids` option, with
+You can specify alternative GPU devices with the `--device-ids` option, with
 which you can also activate multi-GPU training (see below). If
 `--device-ids -1`, sockeye will try to find a free GPU on your machine and block
 until one is available. The locking mechanism is based on files and therefore assumes all processes are running
@@ -78,11 +87,13 @@ If this is not the case there is a chance that two processes will be using the s
 If you do not have or do not want to use a GPU, specify `--use-cpu`.
 In this case a drop in performance is expected.
 
-Training can be carried out on multiple GPUs using the `--device-ids` flag and specifying multiple GPU device ids:
-`--device-ids 0 1 2 3`.
+##### Multi-GPU training
+Training can be carried out on multiple GPUs by either specifying multiple GPU device ids:
+`--device-ids 0 1 2 3`, or specifying the number GPUs required: `--device-ids -n` attempts to acquire `n` GPUs through
+the locking mechanism described above.
 This will train using [Data Parallelism](https://github.com/dmlc/mxnet/blob/master/docs/how_to/multi_devices.md).
 MXNet will divide the data in each batch and send it to the different devices.
-Note that you should increase the batch size, for k GPUs use ``--batch-size k*<original_batch_size>``.
+Note that you should increase the batch size: for `k` GPUs use ``--batch-size k*<original_batch_size>``.
 Also note that this will likely linearly increase your throughput in terms of sentences/second, but not necessarily
 increase the model's convergence speed.
 

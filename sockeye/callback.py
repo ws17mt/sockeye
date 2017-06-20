@@ -18,6 +18,7 @@ early-stopping.
 import logging
 import multiprocessing as mp
 import os
+import pickle
 import shutil
 import time
 from typing import Optional, Tuple, Dict
@@ -63,7 +64,7 @@ class TrainingMonitor(object):
         self.start_tic = time.time()
         self.summary_writer = None
         if use_tensorboard:
-            import tensorboard
+            import tensorboard  # pylint: disable=import-error
             log_dir = os.path.join(output_folder, C.TENSORBOARD_NAME)
             if os.path.exists(log_dir):
                 logger.info("Deleting existing tensorboard log dir %s", log_dir)
@@ -243,6 +244,25 @@ class TrainingMonitor(object):
         self._empty_decoder_metric_queue()
         self._write_scores()
 
+    def save_state(self, fname: str):
+        """
+        Saves the state: current metrics and best checkpoint.
+
+        :param fname: Name of the file to save the state to.
+        """
+        with open(fname, "wb") as fp:
+            pickle.dump(self.metrics, fp)
+            pickle.dump(self.best_checkpoint, fp)
+
+    def load_state(self, fname: str):
+        """
+        Loads the state: current metrics and best checkpoint.
+
+        :param fname: Name of the file to load the state from.
+        """
+        with open(fname, "rb") as fp:
+            self.metrics = pickle.load(fp)
+            self.best_checkpoint = pickle.load(fp)
 
 def _decode_and_evaluate(checkpoint_decoder: sockeye.checkpoint_decoder.CheckpointDecoder,
                          checkpoint: int,
@@ -265,7 +285,7 @@ def write_tensorboard(summary_writer,
     :param metrics: Mapping of metric names to their values.
     :param checkpoint: Current checkpoint.
     """
-    from tensorboard.summary import scalar
+    from tensorboard.summary import scalar  # pylint: disable=import-error
     for name, value in metrics.items():
         summary_writer.add_summary(
             scalar(

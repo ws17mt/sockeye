@@ -15,8 +15,11 @@
 Simple Training CLI.
 """
 import argparse
+import json
 import os
+import pickle
 import random
+import shutil
 import sys
 from contextlib import ExitStack
 from typing import Optional, Dict
@@ -56,6 +59,14 @@ def _build_or_load_vocab(existing_vocab_path: Optional[str], data_path: str, num
     return vocabulary
 
 
+def _dict_difference(dict1: Dict, dict2: Dict):
+    diffs = set()
+    for k, v in dict1.items():
+        if k not in dict2 or dict2[k] != v:
+            diffs.add(k)
+    return diffs
+
+
 def main():
     params = argparse.ArgumentParser(description='CLI to train sockeye sequence-to-sequence models.')
     params = arguments.add_io_args(params)
@@ -86,18 +97,47 @@ def main():
     assert args.optimized_metric == C.BLEU or args.optimized_metric in args.metrics, \
         "Must optimize either BLEU or one of tracked metrics (--metrics)"
 
+    # Checking status of output folder, resumption, etc.
+    # Create temporary logger to console only
+    logger = setup_main_logger(__name__, console=not args.quiet)
     output_folder = os.path.abspath(args.output)
-    if not os.path.exists(output_folder):
+    resume_training = False
+    training_state_dir = os.path.join(output_folder, C.TRAINING_STATE_DIRNAME)
+    if os.path.exists(output_folder):
+        if args.overwrite_output:
+            logger.info("Removing existing output folder %s.", output_folder)
+            shutil.rmtree(output_folder)
+            os.makedirs(output_folder)
+        elif os.path.exists(training_state_dir):
+            with open(os.path.join(output_folder, C.ARGS_STATE_NAME), "r") as fp:
+                old_args = json.load(fp)
+            arg_diffs = _dict_difference(vars(args), old_args) | _dict_difference(old_args, vars(args))
+            # Remove args that may differ without affecting the training.
+            arg_diffs -= set(C.ARGS_MAY_DIFFER)
+            if not arg_diffs:
+                resume_training = True
+            else:
+                # We do not have the logger yet
+                logger.error("Mismatch in arguments for training continuation.")
+                logger.error("Differing arguments: %s.", ", ".join(arg_diffs))
+                sys.exit(1)
+        else:
+            logger.error("Refusing to overwrite existing output folder %s.", output_folder)
+            sys.exit(1)
+    else:
         os.makedirs(output_folder)
 
     logger = setup_main_logger(__name__, console=not args.quiet, path=os.path.join(output_folder, C.LOG_NAME))
 
     logger.info("Command: %s", " ".join(sys.argv))
     logger.info("Arguments: %s", args)
+    with open(os.path.join(output_folder, C.ARGS_STATE_NAME), "w") as fp:
+        json.dump(vars(args), fp)
 
     with ExitStack() as exit_stack:
         # context
         if args.use_cpu:
+            logger.info("Device: CPU")
             context = [mx.cpu()]
         else:
             num_gpus = get_num_gpus()
@@ -107,9 +147,14 @@ def main():
             context = []
             for gpu_id in args.device_ids:
                 if gpu_id < 0:
-                    # get an automatic gpu id:
-                    gpu_id = exit_stack.enter_context(acquire_gpu())
-                context.append(mx.gpu(gpu_id))
+                    n_required = -gpu_id
+                    logger.info("Attempting to acquire %d GPUs.", n_required)
+                    # get n_required automatic gpu ids and add to context
+                    context += [exit_stack.enter_context(acquire_gpu()) for _ in range(n_required)]
+                else:
+                    context.append(gpu_id)
+            logger.info("Device(s): GPU %s", context)
+            context = [mx.gpu(gpu_id) for gpu_id in context]
 
         # create vocabs
         vocab_source = _build_or_load_vocab(args.source_vocab, args.source, args.num_words, args.word_min_count)
@@ -148,11 +193,16 @@ def main():
 
         # learning rate scheduling
         learning_rate_half_life = none_if_negative(args.learning_rate_half_life)
-        lr_scheduler = sockeye.lr_scheduler.get_lr_scheduler(args.learning_rate_scheduler_type,
-                                                             args.checkpoint_frequency,
-                                                             learning_rate_half_life,
-                                                             args.learning_rate_reduce_factor,
-                                                             args.learning_rate_reduce_num_not_improved)
+        # TODO: The loading for continuation of the scheduler is done separately from the other parts
+        if not resume_training:
+            lr_scheduler = sockeye.lr_scheduler.get_lr_scheduler(args.learning_rate_scheduler_type,
+                                                                 args.checkpoint_frequency,
+                                                                 learning_rate_half_life,
+                                                                 args.learning_rate_reduce_factor,
+                                                                 args.learning_rate_reduce_num_not_improved)
+        else:
+            with open(os.path.join(training_state_dir, C.SCHEDULER_STATE_NAME), "rb") as fp:
+                lr_scheduler = pickle.load(fp)
 
         # model configuration
         num_embed_source = args.num_embed if args.num_embed_source is None else args.num_embed_source
@@ -192,9 +242,14 @@ def main():
                                                lr_scheduler=lr_scheduler,
                                                rnn_forget_bias=args.rnn_forget_bias)
 
-        if args.params:
+        # We may consider loading the params in TrainingModule, for consistency
+        # with the training state saving
+        if resume_training:
+            logger.info("Found partial training in directory %s. Resuming from saved state.", training_state_dir)
+            model.load_params_from_file(os.path.join(training_state_dir, C.TRAINING_STATE_PARAMS_NAME))
+        elif args.params:
+            logger.info("Training will initialize from parameters loaded from '%s'", args.params)
             model.load_params_from_file(args.params)
-            logger.info("Training will continue from parameters loaded from '%s'", args.params)
 
         lexicon = sockeye.lexicon.initialize_lexicon(args.lexical_bias,
                                                      vocab_source, vocab_target) if args.lexical_bias else None

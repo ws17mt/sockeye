@@ -57,6 +57,9 @@ def add_io_args(params):
     data_params.add_argument('--output', '-o',
                              required=True,
                              help='Folder where model & training results are written to.')
+    data_params.add_argument('--overwrite-output',
+                             action='store_true',
+                             help='Overwrite output folder if it exists.')
 
     data_params.add_argument('--source-vocab',
                              required=False,
@@ -98,9 +101,11 @@ def add_device_args(params):
     device_params = params.add_argument_group("Device parameters")
 
     device_params.add_argument('--device-ids', default=[-1],
-                               help='List of GPU ids to use. Default: %(default)s. '
-                                    'Use -1 to automatically acquire a GPU through a file locking mechanism. '
-                                    '(Note that this assumes GPU processes are using automatic sockeye GPU ids).',
+                               help='List or number of GPUs ids to use. Default: %(default)s. '
+                                    'Use -x to automatically acquire x GPUs. '
+                                    'Use x [x] to use a specific GPU id on this host. '
+                                    '(Note that automatic acquisition of GPUs assumes that all GPU processes on '
+                                    'this host are using automatic sockeye GPU acquisition).',
                                nargs='+', type=int)
     device_params.add_argument('--use-cpu',
                                action='store_true',
@@ -344,6 +349,7 @@ def add_training_args(params):
                               type=int,
                               default=13,
                               help='Random seed. Default: %(default)s.')
+
     return params
 
 
