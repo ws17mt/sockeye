@@ -78,9 +78,18 @@ print("Source vocab size: " + str(len(source_vocab)))
 print("Target vocab size: " + str(len(target_vocab)))
 
 ofname = '../data/multi30k/train.en-de.atok.capped'
+ofname_src = '../data/multi30k/train.en.atok.capped'
+ofname_trg = '../data/multi30k/train.de.atok.capped'
 
-process_parallel(sfname, tfname, ofname, source_vocab, target_vocab) #train
-process_parallel('../data/multi30k/val.en.atok', '../data/multi30k/val.de.atok', '../data/multi30k/val.en-de.atok.capped', source_vocab, target_vocab) #dev
-process_monolingual('../data/multi30k/val.en.atok', '../data/multi30k/val.en.atok.capped', source_vocab) #dev
-process_monolingual('../data/multi30k/test.en.atok', '../data/multi30k/test.en.atok', source_vocab) #test
+#process_parallel(sfname, tfname, ofname, source_vocab, target_vocab) #train
+#process_parallel('../data/multi30k/val.en.atok', '../data/multi30k/val.de.atok', '../data/multi30k/val.en-de.atok.capped', source_vocab, target_vocab) #dev
+
+process_monolingual(sfname, ofname_src, source_vocab) #train (en)
+process_monolingual(tfname, "../data/multi30k/train.de.atok.capped" , target_vocab) #train (de)
+
+process_monolingual('../data/multi30k/val.en.atok', '../data/multi30k/val.en.atok.capped', source_vocab) #dev (en)
+process_monolingual('../data/multi30k/val.de.atok', '../data/multi30k/val.de.atok.capped', target_vocab) #dev (de)
+
+process_monolingual('../data/multi30k/test.en.atok', '../data/multi30k/test.en.atok.capped', source_vocab) #test (en)
+process_monolingual('../data/multi30k/test.de.atok', '../data/multi30k/test.de.atok.capped', target_vocab) #test (de)
 
