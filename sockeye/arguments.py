@@ -448,6 +448,10 @@ def add_dual_learning_args(params):
                                nargs='+',
                                help='Model folders in order: <source_to_target_nmt> <target_to_source_nmt> <source_rnnlm> <target_rnnlm>.')
 
+    dl_params.add_argument('--output',
+                             required=True,
+                             help='Folder where training status info is written to.')
+
     dl_params.add_argument('--output_s2t',
                              required=True,
                              help='Folder where source-to-target model & training results are written to.')
