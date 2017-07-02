@@ -424,56 +424,136 @@ def add_inference_args(params):
                                help='Threshold to consider a soft alignment a sure alignment. Default: %(default)s')
 
 
-def add_inference_args(params):
-    decode_params = params.add_argument_group("Inference parameters")
+def add_dual_learning_args(params):
+    dl_params = params.add_argument_group("Dual learning parameters")
 
-    decode_params.add_argument('--input', '-i',
-                               default=None,
-                               help='Input file to translate. One sentence per line. '
-                                    'If not given, will read from stdin.')
-    
-    decode_params.add_argument('--output', '-o',
-                               default=None,
-                               help='Output file to write translations to. '
-                                    'If not given, will write to stdout.')
+    dl_params.add_argument('--source', '-s',
+                             required=True,
+                             help='Source side of parallel training data.')
+    dl_params.add_argument('--target', '-t',
+                             required=True,
+                             help='Target side of parallel training data.')
 
-    decode_params.add_argument('--models', '-m',
-                               required=True,
-                               nargs='+',
-                               help='Model folder(s). Use multiple for ensemble decoding. '
-                                    'Model determines config, best parameters and vocab files.')
-    decode_params.add_argument('--checkpoints', '-c',
-                               default=None,
-                               type=int,
-                               nargs='+',
-                               help='If not given, chooses best checkpoints for model(s). '
-                                    'If specified, must have the same length as --models and be integer')
+    dl_params.add_argument('--validation-source', '-vs',
+                             required=True,
+                             help='Source side of validation data.')
+    dl_params.add_argument('--validation-target', '-vt',
+                             required=True,
+                             help='Target side of validation data.')
 
-    decode_params.add_argument('--beam-size', '-b',
-                               type=int_greater_or_equal(1),
-                               default=5,
-                               help='Size of the beam. Default: %(default)s.')
-    decode_params.add_argument('--ensemble-mode',
-                               type=str,
-                               default='linear',
-                               choices=['linear', 'log_linear'],
-                               help='Ensemble mode: [linear, log-linear]. Default: %(default)s.')
-    decode_params.add_argument('--max-input-len', '-n',
+    dl_params.add_argument('--mono-source',
+                             required=True,
+                             help='Additional source monolingual data.')
+    dl_params.add_argument('--mono-target',
+                             required=True,
+                             help='Additional target monolingual data.')
+
+    dl_params.add_argument('--max-input-len', '-n',
                                type=int,
                                default=None,
                                help='Maximum sequence length. Default: value from model(s).')
-    decode_params.add_argument('--softmax-temperature',
-                               type=float,
-                               default=None,
-                               help='Controls peakiness of model predictions. Values < 1.0 produce '
-                                    'peaked predictions, values > 1.0 produce smoothed distributions.')
 
-    decode_params.add_argument('--output-type',
-                               default='translation',
-                               choices=["translation", "translation_with_alignments", "align_plot", "align_text"],
-                               help='Output type. Choices: [translation, translation_with_alignments, '
-                                    'align_plot, align_text]. Default: %(default)s.')
-    decode_params.add_argument('--sure-align-threshold',
-                               default=0.9,
-                               type=float,
-                               help='Threshold to consider a soft alignment a sure alignment. Default: %(default)s')
+    dl_params.add_argument('--models', '-m',
+                               required=True,
+                               nargs='+',
+                               help='Model folders in order: <source_to_target_nmt> <target_to_source_nmt> <source_rnnlm> <target_rnnlm>.')
+
+    dl_params.add_argument('--rnn-h2h-init', type=str, default=C.RNN_INIT_ORTHOGONAL,
+                              required=False,
+                              choices=[C.RNN_INIT_ORTHOGONAL, C.RNN_INIT_ORTHOGONAL_STACKED],
+                              help="Initialization method for RNN parameters. Default: %(default)s.")
+
+    dl_params.add_argument('--output',
+                             required=True,
+                             help='Folder where training status info is written to.')
+
+    dl_params.add_argument('--output-s2t',
+                             required=True,
+                             help='Folder where source-to-target model & training results are written to.')
+
+    dl_params.add_argument('--output-t2s',
+                             required=True,
+                             help='Folder where target-to-source model & training results are written to.')
+
+    dl_params.add_argument('--overwrite-output',
+                             action='store_true',
+                             help='Overwrite output folder if it exists.')
+
+    dl_params.add_argument('--optimizer',
+                              default='adam',
+                              choices=['adam', 'sgd', 'rmsprop'],
+                              help='SGD update rule. Default: %(default)s.')
+    dl_params.add_argument('--weight-decay',
+                              type=float,
+                              default=0.0,
+                              help='Weight decay constant. Default: %(default)s.')
+    dl_params.add_argument('--momentum',
+                              type=float,
+                              default=None,
+                              help='Momentum constant. Default: %(default)s.')
+    dl_params.add_argument('--clip-gradient',
+                              type=float,
+                              default=1.0,
+                              help='Clip absolute gradients values greater than this value. '
+                                   'Set to negative to disable. Default: %(default)s.')
+    dl_params.add_argument('--initial-lr-gamma-s2t',
+                              type=float,
+                              default=0.0002,
+                              help='Initial learning rates of source-to-target gamma. Default: %(default)s.')
+    dl_params.add_argument('--initial-lr-gamma-t2s',
+                              type=float,
+                              default=0.02,
+                              help='Initial learning rates of target-to-source gamma. Default: %(default)s.')
+    dl_params.add_argument('--learning-rate-scheduler-type',
+                              default='plateau-reduce',
+                              choices=["fixed-rate-inv-sqrt-t", "fixed-rate-inv-t", "plateau-reduce"],
+                              help='Learning rate scheduler type. Default: %(default)s.')
+    dl_params.add_argument('--learning-rate-reduce-factor',
+                              type=float,
+                              default=0.5,
+                              help="Factor to multiply learning rate with "
+                                   "(for 'plateau-reduce' learning rate scheduler). Default: %(default)s.")
+    dl_params.add_argument('--learning-rate-reduce-num-not-improved',
+                              type=int,
+                              default=3,
+                              help="For 'plateau-reduce' learning rate scheduler. Adjust learning rate "
+                                   "if <optimized-metric> did not improve for x checkpoints. Default: %(default)s.")
+    dl_params.add_argument('--learning-rate-half-life',
+                              type=float,
+                              default=10,
+                              help="Half-life of learning rate in checkpoints. For 'fixed-rate-*' "
+                                   "learning rate schedulers. Default: 10.")
+
+    dl_params.add_argument('--beam-size', '-b',
+                               type=int,
+                               default=5,
+                               help='Size of the beam. Default: %(default)s.')
+    dl_params.add_argument('--k-best', '-K',
+                               type=int,
+                               default=2,
+                               help='The K value for sampling K-best translations. Default: %(default)s.')
+
+    dl_params.add_argument('--alpha',
+                              type=float,
+                              default=0.005,
+                              help='Hyper-parameter for reward weighting. Default: %(default)s.')
+
+    dl_params.add_argument('--epoch',
+                              type=int,
+                              default=15,
+                              help='No. of epochs. Default: %(default)s.')
+
+    dl_params.add_argument('--dev-round',
+                              type=int,
+                              default=25000,
+                              help='No. of rounds for evaluating over validation data. Default: %(default)s.')
+
+    dl_params.add_argument('--seed',
+                              type=int,
+                              default=13,
+                              help='Random seed. Default: %(default)s.')
+
+    dl_params.add_argument('--quiet', '-q',
+                             default=False,
+                             action="store_true",
+                             help='Suppress console logging.')

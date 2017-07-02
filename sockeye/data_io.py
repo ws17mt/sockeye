@@ -254,7 +254,6 @@ def get_training_data_iters(source: str, target: str,
                                           fill_up=fill_up)
     return train_iter, val_iter
 
-
 DataInfo = NamedTuple('DataInfo', [
     ('source', str),
     ('target', str),
