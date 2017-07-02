@@ -364,6 +364,60 @@ def add_training_args(params):
                               default=13,
                               help='Random seed. Default: %(default)s.')
 
+def add_inference_args(params):
+    decode_params = params.add_argument_group("Inference parameters")
+
+    decode_params.add_argument('--input', '-i',
+                               default=None,
+                               help='Input file to translate. One sentence per line. '
+                                    'If not given, will read from stdin.')
+    
+    decode_params.add_argument('--output', '-o',
+                               default=None,
+                               help='Output file to write translations to. '
+                                    'If not given, will write to stdout.')
+
+    decode_params.add_argument('--models', '-m',
+                               required=True,
+                               nargs='+',
+                               help='Model folder(s). Use multiple for ensemble decoding. '
+                                    'Model determines config, best parameters and vocab files.')
+    decode_params.add_argument('--checkpoints', '-c',
+                               default=None,
+                               type=int,
+                               nargs='+',
+                               help='If not given, chooses best checkpoints for model(s). '
+                                    'If specified, must have the same length as --models and be integer')
+
+    decode_params.add_argument('--beam-size', '-b',
+                               type=int,
+                               default=5,
+                               help='Size of the beam. Default: %(default)s.')
+    decode_params.add_argument('--ensemble-mode',
+                               type=str,
+                               default='linear',
+                               choices=['linear', 'log_linear'],
+                               help='Ensemble mode: [linear, log-linear]. Default: %(default)s.')
+    decode_params.add_argument('--max-input-len', '-n',
+                               type=int,
+                               default=None,
+                               help='Maximum sequence length. Default: value from model(s).')
+    decode_params.add_argument('--softmax-temperature',
+                               type=float,
+                               default=None,
+                               help='Controls peakiness of model predictions. Values < 1.0 produce '
+                                    'peaked predictions, values > 1.0 produce smoothed distributions.')
+
+    decode_params.add_argument('--output-type',
+                               default='translation',
+                               choices=["translation", "translation_with_alignments", "align_plot", "align_text"],
+                               help='Output type. Choices: [translation, translation_with_alignments, '
+                                    'align_plot, align_text]. Default: %(default)s.')
+    decode_params.add_argument('--sure-align-threshold',
+                               default=0.9,
+                               type=float,
+                               help='Threshold to consider a soft alignment a sure alignment. Default: %(default)s')
+
 
 def add_dual_learning_args(params):
     dl_params = params.add_argument_group("Dual learning parameters")
