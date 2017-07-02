@@ -41,7 +41,7 @@ import sockeye.training
 import sockeye.utils
 import sockeye.vocab
 from sockeye.log import setup_main_logger
-from sockeye.utils import acquire_gpu, get_num_gpus
+from sockeye.utils import acquire_gpus, get_num_gpus, expand_requested_device_ids
 
 
 def none_if_negative(val):
@@ -69,10 +69,10 @@ def _dict_difference(dict1: Dict, dict2: Dict):
 
 def main():
     params = argparse.ArgumentParser(description='CLI to train sockeye sequence-to-sequence models.')
-    params = arguments.add_io_args(params)
-    params = arguments.add_model_parameters(params)
-    params = arguments.add_training_args(params)
-    params = arguments.add_device_args(params)
+    arguments.add_io_args(params)
+    arguments.add_model_parameters(params)
+    arguments.add_training_args(params)
+    arguments.add_device_args(params)
     args = params.parse_args()
 
     # seed the RNGs
@@ -138,15 +138,10 @@ def main():
             assert num_gpus > 0, "No GPUs found, consider running on the CPU with --use-cpu " \
                                  "(note: check depends on nvidia-smi and this could also mean that the nvidia-smi " \
                                  "binary isn't on the path)."
-            context = []
-            for gpu_id in args.device_ids:
-                if gpu_id < 0:
-                    n_required = -gpu_id
-                    logger.info("Attempting to acquire %d GPUs.", n_required)
-                    # get n_required automatic gpu ids and add to context
-                    context += [exit_stack.enter_context(acquire_gpu()) for _ in range(n_required)]
-                else:
-                    context.append(gpu_id)
+            if args.disable_device_locking:
+                context = expand_requested_device_ids(args.device_ids)
+            else:
+                context = exit_stack.enter_context(acquire_gpus(args.device_ids, lock_dir=args.lock_dir))
             logger.info("Device(s): GPU %s", context)
             context = [mx.gpu(gpu_id) for gpu_id in context]
 
@@ -255,6 +250,13 @@ def main():
             optimizer_params["clip_gradient"] = clip_gradient
         if args.momentum is not None:
             optimizer_params["momentum"] = args.momentum
+        if args.normalize_loss:
+            # When normalize_loss is turned on we normalize by the number of non-PAD symbols in a batch which implicitly
+            # already contains the number of sentences and therefore we need to disable rescale_grad.
+            optimizer_params["rescale_grad"] = 1.0
+        else:
+            # Making MXNet module API's default scaling factor explicit
+            optimizer_params["rescale_grad"] = 1.0 / args.batch_size
         logger.info("Optimizer: %s", optimizer)
         logger.info("Optimizer Parameters: %s", optimizer_params)
 
