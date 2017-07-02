@@ -38,8 +38,48 @@ import sockeye.vocab
 from sockeye.log import setup_main_logger
 from sockeye.utils import acquire_gpus, get_num_gpus, expand_requested_device_ids
 
+def _dual_learn():
+    # ...
+
 def main():
-	#FIXME
+    # Command line processing
+    params = argparse.ArgumentParser(description='CLI for dual learning of sequence-to-sequence models.')
+    arguments.add_dual_learning_args(params)
+    arguments.add_device_args(params)
+    args = params.parse_args()
+
+    # seed the RNGs
+    np.random.seed(args.seed)
+    random.seed(args.seed)
+    mx.random.seed(args.seed)
+
+    #--- load data
+    # parallel corpus for building vocabularies on-the-fly
+    # ...
+
+    # monolingual corpora
+    # Assume that these monolingual corpora use the same vocabularies with parallel corpus
+    # FIXME: otherwise?
+    # ...
+
+    #--- load models 
+    # source-to-target NMT model
+    # ...
+
+    # target-to-source NMT model
+    # ...
+
+    # source RNNLM model
+    # ...
+
+    # target RNNLM model
+    # ...
+
+    #--- execute dual-learning
+    _dual_learn()
+
+    #--- bye bye message
+    # ...
 
 if __name__ == "__main__":
     main()
