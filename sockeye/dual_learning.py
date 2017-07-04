@@ -530,6 +530,11 @@ def main():
         # [4]: target mono data
         all_data = (train_iter, eval_iter, rev_eval_iter, src_mono_data, trg_mono_data)
         
+        # Assume that these monolingual corpora use the same vocabularies with parallel corpus
+        # FIXME: otherwise?  
+        src_mono_data = sockeye.data_io.read_sentences(os.path.abspath(args.mono_source), args.source_vocab) 
+        trg_mono_data = sockeye.data_io.read_sentences(os.path.abspath(args.mono_target), args.target_vocab)
+        
         #--- load models including:
         # [0]: source-to-target NMT model
         # [1]: target-to-source NMT model
@@ -556,6 +561,12 @@ def main():
                                                              args.learning_rate_reduce_factor,
                                                              args.learning_rate_reduce_num_not_improved)
         print("Passed!")
+        
+        models = []
+        for model_path in model_paths:
+            models.append(TrainableInferenceModel(model_folder=model_path,
+                          context=context,
+                          fused=False,
 
         #--- execute dual-learning
         print("DEBUG 8 (_dual_learn)")

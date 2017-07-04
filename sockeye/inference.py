@@ -370,6 +370,43 @@ Output structure from Translator.
 """
 
 
+class TrainableInferenceModel(sockeye.model.InferenceModel):
+    """
+    TrainableInferenceModel is a SockeyeModel that supports both training and inference functionalities.
+
+    :param model_folder: Folder to load model from.
+    :param context: MXNet context to bind modules to.
+    :param fused: Whether to use FusedRNNCell (CuDNN). Only works with GPU context.
+    :param max_input_len: Maximum input length.
+    :param beam_size: Beam size.
+    :param checkpoint: Checkpoint to load. If None, finds best parameters in model_folder.
+    :param softmax_temperature: Optional parameter to control steepness of softmax distribution.
+    """
+
+    def __init__(self,
+                 model_folder: str,
+                 context: mx.context.Context,
+                 fused: bool,
+                 max_input_len: Optional[int],
+                 beam_size: int,
+                 checkpoint: Optional[int] = None,
+                 softmax_temperature: Optional[float] = None):
+        # inherit InferenceModel
+        super().__init__(model_folder=model_folder,
+                         context=context,
+                         fused=False,
+                         max_input_len=max_input_len,
+                         beam_size=beam_size,
+                         softmax_temperature=softmax_temperature,
+                         checkpoint=checkpoint)
+
+        # extra things if required
+        # ...
+        
+    # add fitting functions here
+    # ...
+    
+
 class Translator:
     """
     Translator uses one or several models to translate input.
