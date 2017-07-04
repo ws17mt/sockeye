@@ -37,6 +37,7 @@ import sockeye.utils
 
 logger = logging.getLogger(__name__)
 
+
 class _TrainingState:
     """
     Stores the state of the training process. These are the variables that will
