@@ -33,6 +33,7 @@ import sockeye.lexicon
 import sockeye.lr_scheduler
 import sockeye.model
 import sockeye.training
+import sockeye.inference
 import sockeye.utils
 import sockeye.vocab
 from sockeye.log import setup_main_logger
@@ -144,24 +145,24 @@ def main():
         src_mono_data = sockeye.data_io.read_sentences(os.path.abspath(args.mono_source), args.source_vocab) 
         trg_mono_data = sockeye.data_io.read_sentences(os.path.abspath(args.mono_target), args.target_vocab)
         
-        #--- load models 
-        # source-to-target NMT model
-        # ...
-
-        # target-to-source NMT model
-        # ...
-
-        # source RNNLM model
-        # ...
-
-        # target RNNLM model
-        # ...
+        #--- load models including:
+        # [0]: source-to-target NMT model
+        # [1]: target-to-source NMT model
+        # [2]: source RNNLM model 
+        # [3]: target RNNLM model
+        # Vu's N.b. (as of 04 July 2017): I will use attentional auto-encoder in place of RNNLM model (which is not available for now in Sockeye).
+        models = []
+        for model_path in model_paths:
+            models.append(TrainableInferenceModel(model_folder=model_path,
+                          context=context,
+                          fused=False,
+                          beam_size=args.beam_size)
 
         #--- execute dual-learning
         _dual_learn()
 
     #--- bye bye message
-    # ...
+    print("Dual learning completed!")
 
 if __name__ == "__main__":
     main()
