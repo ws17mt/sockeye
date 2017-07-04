@@ -63,8 +63,91 @@ def _check_path(opath, logger):
     else:
         os.makedirs(opath)
 
-def _dual_learn():
-    # ...
+def _dual_learn(all_data, 
+                models, 
+                opt_configs, # optimizer-related stuffs
+                grad_alphas # hyper-parameters for gradient updates
+                lmon, # extra stuffs for learning monitor
+                k):
+    # set up decoders/translators
+    # FIXME
+
+    # set up monolingual data
+    # FIXME
+    
+    # set up optimizers
+    # FIXME
+
+    # create pointers for switching between the models
+    # FIXME
+
+    # start the dual learning algorithm
+    best_loss_s2t = 9e+99
+    best_loss_t2s = 9e+99
+    id_s = 0
+    id_t = 0
+    r = 0 #round
+    flag = True # role of source and target
+    while True: # stopping criterion will be imposed within the loop
+        if id_s == len(orders_s): # source monolingual data
+            # shuffle the data
+            # FIXME: update epochs?
+            id_s = 0
+        if id_t == len(orders_t): # target monoingual data
+            #shuffle the data
+            # FIXME: update epochs?
+            id_t = 0
+
+        # sample sentence sentA and sentB from mono_cor_s and mono_cor_s respectively
+        sent = ""
+        if flag:
+            sent = all_data[4][orders_s[id_s]]
+            # switch the pointers
+            # FIXME
+        else:
+            sent = all_data[5][orders_t[id_t]]
+            # switch the pointers
+            # FIXME
+
+        # generate K translated sentences s_{mid,1},...,s_{mid,K} using beam search according to translation model P(.|sentA; mod_am_s2t)
+        # FIXME
+        mid_hyps = [] # generate k-best translation
+        for mid_hyp in mid_hyps:
+            # set the language-model reward for current sampled sentence from p_mlm_t
+            # FIXME
+
+            # set the communication reward for current sampled sentence from p_am_t2s
+            # FIXME
+
+            # reward interpolation
+            # FIXME
+        
+        # make total customized losses
+        # FIXME
+
+        # execute forward step
+        # FIXME
+
+        # execute backward step 
+        # FIXME
+
+        # update parameters
+        # FIXME
+
+        # switch source and target roles
+        flag = !flag
+
+        if id_s == id_t: r += 1 # FIXME: perhaps a bug due to different sizes of monolingual data? Idea: check flag instead?
+
+        # testing over the development data to check the improvements (after a desired number of rounds)
+        if r == opt_configs[1]:
+            # s2t model
+            # FIXME
+
+            # t2s model
+            # FIXME
+
+            r = 0
 
 def main():
     # command line processing
@@ -140,10 +223,13 @@ def main():
         
         # monolingual corpora
         # Note that monolingual source and target data may be different in sizes.
-        # Assume that these monolingual corpora use the same vocabularies with parallel corpus
-        # FIXME: otherwise?  
+        # Assume that these monolingual corpora use the same vocabularies with parallel corpus,
+        # otherwise, unknown words will be used in place of new words.
         src_mono_data = sockeye.data_io.read_sentences(os.path.abspath(args.mono_source), args.source_vocab) 
         trg_mono_data = sockeye.data_io.read_sentences(os.path.abspath(args.mono_target), args.target_vocab)
+
+        # group all data
+        all_data = [src_train_data, trg_train_data, src_val_data, trg_val_data, src_mono_data, trg_mono_data]
         
         #--- load models including:
         # [0]: source-to-target NMT model
@@ -159,7 +245,13 @@ def main():
                           beam_size=args.beam_size)
 
         #--- execute dual-learning
-        _dual_learn()
+        _dual_learn(all_data, 
+                    models, 
+                    (args.optimizer, args.weight_decay, args.momentum, args.clip_gradient), # optimizer-related stuffs
+                    (args.alpha, args.initial_lr_gamma_s2t, args.initial_lr_gamma_t2s) # hyper-parameters for gradient updates
+                    (args.epochs, args.dev_round), # extra stuffs for learning monitor
+                    args.K # K in K-best translation
+                    )
 
     #--- bye bye message
     print("Dual learning completed!")

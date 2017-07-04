@@ -370,7 +370,7 @@ Output structure from Translator.
 """
 
 
-class TrainableInferenceModel(sockeye.model.InferenceModel):
+class TrainableInferenceModel(InferenceModel):
     """
     TrainableInferenceModel is a SockeyeModel that supports both training and inference functionalities.
 
