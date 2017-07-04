@@ -309,7 +309,7 @@ class ParallelBucketSentenceIter(mx.io.DataIter):
     def __init__(self,
                  source_sentences: List[List[int]],
                  target_sentences: List[List[int]],
-                 source_graphs: List[Tuple[int, int]],
+                 source_metadata: List[Tuple[int, int]],
                  buckets: List[Tuple[int, int]],
                  batch_size: int,
                  eos_id: int,
@@ -319,7 +319,7 @@ class ParallelBucketSentenceIter(mx.io.DataIter):
                  source_data_name=C.SOURCE_NAME,
                  source_data_length_name=C.SOURCE_LENGTH_NAME,
                  target_data_name=C.TARGET_NAME,
-                 src_graph_name=C.SRC_GRAPH_NAME,
+                 src_metadata_name=C.SOURCE_METADATA_NAME,
                  label_name=C.TARGET_LABEL_NAME,
                  dtype='float32'):
         super(ParallelBucketSentenceIter, self).__init__()
@@ -335,7 +335,7 @@ class ParallelBucketSentenceIter(mx.io.DataIter):
         self.source_data_name = source_data_name
         self.source_data_length_name = source_data_length_name
         self.target_data_name = target_data_name
-        self.src_graph_name = src_graph_name
+        self.src_metadata_name = src_metadata_name
         self.label_name = label_name
         self.fill_up = fill_up
 
@@ -344,10 +344,10 @@ class ParallelBucketSentenceIter(mx.io.DataIter):
         self.data_length = [[] for _ in self.buckets]
         self.data_target = [[] for _ in self.buckets]
         self.data_label = [[] for _ in self.buckets]
-        self.data_src_graphs = [[] for _ in self.buckets]
+        self.data_src_metadata = [[] for _ in self.buckets]
 
         # assign sentence pairs to buckets
-        self._assign_to_buckets(source_sentences, target_sentences, source_graphs)
+        self._assign_to_buckets(source_sentences, target_sentences, source_metadata)
 
         # convert to single numpy array for each bucket
         self._convert_to_array()
@@ -356,11 +356,11 @@ class ParallelBucketSentenceIter(mx.io.DataIter):
             mx.io.DataDesc(name=source_data_name, shape=(batch_size, self.default_bucket_key[0]), layout=C.BATCH_MAJOR),
             mx.io.DataDesc(name=source_data_length_name, shape=(batch_size,), layout=C.BATCH_MAJOR),
             mx.io.DataDesc(name=target_data_name, shape=(batch_size, self.default_bucket_key[1]), layout=C.BATCH_MAJOR),
-            mx.io.DataDesc(name=src_graph_name, shape=(batch_size, self.default_bucket_key[1]*10, 2), layout=C.BATCH_MAJOR) ]
+            mx.io.DataDesc(name=src_metadata_name, shape=(batch_size, self.default_bucket_key[1]*10, 2), layout=C.BATCH_MAJOR) ]
         self.provide_label = [
             mx.io.DataDesc(name=label_name, shape=(self.batch_size, self.default_bucket_key[1]), layout=C.BATCH_MAJOR)]
 
-        self.data_names = [self.source_data_name, self.source_data_length_name, self.target_data_name, self.src_graph_name]
+        self.data_names = [self.source_data_name, self.source_data_length_name, self.target_data_name, self.src_metadata_name]
         self.label_names = [self.label_name]
 
         # create index tuples (i,j) into buckets: i := bucket index ; j := row index of bucket array
@@ -381,7 +381,7 @@ class ParallelBucketSentenceIter(mx.io.DataIter):
         self.nd_label = []
         #####
         # GCN
-        self.nd_src_graphs = []
+        self.nd_src_metadata = []
 
         self.reset()
 
@@ -397,13 +397,13 @@ class ParallelBucketSentenceIter(mx.io.DataIter):
                 break
         return bucket
 
-    def _assign_to_buckets(self, source_sentences, target_sentences, source_graphs):
+    def _assign_to_buckets(self, source_sentences, target_sentences, source_metadata):
         ndiscard = 0
         tokens_source = 0
         tokens_target = 0
         num_of_unks_source = 0
         num_of_unks_target = 0
-        for source, target, src_graph in zip(source_sentences, target_sentences, source_graphs):
+        for source, target, src_meta in zip(source_sentences, target_sentences, source_metadata):
             tokens_source += len(source)
             tokens_target += len(target)
             num_of_unks_source += source.count(self.unk_id)
@@ -426,7 +426,7 @@ class ParallelBucketSentenceIter(mx.io.DataIter):
             self.data_label[buck_idx].append(buff_label)
             #####
             # GCN
-            self.data_src_graphs[buck_idx].append(src_graph)
+            self.data_src_metadata[buck_idx].append(src_meta)
             #####
 
         logger.info("Source words: %d", tokens_source)
@@ -453,9 +453,9 @@ class ParallelBucketSentenceIter(mx.io.DataIter):
             self.data_label[i] = np.asarray(self.data_label[i], dtype=self.dtype)
             #####
             # GCN
-            print(self.data_src_graphs[i])
-            self.data_src_graphs[i] = np.asarray([np.asarray(row) for row in self.data_src_graphs[i]])#, dtype=self.dtype)
-            print(self.data_src_graphs[i])
+            print(self.data_src_metadata[i])
+            self.data_src_metadata[i] = np.asarray([np.asarray(row) for row in self.data_src_metadata[i]])#, dtype=self.dtype)
+            print(self.data_src_metadata[i])
             #####
 
             
@@ -481,11 +481,11 @@ class ParallelBucketSentenceIter(mx.io.DataIter):
                                                         axis=0)
                     ####
                     # GCN: we add an empty list as padding
-                    self.data_src_graphs[i] = np.concatenate((self.data_src_graphs[i], self.data_src_graphs[i][random_indices]),
+                    self.data_src_metadata[i] = np.concatenate((self.data_src_metadata[i], self.data_src_metadata[i][random_indices]),
                                                          axis=0)
                     ####
                     print(self.data_source[i])
-                    print(self.data_src_graphs[i])
+                    print(self.data_src_metadata[i])
                     
 
     def reset(self):
@@ -502,7 +502,7 @@ class ParallelBucketSentenceIter(mx.io.DataIter):
         self.nd_label = []
         #####
         # GCN
-        self.nd_src_graphs = []
+        self.nd_src_metadata = []
         #####
         for i in range(len(self.data_source)):
             # shuffle indices within each bucket
@@ -512,7 +512,7 @@ class ParallelBucketSentenceIter(mx.io.DataIter):
             self.nd_target.append(mx.nd.array(self.data_target[i].take(indices, axis=0), dtype=self.dtype))
             self.nd_label.append(mx.nd.array(self.data_label[i].take(indices, axis=0), dtype=self.dtype))
             #self.nd_src_graphs.append(mx.nd.array(self.data_src_graphs[i].take(indices, axis=0), dtype=self.dtype))           
-            self.nd_src_graphs.append([mx.nd.array(g) for g in self.data_src_graphs[i].take(indices, axis=0)])
+            self.nd_src_metadata.append([mx.nd.array(m) for m in self.data_src_metadata[i].take(indices, axis=0)])
             
         self.indices = []
         for i in range(len(self.data_source)):
@@ -552,8 +552,8 @@ class ParallelBucketSentenceIter(mx.io.DataIter):
         source = self.nd_source[i][j:j + self.batch_size]
         length = self.nd_length[i][j:j + self.batch_size]
         target = self.nd_target[i][j:j + self.batch_size]
-        src_graph = self.nd_src_graphs[i][j:j + self.batch_size]
-        data = [source, length, target, src_graph]
+        src_meta = self.nd_src_metadata[i][j:j + self.batch_size]
+        data = [source, length, target, src_meta]
         label = [self.nd_label[i][j:j + self.batch_size]]
 
         provide_data = [mx.io.DataDesc(name=n, shape=x.shape, layout=C.BATCH_MAJOR) for n, x in

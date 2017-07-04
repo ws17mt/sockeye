@@ -50,7 +50,7 @@ DECODER_PREFIX = "decoder_"
 # default I/O variable names
 SOURCE_NAME = "source"
 SOURCE_LENGTH_NAME = "source_length"
-SRC_GRAPH_NAME = "src_graph"
+SOURCE_METADATA_NAME = "source_metadata"
 TARGET_NAME = "target"
 TARGET_LABEL_NAME = "target_label"
 LEXICON_NAME = "lexicon"
