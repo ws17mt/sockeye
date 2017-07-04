@@ -291,6 +291,11 @@ def add_training_args(params):
                               help='Maximum number of checkpoints the model is allowed to not improve in '
                                    '<optimized-metric> on validation data before training is stopped. '
                                    'Default: %(default)s')
+    train_params.add_argument('--min-num-epochs',
+                              type=int,
+                              default=0,
+                              help='Minimum number of epochs (passes through the training data) '
+                                   'before fitting is stopped. Default: %(default)s.')
 
     train_params.add_argument('--dropout',
                               type=float,
@@ -391,7 +396,7 @@ def add_inference_args(params):
                                     'If specified, must have the same length as --models and be integer')
 
     decode_params.add_argument('--beam-size', '-b',
-                               type=int,
+                               type=int_greater_or_equal(1),
                                default=5,
                                help='Size of the beam. Default: %(default)s.')
     decode_params.add_argument('--ensemble-mode',
