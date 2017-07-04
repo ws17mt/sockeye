@@ -89,8 +89,8 @@ def main():
     #####
     # GCN
     if args.use_gcn:
-        assert args.source_graph is not None, "GCN needs graph inputs for training"
-        assert args.val_source_graph is not None, "GCN needs graph inputs for validation"
+        assert args.source_metadata is not None, "GCN needs graph inputs for training"
+        assert args.val_source_metadata is not None, "GCN needs graph inputs for validation"
 
     #####
     
@@ -171,8 +171,8 @@ def main():
                                              os.path.abspath(args.target),
                                              os.path.abspath(args.validation_source),
                                              os.path.abspath(args.validation_target),
-                                             os.path.abspath(args.source_graph),
-                                             os.path.abspath(args.val_source_graph),
+                                             os.path.abspath(args.source_metadata),
+                                             os.path.abspath(args.val_source_metadata),
                                              args.source_vocab,
                                              args.target_vocab)
 
@@ -181,8 +181,8 @@ def main():
                                                                         target=data_info.target,
                                                                         validation_source=data_info.validation_source,
                                                                         validation_target=data_info.validation_target,
-                                                                        source_graph=data_info.source_graph,
-                                                                        val_source_graph=data_info.val_source_graph,
+                                                                        source_metadata=data_info.source_metadata,
+                                                                        val_source_metadata=data_info.val_source_metadata,
                                                                         vocab_source=vocab_source,
                                                                         vocab_target=vocab_target,
                                                                         batch_size=args.batch_size,

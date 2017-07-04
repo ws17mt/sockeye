@@ -80,17 +80,17 @@ def add_io_args(params):
                              help='Suppress console logging.')
 
     #########
-    # Optional graph inputs for GCN decoder
+    # Optional source metadata inputs
 
-    data_params.add_argument('--source-graph', '-sg',
+    data_params.add_argument('--source-metadata', '-smd',
                              required=False,
                              default=None,
-                             help='Source side graphs for GCN (training)')
+                             help='Source side metadata (training)')
 
-    data_params.add_argument('--val-source-graph', '-vsg',
+    data_params.add_argument('--val-source-metadata', '-vsmd',
                              required=False,
                              default=None,
-                             help='Source side graphs for GCN (validation)')
+                             help='Source side metadata (validation)')
     
     #########
     
