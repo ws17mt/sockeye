@@ -488,6 +488,23 @@ class Translator:
 
         return self._make_result(trans_input, *self.translate_nd(*self._get_inference_input(trans_input.tokens)))
 
+    def translate_kbest(self, trans_input: TranslatorInput, k: int) -> List[TranslatorOutput]:
+        """
+        Translates a TranslatorInput and returns a list of TranslatorOutput
+        
+        :param trans_input: TranslatorInput as returned by make_input().
+        :k: k best translations
+        :return: translation result.
+        """
+        if not trans_input.tokens:
+            return [TranslatorOutput(id=trans_input.id,
+                                    translation="",
+                                    tokens=[""],
+                                    attention_matrix=np.asarray([[0]]),
+                                    score=-np.inf)]
+
+        return [self._make_result(trans_input, *self.translate_nd_k(*self._get_inference_input(trans_input.tokens))[i] for i in range(k))]
+    
     def _get_inference_input(self, tokens: List[str]) -> Tuple[mx.nd.NDArray, mx.nd.NDArray, Optional[int]]:
         """
         Returns NDArray of source ids, NDArray of sentence length, and corresponding bucket_key
@@ -548,6 +565,23 @@ class Translator:
         max_output_length = bucket_key * 2
 
         return self._get_best_from_beam(*self._beam_search(source, source_length, bucket_key, max_output_length))
+
+    def translate_nd_k(self, source: mx.nd.NDArray, source_length: mx.nd.NDArray, bucket_key: int, k: int) \
+            -> Tuple[List[List[int]], List[np.ndarray], List[float]]:
+        """
+        Translates source of source_length, given a bucket_key.
+
+        :param source: Source.
+        :param source_length: Source length.
+        :param bucket_key: Bucket key.
+        
+        :return: Sequence of translated ids, attention matrix, length-normalized negative log probability.
+        """
+        # allow output sentence to be at most 2 times the current bucket_key
+        # TODO: max_output_length adaptive to source_length
+        max_output_length = bucket_key * 2
+
+        return self._get_kbest_from_beam(*self._beam_search(source, source_length, bucket_key, max_output_length), k)
 
     def _combine_predictions(self,
                              predictions: List[mx.nd.NDArray],
@@ -702,3 +736,19 @@ class Translator:
         # attention_matrix: (target_seq_len, source_seq_len)
         attention_matrix = np.stack(attention_lists[best], axis=0)
         return sequences[best], attention_matrix, accumulated_scores[best]
+
+    @staticmethod
+    def _get_kbest_from_beam(sequences: List[List[int]], 
+                            attention_lists: List[np.ndarray],
+                            accumulated_scores: mx.nd.NDArray, k: int) -> Tuple[List[List[int]], List[np.ndarray], List[float]]:
+        """
+        Return the k-best (aka top) entry from the n-best list.
+
+        :param sequences: List of lists of word ids.
+        :param attention_lists: List of attention.
+        :param accumulated_scores: Array of length-normalized negative log-probs.
+        :return: Top sequence, top attention matrix, top accumulated score (length-normalized negative log-probs).
+        """
+        # sequences & accumulated scores are in latest 'k-best order', thus 0th element is best
+        attention_matrix = [np.stack(attention_lists[i], axis=0) for i in range(k)]
+        return sequences[:k], attention_matrix, accumulated_scores[:k]

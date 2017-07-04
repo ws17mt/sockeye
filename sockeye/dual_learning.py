@@ -63,60 +63,92 @@ def _check_path(opath, logger):
     else:
         os.makedirs(opath)
 
-def _dual_learn(all_data, 
-                models, 
-                opt_configs, # optimizer-related stuffs
-                grad_alphas # hyper-parameters for gradient updates
-                lmon, # extra stuffs for learning monitor
-                k):
+def _dual_learn(context: mx.context.Context, 
+                vocab_source: Dict[str, int],
+                vocab_target: Dict[str, int],
+                all_data: List[List[List[int]]], 
+                models: List[TrainableInferenceModel], 
+                opt_configs: (str, float, float, float), # optimizer-related stuffs
+                grad_alphas: (float, float, float), # hyper-parameters for gradient updates
+                lmon: (float, int), # extra stuffs for learning monitor
+                k: int):
     # set up decoders/translators
-    # FIXME
+    dec_s2t = sockeye.inference.Translator(context,
+                                           "linear", #unused
+                                           [models[0]])
+    dec_t2s = sockeye.inference.Translator(context,
+                                           "linear", #unused
+                                           [models[1]])
+    dec_s = sockeye.inference.Translator(context,
+                                         "linear", #unused
+                                         [models[2]])
+    dec_t = sockeye.inference.Translator(context,
+                                         "linear", #unused
+                                         [models[3]])
 
     # set up monolingual data
-    # FIXME
-    
+    orders_s = range(len(all_data[4]))
+    orders_t = range(len(all_data[5]))
+    random. shuffle(orders_s)
+    random. shuffle(orders_t)
+
     # set up optimizers
     # FIXME
 
-    # create pointers for switching between the models
-    # FIXME
-
+    # create pointers for switching between the models 
+    # (ignored)
+ 
     # start the dual learning algorithm
     best_loss_s2t = 9e+99
     best_loss_t2s = 9e+99
     id_s = 0
     id_t = 0
-    r = 0 #round
+    r = 0 # round
     flag = True # role of source and target
     while True: # stopping criterion will be imposed within the loop
         if id_s == len(orders_s): # source monolingual data
             # shuffle the data
-            # FIXME: update epochs?
+            random. shuffle(orders_s)
+            
+            # update epochs
+            # FIXME
+            
             id_s = 0
         if id_t == len(orders_t): # target monoingual data
-            #shuffle the data
-            # FIXME: update epochs?
+            # shuffle the data
+            random. shuffle(orders_t)
+                    
+            # update epochs?
+            # FIXME
+            
             id_t = 0
 
-        # sample sentence sentA and sentB from mono_cor_s and mono_cor_s respectively
+        # sample sentence sentA and sentB from mono_cor_s and mono_cor_t respectively
         sent = ""
         if flag:
             sent = all_data[4][orders_s[id_s]]
+
             # switch the pointers
-            # FIXME
+            p_dec_s2t = dec_s2t
+            p_dec_t2s = dec_t2s
+            p_dec = dec_t
         else:
             sent = all_data[5][orders_t[id_t]]
+
             # switch the pointers
-            # FIXME
+            p_dec_s2t = dec_t2s
+            p_dec_t2s = dec_s2t
+            p_dec = dec_s
 
         # generate K translated sentences s_{mid,1},...,s_{mid,K} using beam search according to translation model P(.|sentA; mod_am_s2t)
         # FIXME
-        mid_hyps = [] # generate k-best translation
+        trans_input = p_dec_s2t.make_input(i, sent)
+        mid_hyps = p_dec_s2t.translate_kbest(trans_input, k) # generate k-best translation
         for mid_hyp in mid_hyps:
-            # set the language-model reward for current sampled sentence from p_mlm_t
+            # set the language-model reward for current sampled sentence from P(mid_hyp; mod_mlm_t)
             # FIXME
 
-            # set the communication reward for current sampled sentence from p_am_t2s
+            # set the communication reward for current sampled sentence from P(sentA|mid_hype; mod_am_t2s)
             # FIXME
 
             # reward interpolation
@@ -245,7 +277,9 @@ def main():
                           beam_size=args.beam_size)
 
         #--- execute dual-learning
-        _dual_learn(all_data, 
+        _dual_learn(context,
+                    vocab_source, vocab_target, 
+                    all_data, 
                     models, 
                     (args.optimizer, args.weight_decay, args.momentum, args.clip_gradient), # optimizer-related stuffs
                     (args.alpha, args.initial_lr_gamma_s2t, args.initial_lr_gamma_t2s) # hyper-parameters for gradient updates
