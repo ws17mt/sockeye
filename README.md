@@ -8,6 +8,8 @@ It implements the well-known encoder-decoder architecture with attention.
 
 If you are interested in collaborating or have any questions, please submit a pull request or issue.
 You can also send questions to *sockeye-dev-at-amazon-dot-com*.
+
+(multitask branch)
  
 ## Dependencies
 
