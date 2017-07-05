@@ -402,6 +402,9 @@ class TrainableInferenceModel(InferenceModel):
 
         # extra things if required
         # ...
+
+    def _build_modules(self):
+        super()._build_modules()
         
     # add fitting functions here
     # ...
@@ -503,7 +506,7 @@ class Translator:
                                     attention_matrix=np.asarray([[0]]),
                                     score=-np.inf)]
 
-        return [self._make_result(trans_input, *self.translate_nd_k(*self._get_inference_input(trans_input.tokens))[i] for i in range(k))]
+        return [self._make_result(trans_input, *self.translate_nd_k(*self._get_inference_input(trans_input.tokens))[i]) for i in range(k)]
     
     def _get_inference_input(self, tokens: List[str]) -> Tuple[mx.nd.NDArray, mx.nd.NDArray, Optional[int]]:
         """

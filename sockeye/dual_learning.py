@@ -75,22 +75,22 @@ def _dual_learn(context: mx.context.Context,
     # set up decoders/translators
     dec_s2t = sockeye.inference.Translator(context,
                                            "linear", #unused
-                                           [models[0]])
+                                           [models[0]], vocab_source, vocab_target)
     dec_t2s = sockeye.inference.Translator(context,
                                            "linear", #unused
-                                           [models[1]])
+                                           [models[1]], vocab_target, vocab_source)
     dec_s = sockeye.inference.Translator(context,
                                          "linear", #unused
-                                         [models[2]])
+                                         [models[2]], vocab_source, vocab_source)
     dec_t = sockeye.inference.Translator(context,
                                          "linear", #unused
-                                         [models[3]])
+                                         [models[3]], vocab_target, vocab_target)
 
     # set up monolingual data
     orders_s = range(len(all_data[4]))
     orders_t = range(len(all_data[5]))
-    random. shuffle(orders_s)
-    random. shuffle(orders_t)
+    random.shuffle(orders_s)
+    random.shuffle(orders_t)
 
     # set up optimizers
     # FIXME
@@ -108,7 +108,7 @@ def _dual_learn(context: mx.context.Context,
     while True: # stopping criterion will be imposed within the loop
         if id_s == len(orders_s): # source monolingual data
             # shuffle the data
-            random. shuffle(orders_s)
+            random.shuffle(orders_s)
             
             # update epochs
             # FIXME
@@ -116,7 +116,7 @@ def _dual_learn(context: mx.context.Context,
             id_s = 0
         if id_t == len(orders_t): # target monoingual data
             # shuffle the data
-            random. shuffle(orders_t)
+            random.shuffle(orders_t)
                     
             # update epochs?
             # FIXME
@@ -141,14 +141,13 @@ def _dual_learn(context: mx.context.Context,
             p_dec = dec_s
 
         # generate K translated sentences s_{mid,1},...,s_{mid,K} using beam search according to translation model P(.|sentA; mod_am_s2t)
-        # FIXME
         trans_input = p_dec_s2t.make_input(i, sent)
         mid_hyps = p_dec_s2t.translate_kbest(trans_input, k) # generate k-best translation
         for mid_hyp in mid_hyps:
-            # set the language-model reward for current sampled sentence from P(mid_hyp; mod_mlm_t)
+            # set the language-model reward for currently-sampled sentence from P(mid_hyp; mod_mlm_t)
             # FIXME
 
-            # set the communication reward for current sampled sentence from P(sentA|mid_hype; mod_am_t2s)
+            # set the communication reward for currently-sampled sentence from P(sentA|mid_hype; mod_am_t2s)
             # FIXME
 
             # reward interpolation
