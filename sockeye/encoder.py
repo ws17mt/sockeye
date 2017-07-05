@@ -148,12 +148,15 @@ class Embedding(Encoder):
     :param dropout: Dropout probability.
     """
 
-    def __init__(self, num_embed: int, vocab_size: int, prefix: str, dropout: float):
+    def __init__(self, num_embed: int, vocab_size: int, prefix: str, dropout: float, params=None):
         self.num_embed = num_embed
         self.vocab_size = vocab_size
         self.prefix = prefix
         self.dropout = dropout
-        self.embed_weight = mx.sym.Variable(prefix + "weight")
+        if params is None:
+            self.embed_weight = mx.sym.Variable(prefix + "weight")
+        else:
+            self.embed_weight = params
 
     def encode(self, data: mx.sym.Symbol, data_length: mx.sym.Symbol, seq_len: int) -> mx.sym.Symbol:
         """
