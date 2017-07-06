@@ -22,7 +22,8 @@ def get_stacked_rnn(cell_type: str,
                     dropout: float,
                     prefix: str,
                     residual: bool = False,
-                    forget_bias: float = 0.0) -> mx.rnn.SequentialRNNCell:
+                    forget_bias: float = 0.0,
+                    params=None) -> mx.rnn.SequentialRNNCell:
     """
     Returns (stacked) RNN cell given parameters.
 
@@ -33,8 +34,15 @@ def get_stacked_rnn(cell_type: str,
     :param prefix: Symbol prefix for RNN.
     :param residual: Whether to add residual connections between multi-layered RNNs.
     :param forget_bias: Initial value of forget biases.
+    :param params: List of containers for weight sharing, one per layer.
     :return: RNN cell.
     """
+
+    # Check for weight sharing parameters, otherwise initialize each layer with None
+    if params is not None:
+        assert len(params) == num_layers
+    else:
+        params = [None for layer in range(num_layers)]
 
     rnn = mx.rnn.SequentialRNNCell()
     for layer in range(num_layers):
@@ -42,9 +50,9 @@ def get_stacked_rnn(cell_type: str,
         # this ensures parameter name compatibility of training w/ FusedRNN and decoding with 'unfused' RNN.
         cell_prefix = "%sl%d_" % (prefix, layer)
         if cell_type == C.LSTM_TYPE:
-            cell = mx.rnn.LSTMCell(num_hidden=num_hidden, prefix=cell_prefix, forget_bias=forget_bias)
+            cell = mx.rnn.LSTMCell(num_hidden=num_hidden, prefix=cell_prefix, forget_bias=forget_bias, params=params[layer])
         elif cell_type == C.GRU_TYPE:
-            cell = mx.rnn.GRUCell(num_hidden=num_hidden, prefix=cell_prefix)
+            cell = mx.rnn.GRUCell(num_hidden=num_hidden, prefix=cell_prefix, params=params[layer])
         else:
             raise NotImplementedError()
         if residual and layer > 0:

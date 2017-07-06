@@ -146,6 +146,7 @@ class Embedding(Encoder):
     :param vocab_size: Source vocabulary size.
     :param prefix: Name prefix for symbols of this encoder.
     :param dropout: Dropout probability.
+    :param params: Container for weight sharing.
     """
 
     def __init__(self, num_embed: int, vocab_size: int, prefix: str, dropout: float, params=None):
