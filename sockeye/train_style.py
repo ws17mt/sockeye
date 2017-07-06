@@ -12,6 +12,7 @@ target = "/export/b09/ws15gkumar/experiments/JSALT17/code/JSALT17-NMT-Lab/data/m
 
 num_words = 50000
 word_min_count = 1
+batch_size = 50
 
 # Build vocab
 vocab_source = _build_or_load_vocab(None, source, num_words, word_min_count)
@@ -26,4 +27,22 @@ data_info = sockeye.data_io.StyleDataInfo(os.path.abspath(source),
                                           vocab_source,
                                           vocab_target)
 
+source_train_iter = sockeye.data_io.get_style_training_data_iters(
+                        source=data_info.source,
+                        vocab_source=vocab_source,
+                        batch_size=batch_size,
+                        fill_up=True,
+                        max_seq_len=max_seq_len,
+                        bucketing=False,
+                        bucket_width=100
+                    )
 
+target_train_iter = sockeye.data_io.get_style_training_data_iters(
+                        source=data_info.target,
+                        vocab_source=vocab_target,
+                        batch_size=batch_size,
+                        fill_up=True,
+                        max_seq_len=max_seq_len,
+                        bucketing=False,
+                        bucket_width=100
+                    )
