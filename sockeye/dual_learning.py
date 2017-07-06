@@ -66,11 +66,12 @@ def _check_path(opath, logger):
 def _dual_learn(context: mx.context.Context, 
                 vocab_source: Dict[str, int],
                 vocab_target: Dict[str, int],
-                all_data: List[List[List[int]]], 
+                all_data: Tuple[sockeye.data_io.ParallelBucketSentenceIter, sockeye.data_io.ParallelBucketSentenceIter, sockeye.data_io.ParallelBucketSentenceIter, List[List[int]], List[List[int]]], 
                 models: List[TrainableInferenceModel], 
-                opt_configs: (str, float, float, float), # optimizer-related stuffs
-                grad_alphas: (float, float, float), # hyper-parameters for gradient updates
-                lmon: (float, int), # extra stuffs for learning monitor
+                opt_configs: Tuple[str, float, float, float, sockeye.lr_scheduler.LearningRateScheduler], # optimizer-related stuffs
+                grad_alphas: Tuple[float, float, float], # hyper-parameters for gradient updates
+                lmon: Tuple[int, int], # extra stuffs for learning monitor
+                model_folders: Tuple[str, str],
                 k: int):
     # set up decoders/translators
     dec_s2t = sockeye.inference.Translator(context,
@@ -86,54 +87,57 @@ def _dual_learn(context: mx.context.Context,
                                          "linear", #unused
                                          [models[3]], vocab_target, vocab_target)
 
-    # set up monolingual data
-    orders_s = range(len(all_data[4]))
-    orders_t = range(len(all_data[5]))
+    # set up monolingual data access/ids
+    orders_s = range(len(all_data[3]))
+    orders_t = range(len(all_data[4]))
     random.shuffle(orders_s)
     random.shuffle(orders_t)
 
     # set up optimizers
-    # FIXME
+    models[0].setup_optimizer(opt_configs)
+    models[1].setup_optimizer(opt_configs)
 
-    # create pointers for switching between the models 
-    # (ignored)
+    # pointers for switching between the models 
+    # including: p_dec_s2t, p_dec_t2s, p_dec (dynamically changed within the loop)
  
     # start the dual learning algorithm
-    best_loss_s2t = 9e+99
-    best_loss_t2s = 9e+99
+    best_dev_loss_s2t = 9e+99
+    best_dev_loss_t2s = 9e+99
     id_s = 0
     id_t = 0
-    r = 0 # round
+    r = 0 # learning round
+    e_s = 0
+    e_t = 0
     flag = True # role of source and target
-    while True: # stopping criterion will be imposed within the loop
+    while e_s < lmon[0] or e_t < lmon[0]: 
         if id_s == len(orders_s): # source monolingual data
             # shuffle the data
             random.shuffle(orders_s)
             
             # update epochs
-            # FIXME
+            e_s += 1
             
             id_s = 0
         if id_t == len(orders_t): # target monoingual data
             # shuffle the data
             random.shuffle(orders_t)
                     
-            # update epochs?
-            # FIXME
+            # update epochs
+            e_t += 1
             
             id_t = 0
 
         # sample sentence sentA and sentB from mono_cor_s and mono_cor_t respectively
         sent = ""
         if flag:
-            sent = all_data[4][orders_s[id_s]]
+            sent = all_data[3][orders_s[id_s]]
 
             # switch the pointers
             p_dec_s2t = dec_s2t
             p_dec_t2s = dec_t2s
             p_dec = dec_t
         else:
-            sent = all_data[5][orders_t[id_t]]
+            sent = all_data[4][orders_t[id_t]]
 
             # switch the pointers
             p_dec_s2t = dec_t2s
@@ -141,44 +145,84 @@ def _dual_learn(context: mx.context.Context,
             p_dec = dec_s
 
         # generate K translated sentences s_{mid,1},...,s_{mid,K} using beam search according to translation model P(.|sentA; mod_am_s2t)
-        trans_input = p_dec_s2t.make_input(i, sent)
+        trans_input = p_dec_s2t.make_input(0, sent) # 0: unused!
         mid_hyps = p_dec_s2t.translate_kbest(trans_input, k) # generate k-best translation
-        for mid_hyp in mid_hyps:
-            # set the language-model reward for currently-sampled sentence from P(mid_hyp; mod_mlm_t)
-            # FIXME
+        s_sents = [sent] * k
+        # create an input batch as input_iter
+        input_iter_m = sockeye.data_io.get_data_iters(source=mid_hyps,
+                                                        target=mid_hyps,
+                                                        vocab_source=vocab_target,
+                                                        vocab_target=vocab_target,
+                                                        batch_size=1,
+                                                        fill_up='replicate',
+                                                        max_seq_len=100,
+                                                        bucketing=False,
+                                                        bucket_width=1) # unused
+        input_iter_s2t = sockeye.data_io.get_data_iters(source=s_sents,
+                                                        target=mid_hyps,
+                                                        vocab_source=vocab_source,
+                                                        vocab_target=vocab_target,
+                                                        batch_size=1,
+                                                        fill_up='replicate',
+                                                        max_seq_len=100,
+                                                        bucketing=False,
+                                                        bucket_width=1) # unused
+        input_iter_t2s = sockeye.data_io.get_data_iters(source=mid_hyps,
+                                                        target=s_sents,
+                                                        vocab_source=vocab_target,
+                                                        vocab_target=vocab_source,
+                                                        batch_size=1,
+                                                        fill_up='replicate',
+                                                        max_seq_len=100,
+                                                        bucketing=False,
+                                                        bucket_width=1) # unused
 
-            # set the communication reward for currently-sampled sentence from P(sentA|mid_hype; mod_am_t2s)
-            # FIXME
+        # set the language-model reward for currently-sampled sentence from P(mid_hyp; mod_mlm_t)
+        # 1) bind the data {(mid_hyp,mid_hyp)} into the model's module
+        # 2) do forward step --> get the r1 = P(mid_hyp; mod_mlm_t)
+        reward_1 = p_dec.models[0].compute_ll(input_iter_m)
 
-            # reward interpolation
-            # FIXME
+        # set the communication reward for currently-sampled sentence from P(sentA|mid_hype; mod_am_t2s)
+        # 1) bind the data {(mid_hyp, sentA)} into the model's module
+        # 2) do forward step --> get the r2 = P(sentA|mid_hyp; mod_am_t2s)
+        reward_2 = p_dec_t2s.models[0].compute_ll(input_iter_t2s)
+
+        # reward interpolation: r = alpha * r1 + (1 - alpha) * r2
+        reward = grad_alphas[0] * reward_1 + (1.0 - grad_alphas[0]) * reward_2
         
-        # make total customized losses
-        # FIXME
+        # update model parameters
+        p_dec_s2t.models[0].compute_ll(input_iter_s2t)
+        p_dec_s2t.models[0].update_model(reward)
+        p_dec_t2s.models[0].update_model(1.0 - grad_alphas[0])
 
-        # execute forward step
-        # FIXME
-
-        # execute backward step 
-        # FIXME
-
-        # update parameters
-        # FIXME
-
+        if flag == False: r += 1 # next round
+        
         # switch source and target roles
         flag = !flag
-
-        if id_s == id_t: r += 1 # FIXME: perhaps a bug due to different sizes of monolingual data? Idea: check flag instead?
-
-        # testing over the development data to check the improvements (after a desired number of rounds)
+        
+        # testing over the development data (all_data[1] and all_data[2] to check the improvements (after a desired number of rounds))
         if r == opt_configs[1]:
             # s2t model
-            # FIXME
+            dev_loss_s2t = p_dec_s2t.models[0].evaluate_dev(all_data[1])
 
             # t2s model
-            # FIXME
+            dev_loss_t2s = p_dec_t2s.models[0].evaluate_dev(all_data[2])
 
-            r = 0
+            # print the losses to the consoles
+            print("-------------------------------------------------------------------------")
+            print("Loss over development set from source-to-target model: %f", dev_loss_s2t)
+            print("Loss over development set from target-to-source model: %f", dev_loss_t2s)
+            print("-------------------------------------------------------------------------")
+
+            # save the better model(s) if losses over dev are decreasing!
+            if best_dev_loss_s2t > dev_loss_s2t:
+                p_dec_s2t.models[0].save_params(model_folders[0], 1) # FIXME: add checkpoints
+                best_dev_loss_s2t = dev_loss_s2t
+            if best_dev_loss_t2s > dev_loss_t2s:
+                p_dec_t2s.models[0].save_params(model_folders[1], 1) # FIXME: add checkpoints
+                best_dev_loss_t2s = dev_loss_t2s
+
+            r = 0 # reset the round
 
 def main():
     # command line processing
@@ -243,24 +287,45 @@ def main():
         logger.info("Vocabulary sizes: source=%d target=%d", vocab_source_size, vocab_target_size)
 
         # parallel corpora
-        src_train_data, trg_train_data = sockeye.data_io.read_parallel_corpus(os.path.abspath(args.source),
-                                                                              os.path.abspath(args.target),
-                                                                              args.source_vocab,
-                                                                              args.target_vocab)
-        src_val_data, trg_val_data = sockeye.data_io.read_parallel_corpus(os.path.abspath(args.validation_source),
-                                                                          os.path.abspath(args.validation_target),
-                                                                          args.source_vocab,
-                                                                          args.target_vocab)
+        data_info = sockeye.data_io.DataInfo(os.path.abspath(args.source),
+                                             os.path.abspath(args.target),
+                                             os.path.abspath(args.validation_source),
+                                             os.path.abspath(args.validation_target),
+                                             args.source_vocab,
+                                             args.target_vocab)
+
+        # create data iterators
+        train_iter, eval_iter = sockeye.data_io.get_training_data_iters(source=data_info.source,
+                                                                        target=data_info.target,
+                                                                        validation_source=data_info.validation_source,
+                                                                        validation_target=data_info.validation_target,
+                                                                        vocab_source=vocab_source,
+                                                                        vocab_target=vocab_target,
+                                                                        batch_size=64, # FIXME: the following values are currently set manually!
+                                                                        fill_up='replicate',
+                                                                        max_seq_len=100,
+                                                                        bucketing=True,
+                                                                        bucket_width=10)
+
+        rev_eval_iter = sockeye.data_io.get_data_iters(source=data_info.validation_target,
+                                                       target=data_info.validation_source,
+                                                       vocab_source=vocab_target,
+                                                       vocab_target=vocab_source,
+                                                       batch_size=64, # FIXME: the following values are currently set manually!
+                                                       fill_up='replicate',
+                                                       max_seq_len=100,
+                                                       bucketing=True,
+                                                       bucket_width=10)
         
         # monolingual corpora
         # Note that monolingual source and target data may be different in sizes.
         # Assume that these monolingual corpora use the same vocabularies with parallel corpus,
         # otherwise, unknown words will be used in place of new words.
-        src_mono_data = sockeye.data_io.read_sentences(os.path.abspath(args.mono_source), args.source_vocab) 
+        src_mono_data = sockeye.data_io.read_sentences(os.path.abspath(args.mono_source), args.source_vocab) # FIXME: how to do create a batch of these data?
         trg_mono_data = sockeye.data_io.read_sentences(os.path.abspath(args.mono_target), args.target_vocab)
 
         # group all data
-        all_data = [src_train_data, trg_train_data, src_val_data, trg_val_data, src_mono_data, trg_mono_data]
+        all_data = (train_iter, eval_iter, rev_eval_iter, src_mono_data, trg_mono_data)
         
         #--- load models including:
         # [0]: source-to-target NMT model
@@ -272,17 +337,27 @@ def main():
         for model_path in model_paths:
             models.append(TrainableInferenceModel(model_folder=model_path,
                           context=context,
+                          train_iter=train_iter,
                           fused=False,
-                          beam_size=args.beam_size)
+                          beam_size=args.beam_size))
+
+        # learning rate scheduling
+        learning_rate_half_life = none_if_negative(args.learning_rate_half_life)
+        lr_scheduler = sockeye.lr_scheduler.get_lr_scheduler(args.learning_rate_scheduler_type,
+                                                             args.checkpoint_frequency,
+                                                             learning_rate_half_life,
+                                                             args.learning_rate_reduce_factor,
+                                                             args.learning_rate_reduce_num_not_improved)
 
         #--- execute dual-learning
         _dual_learn(context,
                     vocab_source, vocab_target, 
                     all_data, 
                     models, 
-                    (args.optimizer, args.weight_decay, args.momentum, args.clip_gradient), # optimizer-related stuffs
+                    (args.optimizer, args.weight_decay, args.momentum, args.clip_gradient, lr_scheduler), # optimizer-related stuffs
                     (args.alpha, args.initial_lr_gamma_s2t, args.initial_lr_gamma_t2s) # hyper-parameters for gradient updates
                     (args.epochs, args.dev_round), # extra stuffs for learning monitor
+                    (output_s2t_folder, output_t2s_folder) # output folders where the model files will live in!
                     args.K # K in K-best translation
                     )
 

@@ -27,6 +27,7 @@ import sockeye.data_io
 import sockeye.model
 import sockeye.utils
 import sockeye.vocab
+from sockeye.training import TrainingModel
 from sockeye.attention import AttentionState
 from sockeye.decoder import DecoderState
 
@@ -386,6 +387,7 @@ class TrainableInferenceModel(InferenceModel):
     def __init__(self,
                  model_folder: str,
                  context: mx.context.Context,
+                 train_iter: sockeye.data_io.ParallelBucketSentenceIter,
                  fused: bool,
                  max_input_len: Optional[int],
                  beam_size: int,
@@ -400,16 +402,129 @@ class TrainableInferenceModel(InferenceModel):
                          softmax_temperature=softmax_temperature,
                          checkpoint=checkpoint)
 
-        # extra things if required
-        # ...
-
-    def _build_modules(self):
-        super()._build_modules()
+        # extra things if required!  
+        self.module = self._build_module(train_iter, self.config.max_seq_len)
         
-    # add fitting functions here
-    # ...
-    
+    def _build_module(self,
+                      train_iter: sockeye.data_io.ParallelBucketSentenceIter,
+                      max_seq_len: int):
+        """
+        Initializes model components, creates training symbol and module, and binds it.
+        """
+        source = mx.sym.Variable(C.SOURCE_NAME)
+        source_length = mx.sym.Variable(C.SOURCE_LENGTH_NAME)
+        target = mx.sym.Variable(C.TARGET_NAME)
+        labels = mx.sym.reshape(data=mx.sym.Variable(C.TARGET_LABEL_NAME), shape=(-1,))
 
+        loss = sockeye.loss.get_loss(self.config)
+
+        data_names = [x[0] for x in train_iter.provide_data]
+        label_names = [x[0] for x in train_iter.provide_label]
+
+        def sym_gen(seq_lens):
+            """
+            Returns a (grouped) loss symbol given source & target input lengths.
+            Also returns data and label names for the BucketingModule.
+            """
+            source_seq_len, target_seq_len = seq_lens
+
+            source_encoded = self.encoder.encode(source, source_length, seq_len=source_seq_len)
+            source_lexicon = self.lexicon.lookup(source) if self.lexicon else None
+
+            logits = self.decoder.decode(source_encoded, source_seq_len, source_length,
+                                         target, target_seq_len, source_lexicon)
+
+            outputs = loss.get_loss(logits, labels)
+
+            return mx.sym.Group(outputs), data_names, label_names
+
+        if self.bucketing:
+            logger.info("Using bucketing. Default max_seq_len=%s", train_iter.default_bucket_key)
+            return mx.mod.BucketingModule(sym_gen=sym_gen,
+                                          logger=logger,
+                                          default_bucket_key=train_iter.default_bucket_key,
+                                          context=self.context)
+        else:
+            logger.info("No bucketing. Unrolled to max_seq_len=%s", max_seq_len)
+            symbol, _, __ = sym_gen(train_iter.buckets[0])
+            return mx.mod.Module(symbol=symbol,
+                                 data_names=data_names,
+                                 label_names=label_names,
+                                 logger=logger,
+                                 context=self.context)
+
+    def setup_optimizer(initial_learning_rate: float, 
+                        opt_configs: Tuple[str, float, float, float, sockeye.lr_scheduler.LearningRateScheduler]):
+        optimizer = opt_configs[0]
+        optimizer_params = {'wd': opt_configs[1],
+                            "learning_rate": initial_learning_rate}
+        if lr_scheduler is not None:
+            optimizer_params["lr_scheduler"] = opt_configs[4]
+        clip_gradient = none_if_negative(args.clip_gradient)
+        if clip_gradient is not None:
+            optimizer_params["clip_gradient"] = opt_configs[3]
+        if args.momentum is not None:
+            optimizer_params["momentum"] = opt_configs[2]
+        if args.normalize_loss:
+            # When normalize_loss is turned on we normalize by the number of non-PAD symbols in a batch which implicitly
+            # already contains the number of sentences and therefore we need to disable rescale_grad.
+            optimizer_params["rescale_grad"] = 1.0
+        else:
+            # Making MXNet module API's default scaling factor explicit
+            optimizer_params["rescale_grad"] = 1.0 / 1.0 # FIXME: manual value for now?
+
+        self.module.init_optimizer(kvstore='device', optimizer=optimizer, optimizer_params=optimizer_params)
+
+    # get the log-likelihood given a batch of data
+    def compute_ll(input_iter: sockeye.data_io.ParallelBucketSentenceIter):
+        # bind the data
+        self.module.bind(data_shapes=input_iter.provide_data, label_shapes=input_iter.provide_label,
+                for_training=True, force_rebind=True, grad_req='write')
+
+        val_iter.reset()
+        val_metric.reset()
+        
+        # do the forward and backward steps
+        input_batch = input_iter.next() # only one bucket in input_inter
+        self.module.forward_backward(input_batch, is_train=True)
+        self.module.update_metric(val_metric, input_batch.label)
+
+        total_loss = 0
+        for name, val in val_metric.get_name_value():
+            total_loss += val
+        
+        # return the loss
+        return total_loss
+
+    def evaluate_dev(val_iter: sockeye.data_io.ParallelBucketSentenceIter):
+        val_iter.reset()
+        val_metric.reset()
+
+        for nbatch, eval_batch in enumerate(val_iter):
+            self.module.forward(eval_batch, is_train=False)
+            self.module.update_metric(val_metric, eval_batch.label)
+
+        total_loss = 0.0
+        for name, val in val_metric.get_name_value():
+            total_loss += val
+
+        return total_loss
+
+    def update_model(weight: float):
+        self.module.update(weight)
+
+    def save_params(output_folder: str, 
+                    checkpoint: int):
+        """
+        Saves the parameters to disk.
+        """
+        arg_params, aux_params = self.module.get_params()  # sync aux params across devices
+        self.module.set_params(arg_params, aux_params)
+        self.params = arg_params
+        params_base_fname = C.PARAMS_NAME % checkpoint
+        self.save_params_to_file(os.path.join(output_folder, params_base_fname))
+            
+    
 class Translator:
     """
     Translator uses one or several models to translate input.
