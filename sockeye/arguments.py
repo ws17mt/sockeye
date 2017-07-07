@@ -443,6 +443,11 @@ def add_dual_learning_args(params):
                              required=True,
                              help='Additional target monolingual data.')
 
+    dl_params.add_argument('--max-input-len', '-n',
+                               type=int,
+                               default=None,
+                               help='Maximum sequence length. Default: value from model(s).')
+
     dl_params.add_argument('--models', '-m',
                                required=True,
                                nargs='+',
@@ -452,13 +457,17 @@ def add_dual_learning_args(params):
                              required=True,
                              help='Folder where training status info is written to.')
 
-    dl_params.add_argument('--output_s2t',
+    dl_params.add_argument('--output-s2t',
                              required=True,
                              help='Folder where source-to-target model & training results are written to.')
 
-    dl_params.add_argument('--output_t2s',
+    dl_params.add_argument('--output-t2s',
                              required=True,
                              help='Folder where target-to-source model & training results are written to.')
+
+    dl_params.add_argument('--overwrite-output',
+                             action='store_true',
+                             help='Overwrite output folder if it exists.')
 
     dl_params.add_argument('--optimizer',
                               default='adam',
@@ -485,6 +494,25 @@ def add_dual_learning_args(params):
                               type=float,
                               default=0.02,
                               help='Initial learning rates of target-to-source gamma. Default: %(default)s.')
+    dl_params.add_argument('--learning-rate-scheduler-type',
+                              default='plateau-reduce',
+                              choices=["fixed-rate-inv-sqrt-t", "fixed-rate-inv-t", "plateau-reduce"],
+                              help='Learning rate scheduler type. Default: %(default)s.')
+    dl_params.add_argument('--learning-rate-reduce-factor',
+                              type=float,
+                              default=0.5,
+                              help="Factor to multiply learning rate with "
+                                   "(for 'plateau-reduce' learning rate scheduler). Default: %(default)s.")
+    dl_params.add_argument('--learning-rate-reduce-num-not-improved',
+                              type=int,
+                              default=3,
+                              help="For 'plateau-reduce' learning rate scheduler. Adjust learning rate "
+                                   "if <optimized-metric> did not improve for x checkpoints. Default: %(default)s.")
+    dl_params.add_argument('--learning-rate-half-life',
+                              type=float,
+                              default=10,
+                              help="Half-life of learning rate in checkpoints. For 'fixed-rate-*' "
+                                   "learning rate schedulers. Default: 10.")
 
     dl_params.add_argument('--beam-size', '-b',
                                type=int,
@@ -514,4 +542,10 @@ def add_dual_learning_args(params):
                               type=int,
                               default=13,
                               help='Random seed. Default: %(default)s.')
+
+    dl_params.add_argument('--quiet', '-q',
+                             default=False,
+                             action="store_true",
+                             help='Suppress console logging.')
+
 

@@ -27,7 +27,6 @@ import sockeye.data_io
 import sockeye.model
 import sockeye.utils
 import sockeye.vocab
-from sockeye.training import TrainingModel
 from sockeye.attention import AttentionState
 from sockeye.decoder import DecoderState
 
@@ -371,6 +370,8 @@ Output structure from Translator.
 """
 
 
+# This class is coded by Vu Cong Duy Hoang.
+# The purpose is to support both translation/learning during dual learning framework.
 class TrainableInferenceModel(InferenceModel):
     """
     TrainableInferenceModel is a SockeyeModel that supports both training and inference functionalities.
@@ -389,8 +390,8 @@ class TrainableInferenceModel(InferenceModel):
                  context: mx.context.Context,
                  train_iter: sockeye.data_io.ParallelBucketSentenceIter,
                  fused: bool,
-                 max_input_len: Optional[int],
                  beam_size: int,
+                 max_input_len: Optional[int],   
                  checkpoint: Optional[int] = None,
                  softmax_temperature: Optional[float] = None):
         # inherit InferenceModel
@@ -403,8 +404,11 @@ class TrainableInferenceModel(InferenceModel):
                          checkpoint=checkpoint)
 
         # extra things if required!  
+        self.bucketing = True # FIXME: is it necessary?
         self.module = self._build_module(train_iter, self.config.max_seq_len)
         
+    # self.encoder_module and self.decoder_module will be used for translation.
+    # this self.module will be used for training/learning the model parameters.
     def _build_module(self,
                       train_iter: sockeye.data_io.ParallelBucketSentenceIter,
                       max_seq_len: int):
@@ -496,6 +500,7 @@ class TrainableInferenceModel(InferenceModel):
         # return the loss
         return total_loss
 
+    # evaluate over a given development set
     def evaluate_dev(val_iter: sockeye.data_io.ParallelBucketSentenceIter):
         val_iter.reset()
         val_metric.reset()
@@ -505,13 +510,13 @@ class TrainableInferenceModel(InferenceModel):
             self.module.update_metric(val_metric, eval_batch.label)
 
         total_loss = 0.0
-        for name, val in val_metric.get_name_value():
+        for name, val in val_metric.get_name_value(): # name is unused.
             total_loss += val
 
         return total_loss
 
     def update_model(weight: float):
-        self.module.update(weight)
+        self.module.update([weight]) # FIXME: correct?
 
     def save_params(output_folder: str, 
                     checkpoint: int):

@@ -169,8 +169,8 @@ def get_data_iters(source: str,
     :param bucket_width: Size of buckets.
     :return: data iterator.
     """
-    logger.info("Creating train data iterator")
-    train_source_sentences, train_target_sentences = read_parallel_corpus(source,
+    logger.info("Creating data iterator")
+    source_sentences, target_sentences = read_parallel_corpus(source,
                                                                           target,
                                                                           vocab_source,
                                                                           vocab_target)

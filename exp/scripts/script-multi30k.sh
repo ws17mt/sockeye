@@ -88,3 +88,6 @@ perl /pylon2/ci560op/fosterg/tools/mosesdecoder/scripts/generic/multi-bleu.perl 
 # with Mantidae
 perl /pylon2/ci560op/fosterg/tools/mosesdecoder/scripts/generic/multi-bleu.perl exp/data/multi30k/test.de.atok < exp/models/multi30k/mantidae/test.de.atok.translated-beam5 > exp/models/multi30k/mantidae/test.de.atok.translated-beam5.BLEU
 
+# dual learning (in sockeye)
+PYTHONPATH=$SOCKEYE python sockeye/dual_learning.py --source exp/data/multi30k/train.de.atok --target exp/data/multi30k/train.en.atok --validation-source exp/data/multi30k/val.de.atok --validation-target exp/data/multi30k/val.en.atok --mono-source exp/data/multi30k/train.de.atok --mono-target exp/data/multi30k/train.en.atok --models exp/models/multi30k/de-en/ exp/models/multi30k/en-de/ exp/models/multi30k/de-de/ exp/models/multi30k/en-en/ --output exp/models/multi30k/de-en-de --output-s2t exp/models/multi30k/de-en-dl/ --output-t2s exp/models/multi30k/en-de-dl/ --max-input-len 100 --beam-size 5 --k-best 2 --initial-lr-gamma-s2t 0.0002 --initial-lr-gamma-t2s 0.02 --alpha 0.005 --epoch 15 --dev-round 10000 --use-cpu --overwrite-output &>/dev/null &
+
