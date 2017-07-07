@@ -105,6 +105,94 @@ def read_parallel_corpus(data_source: str,
     return source_sentences, target_sentences
 
 
+def get_data_iters(source_sentences: List[List[int]], 
+                   target_sentences: List[List[int]],
+                   vocab_source: Dict[str, int], 
+                   vocab_target: Dict[str, int],
+                   batch_size: int,
+                   fill_up: str,
+                   max_seq_len: int,
+                   bucketing: bool,
+                   bucket_width: int) -> 'ParallelBucketSentenceIter':
+    """
+    Returns data iterators for data.
+    :param source: Path to source training data.
+    :param target: Path to target training data.
+    :param vocab_source: Source vocabulary.
+    :param vocab_target: Target vocabulary.
+    :param batch_size: Batch size.
+    :param fill_up: Fill-up strategy for buckets.
+    :param max_seq_len: Maximum sequence length.
+    :param bucketing: Whether to use bucketing.
+    :param bucket_width: Size of buckets.
+    :return: data iterator.
+    """
+    length_ratio = sum(len(t) / float(len(s)) for t, s in zip(source_sentences, target_sentences)) / len(target_sentences)
+    logger.info("Average target/source data length ratio: %.2f", length_ratio)
+
+    # define buckets
+    buckets = define_parallel_buckets(max_seq_len, bucket_width, length_ratio) if bucketing else [
+        (max_seq_len, max_seq_len)]
+
+    data_iter = ParallelBucketSentenceIter(source_sentences,
+                                           target_sentences,
+                                           buckets,
+                                           batch_size,
+                                           vocab_target[C.EOS_SYMBOL],
+                                           C.PAD_ID,
+                                           vocab_target[C.UNK_SYMBOL],
+                                           fill_up=fill_up)
+
+    return data_iter
+
+
+def get_data_iters(source: str, 
+                   target: str,
+                   vocab_source: Dict[str, int], 
+                   vocab_target: Dict[str, int],
+                   batch_size: int,
+                   fill_up: str,
+                   max_seq_len: int,
+                   bucketing: bool,
+                   bucket_width: int) -> 'ParallelBucketSentenceIter':
+    """
+    Returns data iterators for data.
+    :param source: Path to source training data.
+    :param target: Path to target training data.
+    :param vocab_source: Source vocabulary.
+    :param vocab_target: Target vocabulary.
+    :param batch_size: Batch size.
+    :param fill_up: Fill-up strategy for buckets.
+    :param max_seq_len: Maximum sequence length.
+    :param bucketing: Whether to use bucketing.
+    :param bucket_width: Size of buckets.
+    :return: data iterator.
+    """
+    logger.info("Creating data iterator")
+    source_sentences, target_sentences = read_parallel_corpus(source,
+                                                              target,
+                                                              vocab_source,
+                                                              vocab_target)
+    
+    length_ratio = sum(len(t) / float(len(s)) for t, s in zip(source_sentences, target_sentences)) / len(target_sentences)
+    logger.info("Average target/source data length ratio: %.2f", length_ratio)
+
+    # define buckets
+    buckets = define_parallel_buckets(max_seq_len, bucket_width, length_ratio) if bucketing else [
+        (max_seq_len, max_seq_len)]
+
+    data_iter = ParallelBucketSentenceIter(source_sentences,
+                                           target_sentences,
+                                           buckets,
+                                           batch_size,
+                                           vocab_target[C.EOS_SYMBOL],
+                                           C.PAD_ID,
+                                           vocab_target[C.UNK_SYMBOL],
+                                           fill_up=fill_up)
+
+    return data_iter
+
+
 def get_training_data_iters(source: str, target: str,
                             validation_source: str, validation_target: str,
                             vocab_source: Dict[str, int], vocab_target: Dict[str, int],
