@@ -322,7 +322,7 @@ def read_lines(path: str, limit=None) -> List[str]:
         for i, line in enumerate(indata):
             if limit is not None and i == limit:
                 break
-            lines.append(line)
+            lines.append(line.strip())
 
     return lines
 

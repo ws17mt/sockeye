@@ -159,18 +159,18 @@ def _dual_learn(context: mx.context.Context,
         trans_input = p_dec_s2t.make_input(0, sent) # 0: unused!
         mid_hyps = p_dec_s2t.translate_kbest(trans_input, k) # generate k-best translation
         print(mid_hyps)
-        print("Passed!")
+        print("Not Passed!")
         s_sents = [sent] * k
         # create an input batch as input_iter
         input_iter_m = sockeye.data_io.get_data_iters(source=mid_hyps,
-                                                        target=mid_hyps,
-                                                        vocab_source=vocab_target,
-                                                        vocab_target=vocab_target,
-                                                        batch_size=1,
-                                                        fill_up='replicate',
-                                                        max_seq_len=100,
-                                                        bucketing=False,
-                                                        bucket_width=1) # unused
+                                                      target=mid_hyps,
+                                                      vocab_source=vocab_target,
+                                                      vocab_target=vocab_target,
+                                                      batch_size=1,
+                                                      fill_up='replicate',
+                                                      max_seq_len=100,
+                                                      bucketing=False,
+                                                      bucket_width=1) # unused
         input_iter_s2t = sockeye.data_io.get_data_iters(source=s_sents,
                                                         target=mid_hyps,
                                                         vocab_source=vocab_source,
