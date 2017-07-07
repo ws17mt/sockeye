@@ -152,9 +152,14 @@ def _dual_learn(context: mx.context.Context,
             p_dec_t2s = dec_s2t
             p_dec = dec_s
 
+        print("Sampled sentence: ", sent)
+
         # generate K translated sentences s_{mid,1},...,s_{mid,K} using beam search according to translation model P(.|sentA; mod_am_s2t)
+        print("DEBUG 8d (learning loop) - K-best translation")
         trans_input = p_dec_s2t.make_input(0, sent) # 0: unused!
         mid_hyps = p_dec_s2t.translate_kbest(trans_input, k) # generate k-best translation
+        print(mid_hyps)
+        print("Passed!")
         s_sents = [sent] * k
         # create an input batch as input_iter
         input_iter_m = sockeye.data_io.get_data_iters(source=mid_hyps,
@@ -344,8 +349,10 @@ def main():
         # Note that monolingual source and target data may be different in sizes.
         # Assume that these monolingual corpora use the same vocabularies with parallel corpus,
         # otherwise, unknown words will be used in place of new words.
-        src_mono_data = sockeye.data_io.read_sentences(os.path.abspath(args.mono_source), vocab_source) # FIXME: how to do create a batch of these data?
-        trg_mono_data = sockeye.data_io.read_sentences(os.path.abspath(args.mono_target), vocab_target)
+        # FIXME: when List[]
+        src_mono_data = sockeye.data_io.read_lines(os.path.abspath(args.mono_source)) # FIXME: how to do create a batch of these data?
+        trg_mono_data = sockeye.data_io.read_lines(os.path.abspath(args.mono_target))
+        print(len(src_mono_data))
         print("Passed!")
 
         # group all data

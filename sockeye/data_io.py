@@ -309,6 +309,22 @@ def read_content(path: str, limit=None) -> Iterator[List[str]]:
                 break
             yield list(get_tokens(line))
 
+def read_lines(path: str, limit=None) -> List[str]:
+    """
+    Returns a list of sentences in path up to a limit.
+    
+    :param path: Path to files containing sentences.
+    :param limit: How many lines to read from path.
+    :return: Iterator over lists of words.
+    """
+    lines = []
+    with smart_open(path) as indata:
+        for i, line in enumerate(indata):
+            if limit is not None and i == limit:
+                break
+            lines.append(line)
+
+    return lines
 
 def get_tokens(line: str) -> Iterator[str]:
     """

@@ -412,7 +412,7 @@ class TrainableInferenceModel(InferenceModel):
         self.module.bind(data_shapes=train_iter.provide_data, label_shapes=train_iter.provide_label,
                          for_training=True, force_rebind=True, grad_req='write')
         self.module.symbol.save(os.path.join(model_folder, C.SYMBOL_NAME))
-        initializer = sockeye.initializer.get_initializer(args.rnn_h2h_init, lexicon=None) # FIXME: lexicon required???
+        initializer = sockeye.initializer.get_initializer(C.RNN_INIT_ORTHOGONAL, lexicon=None) # FIXME: these values are set manually for now!
         self.module.init_params(initializer=initializer, arg_params=self.params, aux_params=None,
                                 allow_missing=False, force_init=False)
         
@@ -630,7 +630,7 @@ class Translator:
                                     attention_matrix=np.asarray([[0]]),
                                     score=-np.inf)]
 
-        return [self._make_result(trans_input, *self.translate_nd_k(*self._get_inference_input(trans_input.tokens))[i]) for i in range(k)]
+        return [self._make_result(trans_input, *self.translate_nd_k(*self._get_inference_input(trans_input.tokens), k)[i]) for i in range(k)]
     
     def _get_inference_input(self, tokens: List[str]) -> Tuple[mx.nd.NDArray, mx.nd.NDArray, Optional[int]]:
         """
