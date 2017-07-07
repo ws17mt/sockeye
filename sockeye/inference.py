@@ -27,6 +27,7 @@ import sockeye.data_io
 import sockeye.model
 import sockeye.utils
 import sockeye.vocab
+from sockeye.train import none_if_negative
 from sockeye.attention import AttentionState
 from sockeye.decoder import DecoderState
 
@@ -406,6 +407,14 @@ class TrainableInferenceModel(InferenceModel):
         # extra things if required!  
         self.bucketing = True # FIXME: is it necessary?
         self.module = self._build_module(train_iter, self.config.max_seq_len)
+
+        # init model
+        self.module.bind(data_shapes=train_iter.provide_data, label_shapes=train_iter.provide_label,
+                         for_training=True, force_rebind=True, grad_req='write')
+        self.module.symbol.save(os.path.join(model_folder, C.SYMBOL_NAME))
+        initializer = sockeye.initializer.get_initializer(args.rnn_h2h_init, lexicon=None) # FIXME: lexicon required???
+        self.module.init_params(initializer=initializer, arg_params=self.params, aux_params=None,
+                                allow_missing=False, force_init=False)
         
     # self.encoder_module and self.decoder_module will be used for translation.
     # this self.module will be used for training/learning the model parameters.
@@ -457,30 +466,25 @@ class TrainableInferenceModel(InferenceModel):
                                  logger=logger,
                                  context=self.context)
 
-    def setup_optimizer(initial_learning_rate: float, 
-                        opt_configs: Tuple[str, float, float, float, sockeye.lr_scheduler.LearningRateScheduler]):
+    def setup_optimizer(self, initial_learning_rate: float, 
+                        opt_configs: Tuple[str, float, float, float, 'sockeye.lr_scheduler.LearningRateScheduler']):
         optimizer = opt_configs[0]
         optimizer_params = {'wd': opt_configs[1],
                             "learning_rate": initial_learning_rate}
-        if lr_scheduler is not None:
+        if opt_configs[4] is not None:
             optimizer_params["lr_scheduler"] = opt_configs[4]
-        clip_gradient = none_if_negative(args.clip_gradient)
+        clip_gradient = none_if_negative(opt_configs[3])
         if clip_gradient is not None:
             optimizer_params["clip_gradient"] = opt_configs[3]
-        if args.momentum is not None:
+        if opt_configs[2] is not None:
             optimizer_params["momentum"] = opt_configs[2]
-        if args.normalize_loss:
-            # When normalize_loss is turned on we normalize by the number of non-PAD symbols in a batch which implicitly
-            # already contains the number of sentences and therefore we need to disable rescale_grad.
-            optimizer_params["rescale_grad"] = 1.0
-        else:
-            # Making MXNet module API's default scaling factor explicit
-            optimizer_params["rescale_grad"] = 1.0 / 1.0 # FIXME: manual value for now?
+        optimizer_params["rescale_grad"] = 1.0
 
+        # FIXME: self.module.bind(.) and self.module.init_params(.) must be called before init_optimizer()
         self.module.init_optimizer(kvstore='device', optimizer=optimizer, optimizer_params=optimizer_params)
 
     # get the log-likelihood given a batch of data
-    def compute_ll(input_iter: sockeye.data_io.ParallelBucketSentenceIter):
+    def compute_ll(self, input_iter: sockeye.data_io.ParallelBucketSentenceIter):
         # bind the data
         self.module.bind(data_shapes=input_iter.provide_data, label_shapes=input_iter.provide_label,
                 for_training=True, force_rebind=True, grad_req='write')
@@ -501,7 +505,7 @@ class TrainableInferenceModel(InferenceModel):
         return total_loss
 
     # evaluate over a given development set
-    def evaluate_dev(val_iter: sockeye.data_io.ParallelBucketSentenceIter):
+    def evaluate_dev(self, val_iter: sockeye.data_io.ParallelBucketSentenceIter):
         val_iter.reset()
         val_metric.reset()
 
@@ -515,10 +519,10 @@ class TrainableInferenceModel(InferenceModel):
 
         return total_loss
 
-    def update_model(weight: float):
+    def update_model(self, weight: float):
         self.module.update([weight]) # FIXME: correct?
 
-    def save_params(output_folder: str, 
+    def save_params(self, output_folder: str, 
                     checkpoint: int):
         """
         Saves the parameters to disk.

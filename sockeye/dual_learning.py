@@ -75,6 +75,7 @@ def _dual_learn(context: mx.context.Context,
                 model_folders: Tuple[str, str],
                 k: int):
     # set up decoders/translators
+    print("DEBUG 8a")
     dec_s2t = sockeye.inference.Translator(context,
                                            "linear", #unused
                                            [models[0]], vocab_source, vocab_target)
@@ -87,21 +88,27 @@ def _dual_learn(context: mx.context.Context,
     dec_t = sockeye.inference.Translator(context,
                                          "linear", #unused
                                          [models[3]], vocab_target, vocab_target)
+    print("Passed!")
 
     # set up monolingual data access/ids
-    orders_s = range(len(all_data[3]))
-    orders_t = range(len(all_data[4]))
+    print("DEBUG 8b")
+    orders_s = list(range(len(all_data[3])))
+    orders_t = list(range(len(all_data[4])))
     random.shuffle(orders_s)
     random.shuffle(orders_t)
+    print("Passed!")
 
     # set up optimizers
-    models[0].setup_optimizer(opt_configs)
-    models[1].setup_optimizer(opt_configs)
+    print("DEBUG 8c")
+    models[0].setup_optimizer(initial_learning_rate=grad_alphas[1], opt_configs=opt_configs)
+    models[1].setup_optimizer(initial_learning_rate=grad_alphas[2], opt_configs=opt_configs)
+    print("Passed!")
 
     # pointers for switching between the models 
     # including: p_dec_s2t, p_dec_t2s, p_dec (dynamically changed within the loop)
  
     # start the dual learning algorithm
+    print("DEBUG 8d (learning loop)")
     best_dev_loss_s2t = 9e+99
     best_dev_loss_t2s = 9e+99
     id_s = 0
@@ -377,7 +384,7 @@ def main():
         print("Passed!")
 
         #--- execute dual-learning
-        print("DEBUG 7")
+        print("DEBUG 8 (_dual_learn)")
         _dual_learn(context,
                     vocab_source, vocab_target, 
                     all_data, 

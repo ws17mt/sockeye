@@ -453,6 +453,11 @@ def add_dual_learning_args(params):
                                nargs='+',
                                help='Model folders in order: <source_to_target_nmt> <target_to_source_nmt> <source_rnnlm> <target_rnnlm>.')
 
+    dl_params.add_argument('--rnn-h2h-init', type=str, default=C.RNN_INIT_ORTHOGONAL,
+                              required=False,
+                              choices=[C.RNN_INIT_ORTHOGONAL, C.RNN_INIT_ORTHOGONAL_STACKED],
+                              help="Initialization method for RNN parameters. Default: %(default)s.")
+
     dl_params.add_argument('--output',
                              required=True,
                              help='Folder where training status info is written to.')
