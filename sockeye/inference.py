@@ -629,8 +629,10 @@ class Translator:
                                     tokens=[""],
                                     attention_matrix=np.asarray([[0]]),
                                     score=-np.inf)]
-
-        return [self._make_result(trans_input, *self.translate_nd_k(*self._get_inference_input(trans_input.tokens), k)[i]) for i in range(k)]
+            
+        trans = self.translate_nd_k(*self._get_inference_input(trans_input.tokens), k)
+        
+        return [self._make_result(trans_input, trans[0][i], trans[1][i], trans[2][i]) for i in range(k)]
     
     def _get_inference_input(self, tokens: List[str]) -> Tuple[mx.nd.NDArray, mx.nd.NDArray, Optional[int]]:
         """
@@ -869,7 +871,7 @@ class Translator:
                             attention_lists: List[np.ndarray],
                             accumulated_scores: mx.nd.NDArray, k: int) -> Tuple[List[List[int]], List[np.ndarray], List[float]]:
         """
-        Return the k-best (aka top) entry from the n-best list.
+        Return the k-best entries from the n-best list.
 
         :param sequences: List of lists of word ids.
         :param attention_lists: List of attention.
@@ -877,5 +879,6 @@ class Translator:
         :return: Top sequence, top attention matrix, top accumulated score (length-normalized negative log-probs).
         """
         # sequences & accumulated scores are in latest 'k-best order', thus 0th element is best
-        attention_matrix = [np.stack(attention_lists[i], axis=0) for i in range(k)]
-        return sequences[:k], attention_matrix, accumulated_scores[:k]
+        min_k = min(k, len(sequences))
+        attention_matrix = [np.stack(attention_lists[i], axis=0) for i in range(min_k)]
+        return sequences[:min_k], attention_matrix, accumulated_scores[:min_k]

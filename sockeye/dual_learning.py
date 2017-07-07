@@ -157,11 +157,12 @@ def _dual_learn(context: mx.context.Context,
         # generate K translated sentences s_{mid,1},...,s_{mid,K} using beam search according to translation model P(.|sentA; mod_am_s2t)
         print("DEBUG 8d (learning loop) - K-best translation")
         trans_input = p_dec_s2t.make_input(0, sent) # 0: unused!
-        mid_hyps = p_dec_s2t.translate_kbest(trans_input, k) # generate k-best translation
+        mid_hyps = p_dec_s2t.translate_kbest(trans_input, k) # generate k-best translations
         print(mid_hyps)
-        print("Not Passed!")
+        print("Passed!")
         s_sents = [sent] * k
         # create an input batch as input_iter
+        print("DEBUG 8d (learning loop) - data iters")
         input_iter_m = sockeye.data_io.get_data_iters(source=mid_hyps,
                                                       target=mid_hyps,
                                                       vocab_source=vocab_target,
@@ -189,6 +190,7 @@ def _dual_learn(context: mx.context.Context,
                                                         max_seq_len=100,
                                                         bucketing=False,
                                                         bucket_width=1) # unused
+        print("Not Passed!")
 
         # set the language-model reward for currently-sampled sentence from P(mid_hyp; mod_mlm_t)
         # 1) bind the data {(mid_hyp,mid_hyp)} into the model's module
@@ -280,7 +282,8 @@ def main():
         # get contexts (either in CPU or GPU)
         if args.use_cpu:
             logger.info("Device: CPU")
-            context = [mx.cpu()]
+            #context = [mx.cpu()]
+            context = mx.cpu()
         else:
             num_gpus = get_num_gpus()
             assert num_gpus > 0, "No GPUs found, consider running on the CPU with --use-cpu " \
