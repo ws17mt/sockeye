@@ -90,6 +90,12 @@ def main():
     assert args.optimized_metric == C.BLEU or args.optimized_metric in args.metrics, \
         "Must optimize either BLEU or one of tracked metrics (--metrics)"
 
+    # TODO(fosterg): fix. We could use a set-bos flag similar to translate.py,
+    # but this would only allow for one target lang in the val set, so some
+    # fancier scheme is needed.
+    assert args.no_bos is False or args.optimized_metric is not C.BLEU, \
+        "Can't optimize validation-set BLEU when suppressing BOS."
+
     # Checking status of output folder, resumption, etc.
     # Create temporary logger to console only
     logger = setup_main_logger(__name__, file_logging=False, console=not args.quiet)
@@ -172,6 +178,7 @@ def main():
                                                                         validation_target=data_info.validation_target,
                                                                         vocab_source=vocab_source,
                                                                         vocab_target=vocab_target,
+                                                                        no_bos=args.no_bos,
                                                                         batch_size=args.batch_size,
                                                                         fill_up=args.fill_up,
                                                                         max_seq_len=args.max_seq_len,

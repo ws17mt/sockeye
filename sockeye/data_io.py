@@ -88,7 +88,8 @@ def get_bucket(seq_len: int, buckets: List[int]) -> Optional[int]:
 def read_parallel_corpus(data_source: str,
                          data_target: str,
                          vocab_source: Dict[str, int],
-                         vocab_target: Dict[str, int]) -> Tuple[List[List[int]], List[List[int]]]:
+                         vocab_target: Dict[str, int],
+                         no_bos: bool) -> Tuple[List[List[int]], List[List[int]]]:
     """
     Loads source and target data, making sure they have the same length.
 
@@ -96,10 +97,11 @@ def read_parallel_corpus(data_source: str,
     :param data_target: Path to target training data.
     :param vocab_source: Source vocabulary.
     :param vocab_target: Target vocabulary.
+    :param no_bos: Don't prepend BOS to target sentences.
     :return: Tuple of (source sentences, target sentences).
     """
     source_sentences = read_sentences(data_source, vocab_source, add_bos=False)
-    target_sentences = read_sentences(data_target, vocab_target, add_bos=True)
+    target_sentences = read_sentences(data_target, vocab_target, add_bos=not no_bos)
     assert len(source_sentences) == len(
         target_sentences), "Number of source sentences does not match number of target sentences"
     return source_sentences, target_sentences
@@ -196,6 +198,7 @@ def get_data_iters(source: str,
 def get_training_data_iters(source: str, target: str,
                             validation_source: str, validation_target: str,
                             vocab_source: Dict[str, int], vocab_target: Dict[str, int],
+                            no_bos: bool,
                             batch_size: int,
                             fill_up: str,
                             max_seq_len: int,
@@ -210,6 +213,7 @@ def get_training_data_iters(source: str, target: str,
     :param validation_target: Path to target validation data.
     :param vocab_source: Source vocabulary.
     :param vocab_target: Target vocabulary.
+    :param no_bos: Don't prepend BOS to target sentences.
     :param batch_size: Batch size.
     :param fill_up: Fill-up strategy for buckets.
     :param max_seq_len: Maximum sequence length.
@@ -221,7 +225,8 @@ def get_training_data_iters(source: str, target: str,
     train_source_sentences, train_target_sentences = read_parallel_corpus(source,
                                                                           target,
                                                                           vocab_source,
-                                                                          vocab_target)
+                                                                          vocab_target,
+                                                                          no_bos)
     length_ratio = sum(len(t) / float(len(s)) for t, s in zip(train_source_sentences, train_target_sentences)) / len(
         train_target_sentences)
     logger.info("Average training target/source length ratio: %.2f", length_ratio)
@@ -243,7 +248,8 @@ def get_training_data_iters(source: str, target: str,
     val_source_sentences, val_target_sentences = read_parallel_corpus(validation_source,
                                                                       validation_target,
                                                                       vocab_source,
-                                                                      vocab_target)
+                                                                      vocab_target,
+                                                                      no_bos)
     val_iter = ParallelBucketSentenceIter(val_source_sentences,
                                           val_target_sentences,
                                           buckets,

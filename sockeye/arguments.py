@@ -84,6 +84,11 @@ def add_io_args(params):
                              required=True,
                              help='Target side of validation data.')
 
+    data_params.add_argument('--no-bos',
+                             action='store_true',
+                             default=False,
+                             help='Don\'t prepend BOS to target sentences.')
+
     data_params.add_argument('--output', '-o',
                              required=True,
                              help='Folder where model & training results are written to.')
@@ -378,6 +383,10 @@ def add_inference_args(params):
                                help='Input file to translate. One sentence per line. '
                                     'If not given, will read from stdin.')
     
+    decode_params.add_argument('--set-bos',
+                               default=None,
+                               help='String to use instead of <s> as BOS symbol.')
+
     decode_params.add_argument('--output', '-o',
                                default=None,
                                help='Output file to write translations to. '

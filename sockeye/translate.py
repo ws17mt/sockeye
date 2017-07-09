@@ -60,6 +60,7 @@ def main():
 
         translator = sockeye.inference.Translator(context,
                                                   args.ensemble_mode,
+                                                  args.set_bos,
                                                   *sockeye.inference.load_models(context,
                                                                                  args.max_input_len,
                                                                                  args.beam_size,

@@ -378,6 +378,7 @@ class Translator:
 
     :param context: MXNet context to bind modules to.
     :param ensemble_mode: Ensemble mode: linear or log_linear combination.
+    :param set_bos: String to use instead of <s> as BOS symbol.
     :param models: List of models.
     :param vocab_source: Source vocabulary.
     :param vocab_target: Target vocabulary.
@@ -386,14 +387,17 @@ class Translator:
     def __init__(self,
                  context: mx.context.Context,
                  ensemble_mode: str,
+                 set_bos : str,
                  models: List[InferenceModel],
                  vocab_source: Dict[str, int],
                  vocab_target: Dict[str, int]):
+        assert set_bos is None or set_bos in vocab_target, \
+            "Target vocabulary does not contain specified BOS: %s" % set_bos
         self.context = context
         self.vocab_source = vocab_source
         self.vocab_target = vocab_target
         self.vocab_target_inv = sockeye.vocab.reverse_vocab(self.vocab_target)
-        self.start_id = self.vocab_target[C.BOS_SYMBOL]
+        self.start_id = self.vocab_target[C.BOS_SYMBOL if set_bos is None else set_bos]
         self.stop_ids = {self.vocab_target[C.EOS_SYMBOL], C.PAD_ID}
         self.models = models
         self.interpolation_func = self._get_interpolation_func(ensemble_mode)
