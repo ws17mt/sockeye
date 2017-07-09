@@ -171,9 +171,9 @@ def get_data_iters(source: str,
     """
     logger.info("Creating data iterator")
     source_sentences, target_sentences = read_parallel_corpus(source,
-                                                                          target,
-                                                                          vocab_source,
-                                                                          vocab_target)
+                                                                target,
+                                                                vocab_source,
+                                                                vocab_target)
     
     length_ratio = sum(len(t) / float(len(s)) for t, s in zip(source_sentences, target_sentences)) / len(target_sentences)
     logger.info("Average target/source data length ratio: %.2f", length_ratio)

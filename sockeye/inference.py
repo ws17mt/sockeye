@@ -479,7 +479,6 @@ class TrainableInferenceModel(InferenceModel):
             optimizer_params["momentum"] = opt_configs[2]
         optimizer_params["rescale_grad"] = 1.0
 
-        # FIXME: self.module.bind(.) and self.module.init_params(.) must be called before init_optimizer()
         self.module.init_optimizer(kvstore='device', optimizer=optimizer, optimizer_params=optimizer_params)
 
     # get the log-likelihood given a batch of data

@@ -156,7 +156,7 @@ def _dual_learn(context: mx.context.Context,
         # generate K translated sentences s_{mid,1},...,s_{mid,K} using beam search according to translation model P(.|sentA; mod_am_s2t)
         print("DEBUG 8d (learning loop) - K-best translation")
         trans_input = p_dec_s2t.make_input(0, sent) # 0: unused!
-        mid_hyps = p_dec_s2t.translate_kbest(trans_input, k) # generate k-best translations
+        mid_hyps = p_dec_s2t.translate_kbest(trans_input, k) # generate k-best translations which are List[int]s
         print(mid_hyps)
         print("Passed!")
         s_sents = [sent] * k
