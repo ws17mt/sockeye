@@ -41,8 +41,9 @@ import sockeye.model
 import sockeye.training
 import sockeye.utils
 import sockeye.vocab
-from sockeye.log import setup_main_logger
+from sockeye.log import setup_main_logger, log_sockeye_version
 from sockeye.utils import acquire_gpus, get_num_gpus, expand_requested_device_ids
+from sockeye.utils import check_condition
 
 
 def none_if_negative(val):
@@ -82,13 +83,13 @@ def main():
     mx.random.seed(args.seed)
 
     if args.use_fused_rnn:
-        assert not args.use_cpu, "GPU required for FusedRNN cells"
+        check_condition(not args.use_cpu, "GPU required for FusedRNN cells")
 
     if args.rnn_residual_connections:
-        assert args.rnn_num_layers > 2, "Residual connections require at least 3 RNN layers"
+        check_condition(args.rnn_num_layers > 2, "Residual connections require at least 3 RNN layers")
 
-    assert args.optimized_metric == C.BLEU or args.optimized_metric in args.metrics, \
-        "Must optimize either BLEU or one of tracked metrics (--metrics)"
+    check_condition(args.optimized_metric == C.BLEU or args.optimized_metric in args.metrics,
+            "Must optimize either BLEU or one of tracked metrics (--metrics)")
 
     # TODO(fosterg): fix. We could use a set-bos flag similar to translate.py,
     # but this would only allow for one target lang in the val set, so some
@@ -113,6 +114,9 @@ def main():
             arg_diffs = _dict_difference(vars(args), old_args) | _dict_difference(old_args, vars(args))
             # Remove args that may differ without affecting the training.
             arg_diffs -= set(C.ARGS_MAY_DIFFER)
+            # allow different device-ids provided their total count is the same
+            if 'device_ids' in arg_diffs and len(old_args['device_ids']) == len(vars(args)['device_ids']):
+                arg_diffs.discard('device_ids')
             if not arg_diffs:
                 resume_training = True
             else:
@@ -126,11 +130,10 @@ def main():
     else:
         os.makedirs(output_folder)
 
-
     logger = setup_main_logger(__name__,
                                file_logging=True,
                                console=not args.quiet, path=os.path.join(output_folder, C.LOG_NAME))
-    logger.info("Sockeye version %s", sockeye.__version__)
+    log_sockeye_version(logger)
     logger.info("Command: %s", " ".join(sys.argv))
     logger.info("Arguments: %s", args)
     with open(os.path.join(output_folder, C.ARGS_STATE_NAME), "w") as fp:
@@ -143,9 +146,10 @@ def main():
             context = [mx.cpu()]
         else:
             num_gpus = get_num_gpus()
-            assert num_gpus > 0, "No GPUs found, consider running on the CPU with --use-cpu " \
-                                 "(note: check depends on nvidia-smi and this could also mean that the nvidia-smi " \
-                                 "binary isn't on the path)."
+            check_condition(num_gpus >= 1,
+                           "No GPUs found, consider running on the CPU with --use-cpu " \
+                           "(note: check depends on nvidia-smi and this could also mean that the nvidia-smi " \
+                           "binary isn't on the path).")
             if args.disable_device_locking:
                 context = expand_requested_device_ids(args.device_ids)
             else:
@@ -153,12 +157,16 @@ def main():
             logger.info("Device(s): GPU %s", context)
             context = [mx.gpu(gpu_id) for gpu_id in context]
 
-        # create vocabs
-        vocab_source = _build_or_load_vocab(args.source_vocab, args.source, args.num_words, args.word_min_count)
-        sockeye.vocab.vocab_to_json(vocab_source, os.path.join(output_folder, C.VOCAB_SRC_NAME) + C.JSON_SUFFIX)
+        # load existing or create vocabs
+        if resume_training:
+            vocab_source = sockeye.vocab.vocab_from_json_or_pickle(os.path.join(output_folder, C.VOCAB_SRC_NAME))
+            vocab_target = sockeye.vocab.vocab_from_json_or_pickle(os.path.join(output_folder, C.VOCAB_TRG_NAME))
+        else:
+            vocab_source = _build_or_load_vocab(args.source_vocab, args.source, args.num_words, args.word_min_count)
+            sockeye.vocab.vocab_to_json(vocab_source, os.path.join(output_folder, C.VOCAB_SRC_NAME) + C.JSON_SUFFIX)
 
-        vocab_target = _build_or_load_vocab(args.target_vocab, args.target, args.num_words, args.word_min_count)
-        sockeye.vocab.vocab_to_json(vocab_target, os.path.join(output_folder, C.VOCAB_TRG_NAME) + C.JSON_SUFFIX)
+            vocab_target = _build_or_load_vocab(args.target_vocab, args.target, args.num_words, args.word_min_count)
+            sockeye.vocab.vocab_to_json(vocab_target, os.path.join(output_folder, C.VOCAB_TRG_NAME) + C.JSON_SUFFIX)
 
         vocab_source_size = len(vocab_source)
         vocab_target_size = len(vocab_target)
