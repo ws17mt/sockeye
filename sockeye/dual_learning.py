@@ -287,14 +287,19 @@ def main():
         else:
             num_gpus = get_num_gpus()
             assert num_gpus > 0, "No GPUs found, consider running on the CPU with --use-cpu " \
-                                 "(note: check depends on nvidia-smi and this could also mean that the nvidia-smi " \
-                                 "binary isn't on the path)."
+                             "(note: check depends on nvidia-smi and this could also mean that the nvidia-smi " \
+                             "binary isn't on the path)."
+            assert len(args.device_ids) == 1, "cannot run on multiple devices for now"
+            gpu_id = args.device_ids[0]
             if args.disable_device_locking:
-                context = expand_requested_device_ids(args.device_ids)
+                # without locking and a negative device id we just take the first device
+                gpu_id = 0
             else:
-                context = exit_stack.enter_context(acquire_gpus(args.device_ids, lock_dir=args.lock_dir))
-            logger.info("Device(s): GPU %s", context)
-            context = [mx.gpu(gpu_id) for gpu_id in context]
+                if gpu_id < 0:
+                    # get a single (!) gpu id automatically:
+                    gpu_ids = exit_stack.enter_context(acquire_gpus([-1], lock_dir=args.lock_dir))
+                    gpu_id = gpu_ids[0]
+            context = mx.gpu(gpu_id)
         print("Passed!")
 
         # get model paths
