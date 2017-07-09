@@ -27,7 +27,6 @@ import sockeye.data_io
 import sockeye.model
 import sockeye.utils
 import sockeye.vocab
-from sockeye.train import none_if_negative
 from sockeye.attention import AttentionState
 from sockeye.decoder import DecoderState
 
@@ -473,7 +472,7 @@ class TrainableInferenceModel(InferenceModel):
                             "learning_rate": initial_learning_rate}
         if opt_configs[4] is not None:
             optimizer_params["lr_scheduler"] = opt_configs[4]
-        clip_gradient = none_if_negative(opt_configs[3])
+        clip_gradient = None if opt_configs[3] < 0 else opt_configs[3]
         if clip_gradient is not None:
             optimizer_params["clip_gradient"] = opt_configs[3]
         if opt_configs[2] is not None:

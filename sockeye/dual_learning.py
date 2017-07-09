@@ -33,7 +33,6 @@ import sockeye.lexicon
 import sockeye.lr_scheduler
 import sockeye.model
 import sockeye.training
-from sockeye.train import none_if_negative
 import sockeye.inference
 import sockeye.utils
 import sockeye.vocab
@@ -390,7 +389,7 @@ def main():
 
         # learning rate scheduling
         print("DEBUG 7")
-        learning_rate_half_life = none_if_negative(args.learning_rate_half_life)
+        learning_rate_half_life = None if args.learning_rate_half_life < 0 else args.learning_rate_half_life
         lr_scheduler = sockeye.lr_scheduler.get_lr_scheduler(args.learning_rate_scheduler_type,
                                                              1000, # FIXME: checkpoint frequency, now manually set!
                                                              learning_rate_half_life,
