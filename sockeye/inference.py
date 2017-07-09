@@ -470,7 +470,7 @@ class Translator:
         
         return [self._make_result(trans_input, trans[0][i], trans[1][i], trans[2][i]) for i in range(k)]
 
-def _get_inference_input(self, tokens: List[str]) -> Tuple[mx.nd.NDArray, mx.nd.NDArray, Optional[int]]:
+    def _get_inference_input(self, tokens: List[str]) -> Tuple[mx.nd.NDArray, mx.nd.NDArray, Optional[int]]:
         """
         Returns NDArray of source ids, NDArray of sentence length, and corresponding bucket_key
 
