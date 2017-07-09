@@ -368,8 +368,8 @@ Output structure from Translator.
 :param attention_matrix: Attention matrix. Shape: (target_length, source_length).
 :param score: Negative log probability of generated translation.
 """
+                
     
-
 class Translator:
     """
     Translator uses one or several models to translate input.
@@ -470,7 +470,7 @@ class Translator:
         
         return [self._make_result(trans_input, trans[0][i], trans[1][i], trans[2][i]) for i in range(k)]
 
-    def _get_inference_input(self, tokens: List[str]) -> Tuple[mx.nd.NDArray, mx.nd.NDArray, Optional[int]]:
+def _get_inference_input(self, tokens: List[str]) -> Tuple[mx.nd.NDArray, mx.nd.NDArray, Optional[int]]:
         """
         Returns NDArray of source ids, NDArray of sentence length, and corresponding bucket_key
 
@@ -535,6 +535,7 @@ class Translator:
             -> Tuple[List[List[int]], List[np.ndarray], List[float]]:
         """
         Translates source of source_length, given a bucket_key.
+
         :param source: Source.
         :param source_length: Source length.
         :param bucket_key: Bucket key.
@@ -707,6 +708,7 @@ class Translator:
                             accumulated_scores: mx.nd.NDArray, k: int) -> Tuple[List[List[int]], List[np.ndarray], List[float]]:
         """
         Return the k-best entries from the n-best list.
+
         :param sequences: List of lists of word ids.
         :param attention_lists: List of attention.
         :param accumulated_scores: Array of length-normalized negative log-probs.

@@ -116,6 +116,7 @@ def get_data_iters(source_sentences: List[List[int]],
                    bucket_width: int) -> 'ParallelBucketSentenceIter':
     """
     Returns data iterators for data.
+    
     :param source: Path to source training data.
     :param target: Path to target training data.
     :param vocab_source: Source vocabulary.
@@ -145,7 +146,6 @@ def get_data_iters(source_sentences: List[List[int]],
 
     return data_iter
 
-
 def get_data_iters(source: str, 
                    target: str,
                    vocab_source: Dict[str, int], 
@@ -157,6 +157,7 @@ def get_data_iters(source: str,
                    bucket_width: int) -> 'ParallelBucketSentenceIter':
     """
     Returns data iterators for data.
+
     :param source: Path to source training data.
     :param target: Path to target training data.
     :param vocab_source: Source vocabulary.
@@ -191,7 +192,6 @@ def get_data_iters(source: str,
                                            fill_up=fill_up)
 
     return data_iter
-
 
 def get_training_data_iters(source: str, target: str,
                             validation_source: str, validation_target: str,
@@ -309,6 +309,22 @@ def read_content(path: str, limit=None) -> Iterator[List[str]]:
                 break
             yield list(get_tokens(line))
 
+def read_lines(path: str, limit=None) -> List[str]:
+    """
+    Returns a list of sentences in path up to a limit.
+    
+    :param path: Path to files containing sentences.
+    :param limit: How many lines to read from path.
+    :return: Iterator over lists of words.
+    """
+    lines = []
+    with smart_open(path) as indata:
+        for i, line in enumerate(indata):
+            if limit is not None and i == limit:
+                break
+            lines.append(line.strip())
+
+    return lines
 
 def get_tokens(line: str) -> Iterator[str]:
     """

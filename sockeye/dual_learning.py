@@ -534,7 +534,7 @@ def main():
         # FIXME: otherwise?  
         src_mono_data = sockeye.data_io.read_sentences(os.path.abspath(args.mono_source), args.source_vocab) 
         trg_mono_data = sockeye.data_io.read_sentences(os.path.abspath(args.mono_target), args.target_vocab)
-        
+ 
         #--- load models including:
         # [0]: source-to-target NMT model
         # [1]: target-to-source NMT model
