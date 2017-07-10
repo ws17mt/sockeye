@@ -5,7 +5,7 @@
 # is located at
 #
 #     http://aws.amazon.com/apache2.0/
-# 
+#
 # or in the "license" file accompanying this file. This file is distributed on
 # an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
 # express or implied. See the License for the specific language governing
@@ -15,15 +15,9 @@
 Code for training
 """
 import logging
-import os
-import pickle
-import random
-import shutil
-import time
-from typing import AnyStr, List, Optional
+from typing import List
 
 import mxnet as mx
-import numpy as np
 
 import sockeye.callback
 import sockeye.checkpoint_decoder
@@ -34,9 +28,9 @@ import sockeye.loss
 import sockeye.lr_scheduler
 import sockeye.model
 import sockeye.utils
-import lm
 
 logger = logging.getLogger(__name__)
+
 
 class TrainingLModel(sockeye.training.TrainingModel):
     """
@@ -69,10 +63,8 @@ class TrainingLModel(sockeye.training.TrainingModel):
         self._build_model_components(self.config.max_seq_len, fused, rnn_forget_bias)
         self.module = self._build_module(train_iter, self.config.max_seq_len)
         self.training_monitor = None
-        #Initialize with Language Model
 
     def _build_model_components(self, max_seq_len, fused, rnn_forget_bias):
-
         self.lm = sockeye.lm.get_lm_from_options(self.config.num_embed_source,
                                                  self.config.vocab_source_size,
                                                  self.config.dropout,
@@ -81,7 +73,6 @@ class TrainingLModel(sockeye.training.TrainingModel):
                                                  self.config.rnn_cell_type,
                                                  self.config.rnn_residual_connections,
                                                  self.config.rnn_forget_bias)
-
 
     def _build_module(self,
                       train_iter: sockeye.data_io.ParallelBucketSentenceIter,
@@ -105,7 +96,7 @@ class TrainingLModel(sockeye.training.TrainingModel):
             """
             source_seq_len, target_seq_len = seq_lens
 
-            source_encoded = self.lm.encode(source, source_length, seq_len=source_seq_len)
+            logits = self.lm.encode(source, source_length, seq_len=source_seq_len)
 
             outputs = loss.get_loss(logits, labels)
 
@@ -125,5 +116,3 @@ class TrainingLModel(sockeye.training.TrainingModel):
                                  label_names=label_names,
                                  logger=logger,
                                  context=self.context)
-
-    

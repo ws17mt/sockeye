@@ -1,43 +1,68 @@
-import numpy as np
-import mxnet as mx
-import sockeye.loss
-import sockeye.data_io
-import sockeye.train
-import sockeye.constants as C
-import sockeye.arguments
 import argparse
-import logging
+import json
 import os
-import sokeye.vocab
-import lm
+import pickle
+import random
+import shutil
+import sys
+from contextlib import ExitStack
+from typing import Optional, Dict
 
-logger = logging.getLogger(__name__)
+import mxnet as mx
+import numpy as np
 
-#Training function for Stand alone LM
+import sockeye
+import sockeye.arguments as arguments
+import sockeye.attention
+import sockeye.constants as C
+import sockeye.data_io
+import sockeye.decoder
+import sockeye.encoder
+import sockeye.initializer
+import sockeye.lexicon
+import sockeye.lr_scheduler
+import sockeye.model
+import sockeye.training
+import sockeye.utils
+import sockeye.vocab
+from sockeye.log import setup_main_logger
+from sockeye.utils import acquire_gpus, get_num_gpus, expand_requested_device_ids
+
+
+def none_if_negative(val):
+    return None if val < 0 else val
+
+
+def _build_or_load_vocab(existing_vocab_path: Optional[str], data_path: str, num_words: int,
+                         word_min_count: int) -> Dict:
+    if existing_vocab_path is None:
+        vocabulary = sockeye.vocab.build_from_path(data_path,
+                                                   num_words=num_words,
+                                                   min_count=word_min_count)
+    else:
+        vocabulary = sockeye.vocab.vocab_from_json(existing_vocab_path)
+    return vocabulary
+
+
+def _dict_difference(dict1: Dict, dict2: Dict):
+    diffs = set()
+    for k, v in dict1.items():
+        if k not in dict2 or dict2[k] != v:
+            diffs.add(k)
+    return diffs
+
+
+# Training function for Stand alone LM
 def main():
 
     params = argparse.ArgumentParser(description="Train RNN Language Model for use with Sockeye",
-                                 formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    sockeye.arguments.add_training_args(params)
-    sockeye.arguments.add_io_args(params)
-    sockeye.arguments.add_model_parameters(params)
-    sockeye.arguments.add_device_args(params)
+                                     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    arguments.add_io_args(params)
+    arguments.add_model_parameters(params)
+    arguments.add_training_args(params)
+    arguments.add_device_args(params)
+    args = params.parse_args()
 
-    args = parser.parse_args()
-
-    #Train LM from scratch
-    if args.resume is None:
-
-        #initialize language model
-        language_model = SharedLanguageModel(args.num_embed,
-                                             args.vocab_size,
-                                             args.dropout,
-                                             args.num_rnn,
-                                             args.num_hidden,
-                                             args.rnn_type,
-                                             args.residual,
-                                             args.forget_bias)
-    
     # seed the RNGs
     np.random.seed(args.seed)
     random.seed(args.seed)
@@ -57,9 +82,8 @@ def main():
     logger = setup_main_logger(__name__, file_logging=False, console=not args.quiet)
     output_folder = os.path.abspath(args.output)
 
-    #This is where they keep the resume training
+    # This is where they keep the resume training
     resume_training = False
-
     training_state_dir = os.path.join(output_folder, C.TRAINING_STATE_DIRNAME)
     if os.path.exists(output_folder):
         if args.overwrite_output:
@@ -116,8 +140,8 @@ def main():
         vocab_source = _build_or_load_vocab(args.source_vocab, args.source, args.num_words, args.word_min_count)
         sockeye.vocab.vocab_to_json(vocab_source, os.path.join(output_folder, C.VOCAB_SRC_NAME) + C.JSON_SUFFIX)
 
-        #USING SOURCE AS TARGET
-        vocab_target = _build_or_load_vocab(args.source_vocab, args.source, args.num_words, args.word_min_count)
+        # using source as target
+        vocab_target = vocab_source
         sockeye.vocab.vocab_to_json(vocab_target, os.path.join(output_folder, C.VOCAB_TRG_NAME) + C.JSON_SUFFIX)
 
         vocab_source_size = len(vocab_source)
@@ -161,8 +185,8 @@ def main():
         num_embed_source = args.num_embed if args.num_embed_source is None else args.num_embed_source
         num_embed_target = args.num_embed if args.num_embed_target is None else args.num_embed_target
         attention_num_hidden = args.rnn_num_hidden if not args.attention_num_hidden else args.attention_num_hidden
-        
-        #THIS IS WHERE I REALLY NEED TO CHANGE STUFF
+
+        # THIS IS WHERE I REALLY NEED TO CHANGE STUFF
         model_config = sockeye.model.ModelConfig(max_seq_len=args.max_seq_len,
                                                  vocab_source_size=vocab_source_size,
                                                  vocab_target_size=vocab_target_size,
@@ -189,12 +213,12 @@ def main():
 
         # create training model
         model = sockeye.traininglm.TrainingLModel(model_config=model_config,
-                                               context=context,
-                                               train_iter=train_iter,
-                                               fused=args.use_fused_rnn,
-                                               bucketing=not args.no_bucketing,
-                                               lr_scheduler=lr_scheduler,
-                                               rnn_forget_bias=args.rnn_forget_bias)
+                                                  context=context,
+                                                  train_iter=train_iter,
+                                                  fused=args.use_fused_rnn,
+                                                  bucketing=not args.no_bucketing,
+                                                  lr_scheduler=lr_scheduler,
+                                                  rnn_forget_bias=args.rnn_forget_bias)
 
         # We may consider loading the params in TrainingModule, for consistency
         # with the training state saving
