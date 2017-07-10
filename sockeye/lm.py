@@ -23,6 +23,29 @@ def get_lm_l2r_from_deccoder(decoder) -> 'SharedLanguageModel':
     return None
 
 
+def get_lm_from_options(
+        num_embed,
+        vocab_size,
+        dropout,
+        rnn_num_layers,
+        rnn_num_hidden,
+        rnn_cell_type,
+        rnn_residual_connections,
+        rnn_forget_bias
+) -> 'SharedLanguageModel':
+
+    return SharedLanguageModel(
+        num_embed,
+        vocab_size,
+        dropout,
+        rnn_num_layers,
+        rnn_num_hidden,
+        rnn_cell_type,
+        rnn_residual_connections,
+        rnn_forget_bias
+        )
+
+
 class SharedLanguageModel:
     """
     Language model that shares parameters with a
@@ -81,3 +104,19 @@ class SharedLanguageModel:
             self.cls_b = cls_b_params
         else:
             self.cls_b = mx.sym.Variable("cls_bias")  # TODO: revisit prefix
+
+
+def encode(self, data, data_length, seq_len):
+
+    data = self.embedding.encode(data, data_length, seq_len)
+
+    self.rnn.reset()
+    outputs, states = self.rnn.unroll(seq_len, inputs=data, merge_outputs=True)
+
+    pred = mx.sym.reshape(outputs, shape=(-1, self.rnn_num_hidden))
+    pred = mx.sym.FullyConnected(data=pred,
+                                 num_hidden=self.vocab_size,
+                                 weight=self.cls_w,
+                                 bias=self.cls_b,
+                                 name=C.LOGITS_NAME)
+    return pred
