@@ -26,6 +26,7 @@ import sockeye.inference
 import sockeye.output_handler
 from sockeye import constants as C
 from sockeye.data_io import smart_open
+from sockeye.utils import check_condition
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +59,7 @@ class CheckpointDecoder:
         with smart_open(inputs) as inputs_fin, smart_open(references) as references_fin:
             input_sentences = inputs_fin.readlines()
             target_sentences = references_fin.readlines()
-            assert len(input_sentences) == len(target_sentences), "Number of sentence pairs do not match"
+            check_condition(len(input_sentences) == len(target_sentences), "Number of sentence pairs do not match")
             if limit <= 0:
                 limit = len(input_sentences)
             if limit < len(input_sentences):
@@ -86,7 +87,7 @@ class CheckpointDecoder:
         :param checkpoint: Checkpoint to load parameters from.
         :return: Mapping of metric names to scores.
         """
-        translator = sockeye.inference.Translator(self.context, 'linear',
+        translator = sockeye.inference.Translator(self.context, 'linear', None,
                                                   *sockeye.inference.load_models(self.context,
                                                                                  self.max_input_len,
                                                                                  self.beam_size,
