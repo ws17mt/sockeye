@@ -25,6 +25,7 @@ import mxnet as mx
 import numpy as np
 
 import sockeye.constants as C
+from sockeye.utils import check_condition
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +89,8 @@ def get_bucket(seq_len: int, buckets: List[int]) -> Optional[int]:
 def read_parallel_corpus(data_source: str,
                          data_target: str,
                          vocab_source: Dict[str, int],
-                         vocab_target: Dict[str, int]) -> Tuple[List[List[int]], List[List[int]]]:
+                         vocab_target: Dict[str, int],
+                         no_bos: bool) -> Tuple[List[List[int]], List[List[int]]]:
     """
     Loads source and target data, making sure they have the same length.
 
@@ -96,18 +98,108 @@ def read_parallel_corpus(data_source: str,
     :param data_target: Path to target training data.
     :param vocab_source: Source vocabulary.
     :param vocab_target: Target vocabulary.
+    :param no_bos: Don't prepend BOS to target sentences.
     :return: Tuple of (source sentences, target sentences).
     """
     source_sentences = read_sentences(data_source, vocab_source, add_bos=False)
-    target_sentences = read_sentences(data_target, vocab_target, add_bos=True)
-    assert len(source_sentences) == len(
-        target_sentences), "Number of source sentences does not match number of target sentences"
+    target_sentences = read_sentences(data_target, vocab_target, add_bos=not no_bos)
+    check_condition(len(source_sentences) == len(target_sentences),
+        "Number of source sentences does not match number of target sentences")
     return source_sentences, target_sentences
+
+
+def get_data_iters(source_sentences: List[List[int]], 
+                   target_sentences: List[List[int]],
+                   vocab_source: Dict[str, int], 
+                   vocab_target: Dict[str, int],
+                   batch_size: int,
+                   fill_up: str,
+                   max_seq_len: int,
+                   bucketing: bool,
+                   bucket_width: int) -> 'ParallelBucketSentenceIter':
+    """
+    Returns data iterators for data.
+    :param source: Path to source training data.
+    :param target: Path to target training data.
+    :param vocab_source: Source vocabulary.
+    :param vocab_target: Target vocabulary.
+    :param batch_size: Batch size.
+    :param fill_up: Fill-up strategy for buckets.
+    :param max_seq_len: Maximum sequence length.
+    :param bucketing: Whether to use bucketing.
+    :param bucket_width: Size of buckets.
+    :return: data iterator.
+    """
+    length_ratio = sum(len(t) / float(len(s)) for t, s in zip(source_sentences, target_sentences)) / len(target_sentences)
+    logger.info("Average target/source data length ratio: %.2f", length_ratio)
+
+    # define buckets
+    buckets = define_parallel_buckets(max_seq_len, bucket_width, length_ratio) if bucketing else [
+        (max_seq_len, max_seq_len)]
+
+    data_iter = ParallelBucketSentenceIter(source_sentences,
+                                           target_sentences,
+                                           buckets,
+                                           batch_size,
+                                           vocab_target[C.EOS_SYMBOL],
+                                           C.PAD_ID,
+                                           vocab_target[C.UNK_SYMBOL],
+                                           fill_up=fill_up)
+
+    return data_iter
+
+
+def get_data_iters(source: str, 
+                   target: str,
+                   vocab_source: Dict[str, int], 
+                   vocab_target: Dict[str, int],
+                   batch_size: int,
+                   fill_up: str,
+                   max_seq_len: int,
+                   bucketing: bool,
+                   bucket_width: int) -> 'ParallelBucketSentenceIter':
+    """
+    Returns data iterators for data.
+    :param source: Path to source training data.
+    :param target: Path to target training data.
+    :param vocab_source: Source vocabulary.
+    :param vocab_target: Target vocabulary.
+    :param batch_size: Batch size.
+    :param fill_up: Fill-up strategy for buckets.
+    :param max_seq_len: Maximum sequence length.
+    :param bucketing: Whether to use bucketing.
+    :param bucket_width: Size of buckets.
+    :return: data iterator.
+    """
+    logger.info("Creating data iterator")
+    source_sentences, target_sentences = read_parallel_corpus(source,
+                                                              target,
+                                                              vocab_source,
+                                                              vocab_target)
+    
+    length_ratio = sum(len(t) / float(len(s)) for t, s in zip(source_sentences, target_sentences)) / len(target_sentences)
+    logger.info("Average target/source data length ratio: %.2f", length_ratio)
+
+    # define buckets
+    buckets = define_parallel_buckets(max_seq_len, bucket_width, length_ratio) if bucketing else [
+        (max_seq_len, max_seq_len)]
+
+    data_iter = ParallelBucketSentenceIter(source_sentences,
+                                           target_sentences,
+                                           buckets,
+                                           batch_size,
+                                           vocab_target[C.EOS_SYMBOL],
+                                           C.PAD_ID,
+                                           vocab_target[C.UNK_SYMBOL],
+                                           fill_up=fill_up)
+
+    return data_iter
 
 
 def get_training_data_iters(source: str, target: str,
                             validation_source: str, validation_target: str,
                             vocab_source: Dict[str, int], vocab_target: Dict[str, int],
+                            no_bos: bool,
                             batch_size: int,
                             fill_up: str,
                             max_seq_len: int,
@@ -122,6 +214,7 @@ def get_training_data_iters(source: str, target: str,
     :param validation_target: Path to target validation data.
     :param vocab_source: Source vocabulary.
     :param vocab_target: Target vocabulary.
+    :param no_bos: Don't prepend BOS to target sentences.
     :param batch_size: Batch size.
     :param fill_up: Fill-up strategy for buckets.
     :param max_seq_len: Maximum sequence length.
@@ -133,7 +226,8 @@ def get_training_data_iters(source: str, target: str,
     train_source_sentences, train_target_sentences = read_parallel_corpus(source,
                                                                           target,
                                                                           vocab_source,
-                                                                          vocab_target)
+                                                                          vocab_target,
+                                                                          no_bos)
     length_ratio = sum(len(t) / float(len(s)) for t, s in zip(train_source_sentences, train_target_sentences)) / len(
         train_target_sentences)
     logger.info("Average training target/source length ratio: %.2f", length_ratio)
@@ -155,7 +249,8 @@ def get_training_data_iters(source: str, target: str,
     val_source_sentences, val_target_sentences = read_parallel_corpus(validation_source,
                                                                       validation_target,
                                                                       vocab_source,
-                                                                      vocab_target)
+                                                                      vocab_target,
+                                                                      no_bos)
     val_iter = ParallelBucketSentenceIter(val_source_sentences,
                                           val_target_sentences,
                                           buckets,
@@ -264,7 +359,7 @@ def read_sentences(path: str, vocab: Dict[str, int], add_bos=False, limit=None) 
     sentences = []
     for sentence_tokens in read_content(path, limit):
         sentence = tokens2ids(sentence_tokens, vocab)
-        assert len(sentence) > 0, "Empty sentence in file %s" % path
+        check_condition(sentence, "Empty sentence in file %s" % path)
         if add_bos:
             sentence.insert(0, vocab[C.BOS_SYMBOL])
         sentences.append(sentence)
@@ -430,9 +525,9 @@ class ParallelBucketSentenceIter(mx.io.DataIter):
         for bkt, buck in zip(self.buckets, self.data_length):
             logger.info("bucket of {0} : {1} samples".format(bkt, len(buck)))
             nsamples += len(buck)
-        assert nsamples > 0, "0 data points available in the data iterator. " \
-                             "%d data points have been discarded because they didn't fit into any bucket. Consider " \
-                             "increasing the --max-seq-len to fit your data." % ndiscard
+        check_condition(nsamples > 0, "0 data points available in the data iterator. " \
+                       "%d data points have been discarded because they didn't fit into any bucket. Consider " \
+                       "increasing the --max-seq-len to fit your data." % ndiscard)
         logger.info("%d sentence pairs out of buckets", ndiscard)
         logger.info("fill up mode: %s", self.fill_up)
         logger.info("")
