@@ -5,7 +5,7 @@
 # is located at
 #
 #     http://aws.amazon.com/apache2.0/
-# 
+#
 # or in the "license" file accompanying this file. This file is distributed on
 # an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
 # express or implied. See the License for the specific language governing
@@ -104,13 +104,13 @@ def read_parallel_corpus(data_source: str,
     source_sentences = read_sentences(data_source, vocab_source, add_bos=False)
     target_sentences = read_sentences(data_target, vocab_target, add_bos=not no_bos)
     check_condition(len(source_sentences) == len(target_sentences),
-        "Number of source sentences does not match number of target sentences")
+                    "Number of source sentences does not match number of target sentences")
     return source_sentences, target_sentences
 
 
-def get_data_iters(source_sentences: List[List[int]], 
+def get_data_iters(source_sentences: List[List[int]],
                    target_sentences: List[List[int]],
-                   vocab_source: Dict[str, int], 
+                   vocab_source: Dict[str, int],
                    vocab_target: Dict[str, int],
                    batch_size: int,
                    fill_up: str,
@@ -149,15 +149,15 @@ def get_data_iters(source_sentences: List[List[int]],
     return data_iter
 
 
-def get_data_iters(source: str, 
-                   target: str,
-                   vocab_source: Dict[str, int], 
-                   vocab_target: Dict[str, int],
-                   batch_size: int,
-                   fill_up: str,
-                   max_seq_len: int,
-                   bucketing: bool,
-                   bucket_width: int) -> 'ParallelBucketSentenceIter':
+def get_data_iters_from_filenames(source: str,
+                                  target: str,
+                                  vocab_source: Dict[str, int],
+                                  vocab_target: Dict[str, int],
+                                  batch_size: int,
+                                  fill_up: str,
+                                  max_seq_len: int,
+                                  bucketing: bool,
+                                  bucket_width: int) -> 'ParallelBucketSentenceIter':
     """
     Returns data iterators for data.
     :param source: Path to source training data.
@@ -176,7 +176,7 @@ def get_data_iters(source: str,
                                                               target,
                                                               vocab_source,
                                                               vocab_target)
-    
+
     length_ratio = sum(len(t) / float(len(s)) for t, s in zip(source_sentences, target_sentences)) / len(target_sentences)
     logger.info("Average target/source data length ratio: %.2f", length_ratio)
 
@@ -306,7 +306,7 @@ def smart_open(filename: str, mode="rt", ftype="auto", errors='replace'):
 def read_content(path: str, limit=None) -> Iterator[List[str]]:
     """
     Returns a list of tokens for each line in path up to a limit.
-    
+
     :param path: Path to files containing sentences.
     :param limit: How many lines to read from path.
     :return: Iterator over lists of words.
@@ -333,7 +333,7 @@ def get_tokens(line: str) -> Iterator[str]:
 def tokens2ids(tokens: Iterable[str], vocab: Dict[str, int]) -> List[int]:
     """
     Returns sequence of ids given a sequence of tokens and vocab.
-    
+
     :param tokens: List of tokens.
     :param vocab: Vocabulary (containing UNK symbol).
     :return: List of word ids.
@@ -525,9 +525,9 @@ class ParallelBucketSentenceIter(mx.io.DataIter):
         for bkt, buck in zip(self.buckets, self.data_length):
             logger.info("bucket of {0} : {1} samples".format(bkt, len(buck)))
             nsamples += len(buck)
-        check_condition(nsamples > 0, "0 data points available in the data iterator. " \
-                       "%d data points have been discarded because they didn't fit into any bucket. Consider " \
-                       "increasing the --max-seq-len to fit your data." % ndiscard)
+        check_condition(nsamples > 0, "0 data points available in the data iterator. "
+                        "%d data points have been discarded because they didn't fit into any bucket. Consider "
+                        "increasing the --max-seq-len to fit your data." % ndiscard)
         logger.info("%d sentence pairs out of buckets", ndiscard)
         logger.info("fill up mode: %s", self.fill_up)
         logger.info("")
