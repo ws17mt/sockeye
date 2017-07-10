@@ -106,17 +106,17 @@ class SharedLanguageModel:
             self.cls_b = mx.sym.Variable("cls_bias")  # TODO: revisit prefix
 
 
-def encode(self, data, data_length, seq_len):
+    def encode(self, data, data_length, seq_len):
 
-    data = self.embedding.encode(data, data_length, seq_len)
+        data = self.embedding.encode(data, data_length, seq_len)
 
-    self.rnn.reset()
-    outputs, states = self.rnn.unroll(seq_len, inputs=data, merge_outputs=True)
+        self.rnn.reset()
+        outputs, states = self.rnn.unroll(seq_len, inputs=data, merge_outputs=True)
 
-    pred = mx.sym.reshape(outputs, shape=(-1, self.rnn_num_hidden))
-    pred = mx.sym.FullyConnected(data=pred,
-                                 num_hidden=self.vocab_size,
-                                 weight=self.cls_w,
-                                 bias=self.cls_b,
-                                 name=C.LOGITS_NAME)
-    return pred
+        pred = mx.sym.reshape(outputs, shape=(-1, self.rnn_num_hidden))
+        pred = mx.sym.FullyConnected(data=pred,
+                                     num_hidden=self.vocab_size,
+                                     weight=self.cls_w,
+                                     bias=self.cls_b,
+                                     name=C.LOGITS_NAME)
+        return pred

@@ -28,6 +28,7 @@ import sockeye.loss
 import sockeye.lr_scheduler
 import sockeye.model
 import sockeye.utils
+import sockeye.lm
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +57,7 @@ class TrainingLModel(sockeye.training.TrainingModel):
                  bucketing: bool,
                  lr_scheduler,
                  rnn_forget_bias: float) -> None:
-        super().__init__(model_config)
+        super(sockeye.training.TrainingModel, self).__init__(model_config)
         self.context = context
         self.lr_scheduler = lr_scheduler
         self.bucketing = bucketing
@@ -72,7 +73,7 @@ class TrainingLModel(sockeye.training.TrainingModel):
                                                  self.config.rnn_num_hidden,
                                                  self.config.rnn_cell_type,
                                                  self.config.rnn_residual_connections,
-                                                 self.config.rnn_forget_bias)
+                                                 rnn_forget_bias)
 
     def _build_module(self,
                       train_iter: sockeye.data_io.ParallelBucketSentenceIter,
