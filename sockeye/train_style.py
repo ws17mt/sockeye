@@ -1,21 +1,40 @@
 import os
 
+import mxnet as mx
+
 import sockeye.data_io
+import sockeye.style_training
+import sockeye.constants as C
 from sockeye.log import setup_main_logger
 
-from train import _build_or_load_vocab
+from sockeye.train import _build_or_load_vocab
 
 logger = setup_main_logger(__name__, file_logging=False, console=True)
 
 source = "/Users/gaurav/Dropbox/Projects/JSALT17-NMT-Lab/data/multi30k/train-toy.de.atok"
 target = "/Users/gaurav/Dropbox/Projects/JSALT17-NMT-Lab/data/multi30k/train-toy.en.atok"
 
-num_words = 50000
+# TODO: hard-coded stuff; remove when user args are back.
+lr_scheduler = None
+num_embed_source = 32
+num_embed_target = 32
+attention_type="fixed" # TODO:Fix
+attention_num_hidden = 32
+dropout=0.1
+rnn_cell_type="gru"
+rnn_num_layers=1
+rnn_num_hidden=32
+num_words = 10000
 word_min_count = 1
-batch_size = 50
-max_seq_len=200
+batch_size = 20
+max_seq_len=50
+
+# TODO: Device selection hardcoded to use CPU
+context = [mx.cpu()]
 
 # Build vocab
+# These vocabs are built on the training data.
+# TODO: Is there a way to reload vocab from somewhere? (E.g., BPE dict)
 vocab_source = _build_or_load_vocab(None, source, num_words, word_min_count)
 vocab_target = _build_or_load_vocab(None, target, num_words, word_min_count)
 
@@ -23,11 +42,14 @@ vocab_source_size = len(vocab_source)
 vocab_target_size = len(vocab_target)
 logger.info("Vocabulary sizes: source=%d target=%d", vocab_source_size, vocab_target_size)
 
+# NamedTuple which will keep track of stuff
 data_info = sockeye.data_io.StyleDataInfo(os.path.abspath(source),
                                           os.path.abspath(target),
                                           vocab_source,
                                           vocab_target)
 
+# This will return a ParallelBucketIterator with source=target
+# This is for the source autenc processing
 source_train_iter = sockeye.data_io.get_style_training_data_iters(
                         source=data_info.source,
                         vocab=vocab_source,
@@ -38,6 +60,8 @@ source_train_iter = sockeye.data_io.get_style_training_data_iters(
                         bucket_width=100
                     )
 
+# This is the actual target side processing which will return iterators
+# similar to the previous one.
 target_train_iter = sockeye.data_io.get_style_training_data_iters(
                         source=data_info.target,
                         vocab=vocab_target,
@@ -47,3 +71,70 @@ target_train_iter = sockeye.data_io.get_style_training_data_iters(
                         bucketing=False,
                         bucket_width=100
                     )
+
+
+# TODO: Look at the model config in train.py
+# This has several "simple" options to make things work
+model_config = sockeye.model.ModelConfig(max_seq_len=max_seq_len,
+                                         vocab_source_size=vocab_source_size,
+                                         vocab_target_size=vocab_target_size,
+                                         num_embed_source=num_embed_source,
+                                         num_embed_target=num_embed_target,
+                                         attention_type=attention_type,
+                                         attention_num_hidden=attention_num_hidden,
+                                         attention_coverage_type="count",
+                                         attention_coverage_num_hidden=1,
+                                         attention_use_prev_word=False,
+                                         dropout=dropout,
+                                         rnn_cell_type=rnn_cell_type,
+                                         rnn_num_layers=rnn_num_layers,
+                                         rnn_num_hidden=rnn_num_hidden,
+                                         rnn_residual_connections=False,
+                                         weight_tying=False,
+                                         context_gating=False,
+                                         lexical_bias=False,
+                                         learn_lexical_bias=False,
+                                         data_info=data_info,
+                                         loss=C.CROSS_ENTROPY, # TODO: Fix this
+                                         normalize_loss=False,
+                                         smoothed_cross_entropy_alpha=0.3)
+
+
+model = sockeye.style_training.StyleTrainingModel(model_config=model_config,
+                                                  context=context,
+                                                  train_iter=source_train_iter,
+                                                  fused=False,
+                                                  bucketing=False,
+                                                  lr_scheduler=lr_scheduler,
+                                                  rnn_forget_bias=0.0)
+
+# For lexical bias, set to None
+lexicon = None
+
+initializer = sockeye.initializer.get_initializer(C.RNN_INIT_ORTHOGONAL, lexicon=lexicon)
+
+optimizer = 'adam'
+optimizer_params = {'wd': 0.0,
+                    "learning_rate": 0.0003}
+
+clip_gradient = None
+# Making MXNet module API's default scaling factor explicit
+optimizer_params["rescale_grad"] = 1.0 / batch_size
+
+logger.info("Optimizer: %s", optimizer)
+logger.info("Optimizer Parameters: %s", optimizer_params)
+
+output_folder="/Users/gaurav/Dropbox/Projects/sockeye/sockeye/out"
+
+model.fit(source_train_iter,
+          output_folder=output_folder,
+          metrics=[C.PERPLEXITY],
+          initializer=initializer,
+          max_updates=-1,
+          checkpoint_frequency=100,
+          optimizer=optimizer, optimizer_params=optimizer_params,
+          optimized_metric=C.PERPLEXITY,
+          max_num_not_improved=8,
+          min_num_epochs=0,
+          monitor_bleu=0,
+          use_tensorboard=False)

@@ -219,7 +219,7 @@ def main():
                                                  normalize_loss=args.normalize_loss,
                                                  smoothed_cross_entropy_alpha=args.smoothed_cross_entropy_alpha)
 
-        # create training model
+        # create training models
         model = sockeye.training.TrainingModel(model_config=model_config,
                                                context=context,
                                                train_iter=train_iter,
