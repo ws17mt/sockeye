@@ -89,8 +89,6 @@ class TrainableInferenceModel(sockeye.inference.InferenceModel):
         data_names = [x[0] for x in train_iter.provide_data]
         label_names = [x[0] for x in train_iter.provide_label]
 
-        logger = logging.getLogger(__name__)
-
         def sym_gen(seq_lens):
             """
             Returns a (grouped) loss symbol given source & target input lengths.
@@ -140,19 +138,21 @@ class TrainableInferenceModel(sockeye.inference.InferenceModel):
         self.module.init_optimizer(kvstore='device', optimizer=optimizer, optimizer_params=optimizer_params)
 
     # get the log-likelihood given a batch of data
-    def compute_ll(self, input_iter: sockeye.data_io.ParallelBucketSentenceIter):
+    def compute_ll(self, 
+                   input_iter: sockeye.data_io.ParallelBucketSentenceIter, 
+                   val_metric: mx.metric.CompositeEvalMetric):
         # bind the data
         self.module.bind(data_shapes=input_iter.provide_data, label_shapes=input_iter.provide_label,
                 for_training=True, force_rebind=True, grad_req='write')
 
-        val_iter.reset()
+        input_iter.reset()
         val_metric.reset()
         
         # do the forward and backward steps
         input_batch = input_iter.next() # only one bucket in input_inter
-        self.module.forward_backward(input_batch, is_train=True)
+        self.module.forward(input_batch)  
         self.module.update_metric(val_metric, input_batch.label)
-
+        
         total_loss = 0
         for name, val in val_metric.get_name_value():
             total_loss += val
@@ -161,7 +161,9 @@ class TrainableInferenceModel(sockeye.inference.InferenceModel):
         return total_loss
 
     # evaluate over a given development set
-    def evaluate_dev(self, val_iter: sockeye.data_io.ParallelBucketSentenceIter):
+    def evaluate_dev(self, 
+                     val_iter: sockeye.data_io.ParallelBucketSentenceIter,
+                     val_metric: mx.metric.CompositeEvalMetric):
         val_iter.reset()
         val_metric.reset()
 
