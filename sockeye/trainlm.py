@@ -141,7 +141,7 @@ def main():
         sockeye.vocab.vocab_to_json(vocab_source, os.path.join(output_folder, C.VOCAB_SRC_NAME) + C.JSON_SUFFIX)
 
         # using source as target
-        vocab_target = vocab_source
+        vocab_target = _build_or_load_vocab(args.target_vocab, args.target, args.num_words, args.word_min_count)
         sockeye.vocab.vocab_to_json(vocab_target, os.path.join(output_folder, C.VOCAB_TRG_NAME) + C.JSON_SUFFIX)
 
         vocab_source_size = len(vocab_source)
