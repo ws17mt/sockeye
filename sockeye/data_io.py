@@ -72,7 +72,7 @@ def define_parallel_buckets(max_seq_len: int, bucket_width=10, length_ratio=1.0)
     return list(zip(source_buckets, target_buckets))
 
 
-def get_bucket(seq_len: int, buckets: List[int]) -> Optional[int]:
+def get_bucket(seq_len: int, buckets: List[int]) -> Optional[Tuple[int, int]]:
     """
     Given sequence length and a list of buckets, return corresponding bucket.
 
@@ -82,8 +82,8 @@ def get_bucket(seq_len: int, buckets: List[int]) -> Optional[int]:
     """
     bucket_idx = bisect.bisect_left(buckets, seq_len)
     if bucket_idx == len(buckets):
-        return None
-    return buckets[bucket_idx]
+        return None, None
+    return bucket_idx, buckets[bucket_idx]
 
 
 def read_parallel_corpus(data_source: str,
@@ -194,6 +194,29 @@ def get_data_iters_from_filenames(source: str,
                                            fill_up=fill_up)
 
     return data_iter
+
+
+def get_mono_data_iter(data: str,
+                       vocab: Dict[str, int],
+                       batch_size: int,
+                       fill_up: str,
+                       max_seq_len: int,
+                       bucketing: bool,
+                       bucket_width: int) -> 'MonoBucketSentenceIter':
+    logger.info("Creating mono data iterator")
+    sentences = read_sentences(data, vocab, add_bos=False)
+    # define buckets
+    buckets = define_buckets(max_seq_len, step=bucket_width) if bucketing else [
+        (max_seq_len, )]
+
+    iter = MonoBucketSentenceIter(sentences,
+                                  buckets,
+                                  batch_size,
+                                  vocab[C.EOS_SYMBOL],
+                                  C.PAD_ID,
+                                  vocab[C.UNK_SYMBOL],
+                                  fill_up=fill_up)
+    return iter
 
 
 def get_training_data_iters(source: str, target: str,
@@ -658,4 +681,230 @@ class ParallelBucketSentenceIter(mx.io.DataIter):
         self.nd_target = []
         self.nd_label = []
         for i in range(len(self.data_source)):
+            self._append_ndarrays(i, self.indices[i])
+
+
+class MonoBucketSentenceIter(mx.io.DataIter):
+    """
+    A Bucket sentence iterator for monolingual data. Randomly shuffles the data after every call to reset().
+    Data is stored in NDArrays for each epoch for fast indexing during iteration.
+
+    :param source_sentences: List of source sentences (integer-coded).
+    :param buckets: List of buckets.
+    :param batch_size: Batch_size of generated data batches.
+           Incomplete batches are discarded if fill_up == None, or filled up according to the fill_up strategy.
+    :param fill_up: If not None, fill up bucket data to a multiple of batch_size to avoid discarding incomplete batches.
+           for each bucket. If set to 'replicate', sample examples from the bucket and use them to fill up.
+    :param eos_id: Word id for end-of-sentence.
+    :param pad_id: Word id for padding symbols.
+    :param unk_id: Word id for unknown symbols.
+    :param dtype: Data type of generated NDArrays.
+    """
+
+    def __init__(self,
+                 sentences: List[List[int]],
+                 buckets: List[Tuple[int, int]],
+                 batch_size: int,
+                 eos_id: int,
+                 pad_id: int,
+                 unk_id: int,
+                 fill_up: Optional[str] = None,
+                 data_name=C.TARGET_NAME,
+                 label_name=C.TARGET_LABEL_NAME,
+                 dtype='float32'):
+        super(MonoBucketSentenceIter, self).__init__()
+
+        self.buckets = list(buckets)
+        self.buckets.sort()
+        self.default_bucket_key = get_default_bucket_key(self.buckets)
+        self.batch_size = batch_size
+        self.eos_id = eos_id
+        self.pad_id = pad_id
+        self.unk_id = unk_id
+        self.dtype = dtype
+        self.data_name = data_name
+        self.label_name = label_name
+        self.fill_up = fill_up
+
+        # TODO: consider avoiding explicitly creating length and label arrays to save host memory
+        self.data_input = [[] for _ in self.buckets]
+        self.data_label = [[] for _ in self.buckets]
+
+        # assign sentence pairs to buckets
+        self._assign_to_buckets(sentences)
+
+        # convert to single numpy array for each bucket
+        self._convert_to_array()
+
+        self.provide_data = [
+            mx.io.DataDesc(name=data_name, shape=(batch_size, self.default_bucket_key[0]), layout=C.BATCH_MAJOR)]
+        self.provide_label = [
+            mx.io.DataDesc(name=label_name, shape=(self.batch_size, self.default_bucket_key[1]), layout=C.BATCH_MAJOR)]
+
+        self.data_names = [self.data_name]
+        self.label_names = [self.label_name]
+
+        # create index tuples (i,j) into buckets: i := bucket index ; j := row index of bucket array
+        self.idx = []
+        for i, buck in enumerate(self.data_input):
+            rest = len(buck) % batch_size
+            if rest > 0:
+                logger.info("Discarding %d samples from bucket %s due to incomplete batch", rest, self.buckets[i])
+            idxs = [(i, j) for j in range(0, len(buck) - batch_size + 1, batch_size)]
+            self.idx.extend(idxs)
+        self.curr_idx = 0
+
+        # holds NDArrays
+        self.indices = []  # This will define how the data arrays will be organized
+        self.nd_input = []
+        self.nd_label = []
+
+        self.reset()
+
+    def _assign_to_buckets(self, sentences):
+        ndiscard = 0
+        tokens = 0
+        num_of_unks = 0
+        for sent in sentences:
+            tokens += len(sent)
+            num_of_unks += sent.count(self.unk_id)
+
+            buck_idx, buck = get_bucket(len(sent), self.buckets)
+            if buck is None:
+                ndiscard += 1
+                continue
+
+            buff_input = np.full((buck,), self.pad_id, dtype=self.dtype)
+            buff_label = np.full((buck,), self.pad_id, dtype=self.dtype)
+            buff_input[:len(sent)] = sent
+            buff_label[:len(sent)] = sent[1:] + [self.eos_id]
+            self.data_input[buck_idx].append(buff_input)
+            self.data_length[buck_idx].append(len(sent))
+            self.data_label[buck_idx].append(buff_label)
+
+        logger.info("Mono words: %d", tokens)  # TODO: more informative logger message
+        logger.info("Vocab coverage: %.0f%%", (1 - num_of_unks / tokens) * 100)
+        logger.info('Total: {0} samples in {1} buckets'.format(len(self.data_input), len(self.buckets)))
+        nsamples = 0
+        for bkt, buck in zip(self.buckets, self.data_length):
+            logger.info("bucket of {0} : {1} samples".format(bkt, len(buck)))
+            nsamples += len(buck)
+        check_condition(nsamples > 0, "0 data points available in the data iterator. "
+                        "%d data points have been discarded because they didn't fit into any bucket. Consider "
+                        "increasing the --max-seq-len to fit your data." % ndiscard)
+        logger.info("%d sentence pairs out of buckets", ndiscard)
+        logger.info("fill up mode: %s", self.fill_up)
+        logger.info("")
+
+    def _convert_to_array(self):
+        for i in range(len(self.data_input)):
+            self.data_input[i] = np.asarray(self.data_input[i], dtype=self.dtype)
+            self.data_label[i] = np.asarray(self.data_label[i], dtype=self.dtype)
+
+            n = len(self.data_input[i])
+            if n % self.batch_size != 0:
+                buck_shape = self.buckets[i]
+                rest = self.batch_size - n % self.batch_size
+                if self.fill_up == 'pad':
+                    raise NotImplementedError
+                elif self.fill_up == 'replicate':
+                    logger.info(
+                        "Replicating %d random examples from bucket %s to size it to multiple of batch size %d", rest,
+                        buck_shape, self.batch_size)
+                    random_indices = np.random.randint(self.data_input[i].shape[0], size=rest)
+
+                    self.data_input[i] = np.concatenate((self.data_input[i], self.data_input[i][random_indices, :]),
+                                                        axis=0)
+                    self.data_label[i] = np.concatenate((self.data_label[i], self.data_label[i][random_indices, :]),
+                                                        axis=0)
+
+    def reset(self):
+        """
+        Resets and reshuffles the data.
+        """
+        self.curr_idx = 0
+        # shuffle indices
+        random.shuffle(self.idx)
+
+        self.nd_input = []
+        self.nd_label = []
+        self.indices = []
+        for i in range(len(self.data_input)):
+            # shuffle indices within each bucket
+            self.indices.append(np.random.permutation(len(self.data_input[i])))
+            self._append_ndarrays(i, self.indices[-1])
+
+    def _append_ndarrays(self, bucket: int, shuffled_indices: np.array):
+        """
+        Appends the actual data, selected by the given indices, to the NDArrays
+        of the appropriate bucket. Use when reshuffling the data.
+
+        :param bucket: Current bucket.
+        :param shuffled_indices: Indices indicating which data to select.
+        """
+        self.nd_input.append(mx.nd.array(self.data_input[bucket].take(shuffled_indices, axis=0), dtype=self.dtype))
+        self.nd_label.append(mx.nd.array(self.data_label[bucket].take(shuffled_indices, axis=0), dtype=self.dtype))
+
+    def iter_next(self) -> bool:
+        """
+        True if iterator can return another batch
+        """
+        return self.curr_idx != len(self.idx)
+
+    def next(self) -> mx.io.DataBatch:
+        """
+        Returns the next batch from the data iterator.
+        """
+        if not self.iter_next():
+            raise StopIteration
+
+        i, j = self.idx[self.curr_idx]
+        self.curr_idx += 1
+
+        data = [self.nd_input[i][j:j + self.batch_size]]
+        label = [self.nd_label[i][j:j + self.batch_size]]
+
+        provide_data = [mx.io.DataDesc(name=n, shape=x.shape, layout=C.BATCH_MAJOR) for n, x in
+                        zip(self.data_names, data)]
+        provide_label = [mx.io.DataDesc(name=n, shape=x.shape, layout=C.BATCH_MAJOR) for n, x in
+                         zip(self.label_names, label)]
+
+        # TODO: num pad examples is not set here if fillup strategy would be padding
+        return mx.io.DataBatch(data, label,
+                               pad=0, index=None, bucket_key=self.buckets[i],
+                               provide_data=provide_data, provide_label=provide_label)
+
+    def save_state(self, fname: str):
+        """
+        Saves the current state of iterator to a file, so that iteration can be
+        continued. Note that the data is not saved, i.e. the iterator must be
+        initialized with the same parameters as in the first call.
+
+        :param fname: File name to save the information to.
+        """
+        with open(fname, "wb") as fp:
+            pickle.dump(self.idx, fp)
+            pickle.dump(self.curr_idx, fp)
+            np.save(fp, self.indices)
+
+    def load_state(self, fname: str):
+        """
+        Loads the state of the iterator from a file.
+
+        :param fname: File name to load the information from.
+        """
+        with open(fname, "rb") as fp:
+            self.idx = pickle.load(fp)
+            self.curr_idx = pickle.load(fp)
+            self.indices = np.load(fp)
+
+        # Because of how checkpointing is done (pre-fetching the next batch in
+        # each iteration), curr_idx should be always >= 1
+        assert self.curr_idx >= 1
+        # Right after loading the iterator state, next() should be called
+        self.curr_idx -= 1
+
+        self.nd_input = []
+        self.nd_label = []
+        for i in range(len(self.data_input)):
             self._append_ndarrays(i, self.indices[i])

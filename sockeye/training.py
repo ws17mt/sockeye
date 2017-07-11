@@ -80,14 +80,27 @@ class TrainingModel(sockeye.model.SockeyeModel):
                  fused: bool,
                  bucketing: bool,
                  lr_scheduler,
-                 rnn_forget_bias: float) -> None:
+                 rnn_forget_bias: float,
+                 mono_source_iter: sockeye.data_io.MonoBucketSentenceIter=None,
+                 mono_target_iter: sockeye.data_io.MonoBucketSentenceIter=None) -> None:
         super().__init__(model_config)
         self.context = context
         self.lr_scheduler = lr_scheduler
         self.bucketing = bucketing
         self._build_model_components(self.config.max_seq_len, fused, rnn_forget_bias)
         self.module = self._build_module(train_iter, self.config.max_seq_len)
+        self.lm_source_module = None
+        self.lm_target_module = None
+        if mono_source_iter is not None:
+            self.lm_source_module = self.build_lm_module(mono_source_iter, self.config.max_seq_len)
+        if mono_target_iter is not None:
+            self.lm_target_module = self.build_lm_module(mono_target_iter, self.config.max_seq_len)
         self.training_monitor = None
+
+    def _build_lm_module(self,
+                         iter: sockeye.data_io.MonoBucketSentenceIter,
+                         max_seq_len: int):
+        return None
 
     def _build_module(self,
                       train_iter: sockeye.data_io.ParallelBucketSentenceIter,

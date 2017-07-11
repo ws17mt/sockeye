@@ -105,7 +105,6 @@ class SharedLanguageModel:
         else:
             self.cls_b = mx.sym.Variable("cls_bias")  # TODO: revisit prefix
 
-
     def encode(self, data, data_length, seq_len):
 
         data = self.embedding.encode(data, data_length, seq_len)

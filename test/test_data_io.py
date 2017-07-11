@@ -48,20 +48,21 @@ def test_define_parallel_buckets(max_seq_len, bucket_width, length_ratio, expect
     assert buckets == expected_buckets
 
 
-get_bucket_tests = [([10, 20, 30, 40, 50], 50, 50),
-                    ([10, 20, 30, 40, 50], 11, 20),
-                    ([10, 20, 30, 40, 50], 9, 10),
-                    ([10, 20, 30, 40, 50], 51, None),
-                    ([10, 20, 30, 40, 50], 1, 10),
-                    ([10, 20, 30, 40, 50], 0, 10),
-                    ([], 50, None)]
+get_bucket_tests = [([10, 20, 30, 40, 50], 50, 50, 4),
+                    ([10, 20, 30, 40, 50], 11, 20, 1),
+                    ([10, 20, 30, 40, 50], 9, 10, 0),
+                    ([10, 20, 30, 40, 50], 51, None, None),
+                    ([10, 20, 30, 40, 50], 1, 10, 0),
+                    ([10, 20, 30, 40, 50], 0, 10, 0),
+                    ([], 50, None, None)]
 
 
-@pytest.mark.parametrize("buckets, length, expected_bucket",
+@pytest.mark.parametrize("buckets, length, expected_bucket, expected_index",
                          get_bucket_tests)
-def test_get_bucket(buckets, length, expected_bucket):
-    bucket = sockeye.data_io.get_bucket(length, buckets)
+def test_get_bucket(buckets, length, expected_bucket, expected_index):
+    index, bucket = sockeye.data_io.get_bucket(length, buckets)
     assert bucket == expected_bucket
+    assert index == expected_index
 
 
 get_tokens_tests = [("this is a line  \n", ["this", "is", "a", "line"]),

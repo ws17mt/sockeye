@@ -481,7 +481,7 @@ class Translator:
 
         :param tokens: List of input tokens.
         """
-        bucket_key = sockeye.data_io.get_bucket(len(tokens), self.buckets)
+        _, bucket_key = sockeye.data_io.get_bucket(len(tokens), self.buckets)
         if bucket_key is None:
             logger.warning("Input (%d) exceeds max bucket size (%d). Stripping", len(tokens), self.buckets[-1])
             bucket_key = self.buckets[-1]
