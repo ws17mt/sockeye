@@ -194,15 +194,14 @@ def _dual_learn(context: mx.context.Context,
     print("DEBUG 8b")
     orders_s = list(range(len(all_data[2])))
     orders_t = list(range(len(all_data[3])))
-    random.seed(random.randint(1, 10000))
-    random.shuffle(orders_s)
-    random.shuffle(orders_t)
+    np.random.shuffle(orders_s)
+    np.random.shuffle(orders_t)
     print("Passed!")
 
     # set up optimizers
     print("DEBUG 8c")
-    models[0].setup_optimizer(initial_learning_rate=grad_alphas[1], opt_configs=opt_configs)
-    models[1].setup_optimizer(initial_learning_rate=grad_alphas[2], opt_configs=opt_configs)
+    dec_s2t.models[0].setup_optimizer(initial_learning_rate=grad_alphas[1], opt_configs=opt_configs)
+    dec_t2s.models[0].setup_optimizer(initial_learning_rate=grad_alphas[2], opt_configs=opt_configs)
     print("Passed!")
 
     # create eval metric
@@ -224,7 +223,7 @@ def _dual_learn(context: mx.context.Context,
     while e_s < lmon[0] or e_t < lmon[0]: 
         if id_s == len(orders_s): # source monolingual data
             # shuffle the data
-            random.shuffle(orders_s)
+            np.random.shuffle(orders_s)
             
             # update epochs
             e_s += 1
@@ -232,7 +231,7 @@ def _dual_learn(context: mx.context.Context,
             id_s = 0
         if id_t == len(orders_t): # target monoingual data
             # shuffle the data
-            random.shuffle(orders_t)
+            np.random.shuffle(orders_t)
                     
             # update epochs
             e_t += 1
@@ -304,16 +303,16 @@ def _dual_learn(context: mx.context.Context,
         # 2) do forward step --> get the r1 = P(mid_hyp; mod_mlm_t)
         print("reward_1")
         reward_1 = p_dec.models[0].compute_ll(input_iter_m, metric_val)
-        print(reward_1)
+        print("reward_1=", reward_1)
 
         # set the communication reward for currently-sampled sentence from P(sentA|mid_hype; mod_am_t2s)
         # 1) bind the data {(mid_hyp, sentA)} into the model's module
         # 2) do forward step --> get the r2 = P(sentA|mid_hyp; mod_am_t2s)
         print("reward_2")
         reward_2a = p_dec_s2t.models[0].compute_ll(input_iter_s2t, metric_val)
-        print(reward_2a)
+        print("reward_2a=", reward_2a)
         reward_2b = p_dec_t2s.models[0].compute_ll(input_iter_t2s, metric_val)
-        print(reward_2b)
+        print("reward_2b=", reward_2b)
 
         # reward interpolation: r = alpha * r1 + (1 - alpha) * r2
         reward = grad_alphas[0] * reward_1 + (1.0 - grad_alphas[0]) * reward_2b
@@ -321,11 +320,9 @@ def _dual_learn(context: mx.context.Context,
         
         # do backward steps and update model parameters
         print("DEBUG 8f (learning loop) - re-update model parameters")
-        p_dec_s2t.models[0].module.backward()
-        p_dec_s2t.models[0].update_model(reward)
-        p_dec_s2t.models[1].module.backward()
-        p_dec_t2s.models[1].update_model(1.0 - grad_alphas[0])
-        print("Not Passed!")
+        p_dec_s2t.models[0].update_params(reward)
+        p_dec_t2s.models[0].update_params(1.0 - grad_alphas[0])
+        print("Passed!")
 
         if flag == False: r += 1 # next round
         

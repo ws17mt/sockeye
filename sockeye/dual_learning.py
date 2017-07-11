@@ -142,9 +142,6 @@ class TrainableInferenceModel(sockeye.inference.InferenceModel):
                    input_iter: sockeye.data_io.ParallelBucketSentenceIter, 
                    val_metric: mx.metric.CompositeEvalMetric):
         # bind the data
-        self.module.bind(data_shapes=input_iter.provide_data, label_shapes=input_iter.provide_label,
-                for_training=True, force_rebind=True, grad_req='write')
-
         input_iter.reset()
         val_metric.reset()
         
@@ -177,8 +174,13 @@ class TrainableInferenceModel(sockeye.inference.InferenceModel):
 
         return total_loss
 
-    def update_model(self, weight: float):
-        self.module.update([weight]) # FIXME: correct?
+    def update_params(self, reward_scale: float):
+        # backward step
+        self.module.backward()
+
+        # FIXME: how to update model parameters with reward-rescaled gradients?
+        self.module._curr_module._optimizer.set_wd_mult([reward_scale])
+        self.module.update()
 
     def save_params(self, output_folder: str, 
                     checkpoint: int):
