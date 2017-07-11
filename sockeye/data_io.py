@@ -785,9 +785,9 @@ class MonoBucketSentenceIter(mx.io.DataIter):
         logger.info("Vocab coverage: %.0f%%", (1 - num_of_unks / tokens) * 100)
         logger.info('Total: {0} samples in {1} buckets'.format(len(self.data_input), len(self.buckets)))
         nsamples = 0
-        for bkt in self.buckets:
-            logger.info("bucket of {0} : {1} samples".format(bkt, len(bkt)))
-            nsamples += len(bkt)
+        for bkt, buck in zip(self.buckets, self.data_input):
+            logger.info("bucket of {0} : {1} samples".format(bkt, len(buck)))
+            nsamples += len(buck)
         check_condition(nsamples > 0, "0 data points available in the data iterator. "
                         "%d data points have been discarded because they didn't fit into any bucket. Consider "
                         "increasing the --max-seq-len to fit your data." % ndiscard)
