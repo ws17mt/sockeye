@@ -709,8 +709,8 @@ class MonoBucketSentenceIter(mx.io.DataIter):
                  pad_id: int,
                  unk_id: int,
                  fill_up: Optional[str] = None,
-                 data_name=C.TARGET_NAME,
-                 label_name=C.TARGET_LABEL_NAME,
+                 data_name=C.MONO_NAME,
+                 label_name=C.MONO_LABEL_NAME,
                  dtype='float32'):
         super(MonoBucketSentenceIter, self).__init__()
 

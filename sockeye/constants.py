@@ -52,6 +52,8 @@ SOURCE_LENGTH_NAME = "source_length"
 TARGET_NAME = "target"
 TARGET_LABEL_NAME = "target_label"
 LEXICON_NAME = "lexicon"
+MONO_NAME = "mono"
+MONO_LABEL_NAME = "mono_label"
 
 SOURCE_ENCODED_NAME = "encoded_source"
 TARGET_PREVIOUS_NAME = "prev_target_word_id"
