@@ -737,9 +737,9 @@ class MonoBucketSentenceIter(mx.io.DataIter):
         self._convert_to_array()
 
         self.provide_data = [
-            mx.io.DataDesc(name=data_name, shape=(batch_size, self.default_bucket_key[0]), layout=C.BATCH_MAJOR)]
+            mx.io.DataDesc(name=data_name, shape=(batch_size, self.default_bucket_key), layout=C.BATCH_MAJOR)]
         self.provide_label = [
-            mx.io.DataDesc(name=label_name, shape=(self.batch_size, self.default_bucket_key[1]), layout=C.BATCH_MAJOR)]
+            mx.io.DataDesc(name=label_name, shape=(self.batch_size, self.default_bucket_key), layout=C.BATCH_MAJOR)]
 
         self.data_names = [self.data_name]
         self.label_names = [self.label_name]

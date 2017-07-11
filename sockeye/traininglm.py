@@ -52,7 +52,7 @@ class TrainingLModel(sockeye.training.TrainingModel):
     def __init__(self,
                  model_config: sockeye.model.ModelConfig,
                  context: List[mx.context.Context],
-                 train_iter: sockeye.data_io.ParallelBucketSentenceIter,
+                 train_iter: sockeye.data_io.MonoBucketSentenceIter,
                  fused: bool,
                  bucketing: bool,
                  lr_scheduler,
@@ -76,28 +76,31 @@ class TrainingLModel(sockeye.training.TrainingModel):
                                                  rnn_forget_bias)
 
     def _build_module(self,
-                      train_iter: sockeye.data_io.ParallelBucketSentenceIter,
+                      train_iter: sockeye.data_io.MonoBucketSentenceIter,
                       max_seq_len: int):
         """
         Initializes model components, creates training symbol and module, and binds it.
         """
-        source = mx.sym.Variable(C.SOURCE_NAME)
-        source_length = mx.sym.Variable(C.SOURCE_LENGTH_NAME)
-        labels = mx.sym.reshape(data=mx.sym.Variable(C.TARGET_LABEL_NAME), shape=(-1,))
+        source = mx.sym.Variable(C.MONO_NAME)
+        #source_length = mx.sym.Variable(C.SOURCE_LENGTH_NAME)
+        labels = mx.sym.reshape(data=mx.sym.Variable(C.MONO_LABEL_NAME), shape=(-1,))
 
         loss = sockeye.loss.get_loss(self.config)
 
         data_names = [x[0] for x in train_iter.provide_data]
+        #data_names.remove(C.SOURCE_LENGTH_NAME)
+        #data_names.remove(C.TARGET_NAME)
         label_names = [x[0] for x in train_iter.provide_label]
-
+        print(data_names)
+        print(label_names)
         def sym_gen(seq_lens):
             """
             Returns a (grouped) loss symbol given source & target input lengths.
             Also returns data and label names for the BucketingModule.
             """
-            source_seq_len, target_seq_len = seq_lens
+            source_seq_len = seq_lens
 
-            logits = self.lm.encode(source, source_length, seq_len=source_seq_len)
+            logits = self.lm.encode(source, None, seq_len=source_seq_len)
 
             outputs = loss.get_loss(logits, labels)
 
