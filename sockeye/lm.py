@@ -14,12 +14,17 @@ import sockeye.constants as C
 logger = logging.getLogger(__name__)
 
 
-def get_lm_from_encoder(encoder,
-                        dir="l2r") -> 'SharedLanguageModel':
+def get_lm_from_encoder(encoder) -> 'SharedLanguageModel':
+    """
+    Language model that shares weights with an encoder
+    """
     return None
 
 
-def get_lm_l2r_from_deccoder(decoder) -> 'SharedLanguageModel':
+def get_lm_from_decoder(decoder) -> 'SharedLanguageModel':
+    """
+    Language model that shares weights with a decoder
+    """
     return None
 
 
@@ -31,9 +36,10 @@ def get_lm_from_options(
         rnn_num_hidden,
         rnn_cell_type,
         rnn_residual_connections,
-        rnn_forget_bias
-) -> 'SharedLanguageModel':
-
+        rnn_forget_bias) -> 'SharedLanguageModel':
+    """
+    Language model with no weight sharing
+    """
     return SharedLanguageModel(
         num_embed,
         vocab_size,
@@ -105,9 +111,9 @@ class SharedLanguageModel:
         else:
             self.cls_b = mx.sym.Variable("cls_bias")  # TODO: revisit prefix
 
-    def encode(self, data, data_length, seq_len):
+    def encode(self, data, seq_len):
 
-        data = self.embedding.encode(data, data_length, seq_len)
+        data = self.embedding.encode(data, None, seq_len)
 
         self.rnn.reset()
         outputs, states = self.rnn.unroll(seq_len, inputs=data, merge_outputs=True)

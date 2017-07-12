@@ -107,7 +107,7 @@ class TrainingLModel(sockeye.training.TrainingModel):
             """
             source_seq_len = seq_lens
 
-            logits = self.lm.encode(source, None, seq_len=source_seq_len)
+            logits = self.lm.encode(source, seq_len=source_seq_len)
 
             outputs = loss.get_loss(logits, labels)
 

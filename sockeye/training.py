@@ -31,6 +31,7 @@ import sockeye.constants as C
 import sockeye.data_io
 import sockeye.inference
 import sockeye.loss
+import sockeye.lm
 import sockeye.lr_scheduler
 import sockeye.model
 import sockeye.utils
@@ -96,13 +97,18 @@ class TrainingModel(sockeye.model.SockeyeModel):
         self.lm_source_module = None
         self.lm_target_module = None
         if mono_source_iter is not None:
-            self.lm_source_module = self.build_lm_module(mono_source_iter, self.config.max_seq_len)
+            self.lm_source = sockeye.lm.get_lm_from_encoder(self.encoder)
+            self.rnn_cells.append(self.lm_source.rnn)
+            self.lm_source_module = self.build_lm_module(mono_source_iter, self.lm_source, self.config.max_seq_len)
         if mono_target_iter is not None:
-            self.lm_target_module = self.build_lm_module(mono_target_iter, self.config.max_seq_len)
+            self.lm_target = sockeye.lm.get_lm_from_decoder(self.decoder)
+            self.rnn_cells.append(self.lm_target.rnn)
+            self.lm_target_module = self.build_lm_module(mono_target_iter, self.lm_target, self.config.max_seq_len)
         self.training_monitor = None
 
     def _build_lm_module(self,
                          mono_iter: sockeye.data_io.MonoBucketSentenceIter,
+                         lm: sockeye.lm.SharedLanguageModel,
                          max_seq_len: int):
         """
         Build a sister module for training an LM
@@ -119,7 +125,7 @@ class TrainingModel(sockeye.model.SockeyeModel):
             Returns a (grouped) loss symbol given mono input length.
             Also returns data and label names for the BucketingModule
             """
-            logits = self.lm.encode(mono, None, seq_len=seq_len)
+            logits = lm.encode(mono, seq_len=seq_len)
             outputs = loss.get_loss(logits, labels)
             return mx.sym.Group(outputs), data_names, label_names
 
