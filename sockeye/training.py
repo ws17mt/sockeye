@@ -48,12 +48,14 @@ class _TrainingState:
                  epoch,
                  checkpoint,
                  updates,
-                 samples):
+                 samples,
+                 mono_epoch):
         self.num_not_improved = num_not_improved
         self.epoch = epoch
         self.checkpoint = checkpoint
         self.updates = updates
         self.samples = samples
+        self.mono_epoch = mono_epoch
 
 
 class TrainingModel(sockeye.model.SockeyeModel):
@@ -71,6 +73,8 @@ class TrainingModel(sockeye.model.SockeyeModel):
             unrolled to the full length.
     :param lr_scheduler: The scheduler that lowers the learning rate during training.
     :param rnn_forget_bias: Initial value of the RNN forget biases.
+    :param mono_source_iter: Optional iterator for monolingual source data.
+    :param mono_source_iter: Optional iterator for monolingual target data.
     """
 
     def __init__(self,
@@ -98,9 +102,41 @@ class TrainingModel(sockeye.model.SockeyeModel):
         self.training_monitor = None
 
     def _build_lm_module(self,
-                         iter: sockeye.data_io.MonoBucketSentenceIter,
+                         mono_iter: sockeye.data_io.MonoBucketSentenceIter,
                          max_seq_len: int):
-        return None
+        """
+        Build a sister module for training an LM
+        """
+        mono = mx.sym.Variable(C.MONO_NAME)
+        labels = mx.sym.reshape(data=mx.sym.Variable(C.MONO_LABEL_NAME))
+        loss = sockeye.loss.get_loss(self.config)
+
+        data_names = [x[0] for x in mono_iter.provide_data]
+        label_names = [x[0] for x in mono_iter.provide_label]
+
+        def sym_gen(seq_len):
+            """
+            Returns a (grouped) loss symbol given mono input length.
+            Also returns data and label names for the BucketingModule
+            """
+            logits = self.lm.encode(mono, None, seq_len=seq_len)
+            outputs = loss.get_loss(logits, labels)
+            return mx.sym.Group(outputs), data_names, label_names
+
+        if self.bucketing:
+            logger.info("Using bucketing. Default max_seq_len=%s", mono_iter.default_bucket_key)
+            return mx.mod.BucketingModule(sym_gen=sym_gen,
+                                          logger=logger,
+                                          default_bucket_key=mono_iter.default_bucket_key,
+                                          context=self.context)
+        else:
+            logger.info("No bucketing. Unrolled to max_seq_len=%s", max_seq_len)
+            symbol, _, __ = sym_gen(mono_iter.buckets[0])
+            return mx.mod.Module(symbol=symbol,
+                                 data_names=data_names,
+                                 label_names=label_names,
+                                 logger=logger,
+                                 context=self.context)
 
     def _build_module(self,
                       train_iter: sockeye.data_io.ParallelBucketSentenceIter,
@@ -166,6 +202,18 @@ class TrainingModel(sockeye.model.SockeyeModel):
                 raise ValueError("unknown metric name")
         return mx.metric.create(metrics)
 
+    def _prime_module(self, module, train_iter, output_folder, symbol_name, initializer, optimizer, optimizer_params):
+        if module is not None:
+            module.bind(data_shapes=train_iter.provide_data, label_shapes=train_iter.provide_label,
+                        for_training=True, force_rebind=True, grad_req='write')
+
+            module.symbol.save(os.path.join(output_folder, symbol_name))
+
+            module.init_params(initializer=initializer, arg_params=self.params, aux_params=None,
+                               allow_missing=False, force_init=False)
+
+            module.init_optimizer(kvstore='device', optimizer=optimizer, optimizer_params=optimizer_params)
+
     def fit(self,
             train_iter: sockeye.data_io.ParallelBucketSentenceIter,
             val_iter: sockeye.data_io.ParallelBucketSentenceIter,
@@ -180,7 +228,9 @@ class TrainingModel(sockeye.model.SockeyeModel):
             max_num_not_improved: int = 3,
             min_num_epochs: Optional[int] = None,
             monitor_bleu: int = 0,
-            use_tensorboard: bool = False):
+            use_tensorboard: bool = False,
+            mono_source_iter: sockeye.data_io.MonoBucketSentenceIter=None,
+            mono_target_iter: sockeye.data_io.MonoBucketSentenceIter=None):
         """
         Fits model to data given by train_iter using early-stopping w.r.t data given by val_iter.
         Saves all intermediate and final output to output_folder
@@ -205,14 +255,12 @@ class TrainingModel(sockeye.model.SockeyeModel):
         """
         self.save_config(output_folder)
 
-        self.module.bind(data_shapes=train_iter.provide_data, label_shapes=train_iter.provide_label,
-                         for_training=True, force_rebind=True, grad_req='write')
-        self.module.symbol.save(os.path.join(output_folder, C.SYMBOL_NAME))
-
-        self.module.init_params(initializer=initializer, arg_params=self.params, aux_params=None,
-                                allow_missing=False, force_init=False)
-
-        self.module.init_optimizer(kvstore='device', optimizer=optimizer, optimizer_params=optimizer_params)
+        self._prime_module(self.module, train_iter, output_folder,
+                           C.SYMBOL_NAME, initializer, optimizer, optimizer_params)
+        self._prime_module(self.lm_source_module, mono_source_iter, output_folder,
+                           C.L2R_SOURCE_SYMBOL_NAME, initializer, optimizer, optimizer_params)
+        self._prime_module(self.lm_target_module, mono_target_iter, output_folder,
+                           C.TARGET_SYMBOL_NAME, initializer, optimizer, optimizer_params)
 
         checkpoint_decoder = sockeye.checkpoint_decoder.CheckpointDecoder(self.context[-1],
                                                                           self.config.data_info.validation_source,
@@ -231,13 +279,41 @@ class TrainingModel(sockeye.model.SockeyeModel):
                   max_updates=max_updates,
                   checkpoint_frequency=checkpoint_frequency,
                   max_num_not_improved=max_num_not_improved,
-                  min_num_epochs=min_num_epochs)
+                  min_num_epochs=min_num_epochs,
+                  mono_source_iter=mono_source_iter,
+                  mono_target_iter=mono_target_iter)
 
         logger.info("Training finished. Best checkpoint: %d. Best validation %s: %.6f",
                     self.training_monitor.get_best_checkpoint(),
                     self.training_monitor.optimized_metric,
                     self.training_monitor.get_best_validation_score())
         return self.training_monitor.get_best_validation_score()
+
+    def _update_mono(self,
+                     mono_iter,
+                     module,
+                     next_data_batch,
+                     train_state,
+                     metric):
+        if mono_iter is not None:
+            if not mono_iter.iter_next():
+                train_state.epoch[mono_iter.name] += 1
+                mono_iter.reset()
+
+            # process batch
+            batch = next_data_batch
+            module.forward_backward(batch)
+            module.update()
+
+            if mono_iter.iter_next():
+                # pre-fetch next batch
+                next_data_batch = mono_iter.next()
+                module.prepare(next_data_batch)
+
+            if metric is not None:
+                module.update_metric(metric, batch.label)
+
+            return next_data_batch
 
     def _fit(self,
              train_iter: sockeye.data_io.ParallelBucketSentenceIter,
@@ -247,7 +323,9 @@ class TrainingModel(sockeye.model.SockeyeModel):
              max_updates: int,
              checkpoint_frequency: int,
              max_num_not_improved: int,
-             min_num_epochs: Optional[int] = None):
+             min_num_epochs: Optional[int] = None,
+             mono_source_iter: sockeye.data_io.MonoBucketSentenceIter=None,
+             mono_target_iter: sockeye.data_io.MonoBucketSentenceIter=None):
         """
         Internal fit method. Runtime determined by early stopping.
 
@@ -266,17 +344,27 @@ class TrainingModel(sockeye.model.SockeyeModel):
 
         training_state_dir = os.path.join(output_folder, C.TRAINING_STATE_DIRNAME)
         if os.path.exists(training_state_dir):
-            train_state = self.load_checkpoint(training_state_dir, train_iter)
+            train_state = self.load_checkpoint(training_state_dir, train_iter, mono_source_iter, mono_target_iter)
         else:
+            # TODO: Consider having one _TrainingState per task (remove mono_epoch dict)
             train_state = _TrainingState(
                 num_not_improved=0,
                 epoch=0,
                 checkpoint=0,
                 updates=0,
-                samples=0
+                samples=0,
+                mono_epoch={}
             )
 
         next_data_batch = train_iter.next()
+        next_source_batch = None
+        next_target_batch = None
+        if mono_source_iter is not None:
+            next_source_batch = mono_source_iter.next()
+            train_state.mono_epoch[mono_source_iter.name] = 0
+        if mono_target_iter is not None:
+            next_target_batch = mono_target_iter.next()
+            train_state.mono_epoch[mono_target_iter.name] = 0
 
         while max_updates == -1 or train_state.updates < max_updates:
             if not train_iter.iter_next():
@@ -294,9 +382,18 @@ class TrainingModel(sockeye.model.SockeyeModel):
                 self.module.prepare(next_data_batch)
 
             self.module.update_metric(metric_train, batch.label)
+
+            # TODO: Add real metrics to the LM objectives
+            next_source_batch = self._update_mono(mono_source_iter, self.lm_source_module,
+                                                  next_source_batch, train_state, None)
+            next_target_batch = self._update_mono(mono_target_iter, self.lm_target_module,
+                                                  next_target_batch, train_state, None)
+
+            # TODO: Move into _update_mono
             self.training_monitor.batch_end_callback(train_state.epoch, train_state.updates, metric_train)
             train_state.updates += 1
             train_state.samples += train_iter.batch_size
+            # End TODO
 
             if train_state.updates > 0 and train_state.updates % checkpoint_frequency == 0:
                 train_state.checkpoint += 1
@@ -348,7 +445,7 @@ class TrainingModel(sockeye.model.SockeyeModel):
                             shutil.rmtree(final_training_state_dirname)
                         break
 
-                self._checkpoint(train_state, output_folder, train_iter)
+                self._checkpoint(train_state, output_folder, train_iter, mono_source_iter, mono_target_iter)
 
     def _save_params(self, output_folder: str, checkpoint: int):
         """
@@ -376,7 +473,28 @@ class TrainingModel(sockeye.model.SockeyeModel):
 
         return self.training_monitor.eval_end_callback(training_state.checkpoint, val_metric)
 
-    def _checkpoint(self, training_state: _TrainingState, output_folder: str, train_iter: sockeye.data_io.ParallelBucketSentenceIter):
+    def _module_checkpoint(self, training_state_dirname,
+                           train_iter, iter_file,
+                           module, module_file):
+        if train_iter is not None:
+            # Optimizer state (from mxnet)
+            opt_state_fname = os.path.join(training_state_dirname, module_file)
+            if self.bucketing:
+                # This is a bit hacky, as BucketingModule does not provide a
+                # save_optimizer_states call. We take the current active module and
+                # save its state. This should work, as the individual modules in
+                # BucketingModule share the same optimizer through
+                # borrow_optimizer.
+                self.module._curr_module.save_optimizer_states(opt_state_fname)
+            else:
+                self.module.save_optimizer_states(opt_state_fname)
+
+            # State of the bucket iterator
+            train_iter.save_state(os.path.join(training_state_dirname, iter_file))
+
+    def _checkpoint(self, training_state: _TrainingState, output_folder: str, train_iter: sockeye.data_io.ParallelBucketSentenceIter,
+                    mono_source_iter: sockeye.data_io.MonoBucketSentenceIter,
+                    mono_target_iter: sockeye.data_io.MonoBucketSentenceIter):
         """
         Saves checkpoint. Note that the parameters are saved in _save_params.
         """
@@ -388,27 +506,24 @@ class TrainingModel(sockeye.model.SockeyeModel):
         params_base_fname = C.PARAMS_NAME % training_state.checkpoint
         os.symlink(os.path.join("..", params_base_fname), os.path.join(training_state_dirname, C.TRAINING_STATE_PARAMS_NAME))
 
-        # Optimizer state (from mxnet)
-        opt_state_fname = os.path.join(training_state_dirname, C.MODULE_OPT_STATE_NAME)
-        if self.bucketing:
-            # This is a bit hacky, as BucketingModule does not provide a
-            # save_optimizer_states call. We take the current active module and
-            # save its state. This should work, as the individual modules in
-            # BucketingModule share the same optimizer through
-            # borrow_optimizer.
-            self.module._curr_module.save_optimizer_states(opt_state_fname)
-        else:
-            self.module.save_optimizer_states(opt_state_fname)
+        self._module_checkpoint(training_state_dirname,
+                                train_iter, C.BUCKET_ITER_STATE_NAME,
+                                self.module, C.MODULE_OPT_STATE_NAME)
 
-        # State of the bucket iterator
-        train_iter.save_state(os.path.join(training_state_dirname, C.BUCKET_ITER_STATE_NAME))
+        self._module_checkpoint(training_state_dirname,
+                                mono_source_iter, C.SOURCE_BUCKET_ITER_STATE_NAME,
+                                self.lm_source_module, C.SOURCE_MODULE_OPT_STATE_NAME)
+
+        self._module_checkpoint(training_state_dirname,
+                                mono_target_iter, C.TARGET_BUCKET_ITER_STATE_NAME,
+                                self.lm_target_module, C.TARGET_MODULE_OPT_STATE_NAME)
 
         # RNG states: python's random and np.random provide functions for
         # storing the state, mxnet does not, but inside our code mxnet's RNG is
         # not used AFAIK
         with open(os.path.join(training_state_dirname, C.RNG_STATE_NAME), "wb") as fp:
             pickle.dump(random.getstate(), fp)
-            pickle.dump(np.random.get_state(), fp) # Yes, one uses _, the other does not
+            pickle.dump(np.random.get_state(), fp)  # Yes, one uses _, the other does not
 
         # Monitor state, in order to get the full information about the metrics
         self.training_monitor.save_state(os.path.join(training_state_dirname, C.MONITOR_STATE_NAME))
@@ -454,7 +569,28 @@ class TrainingModel(sockeye.model.SockeyeModel):
             training_state = pickle.load(fp)
         return training_state
 
-    def load_checkpoint(self, directory: str, train_iter: sockeye.data_io.ParallelBucketSentenceIter) -> _TrainingState:
+    def _load_checkpoint(self,
+                         directory: str,
+                         train_iter,
+                         iter_file: str,
+                         module: mx.mod.Module,
+                         module_file: str):
+        if train_iter is not None:
+            # Source optimzer state (from mxnet)
+            opt_state_fname = os.path.join(directory, module_file)
+            if self.bucketing:
+                # Same hacky solution as for saving the state
+                module._curr_module.load_optimizer_states(opt_state_fname)
+            else:
+                module.load_optimizer_states(opt_state_fname)
+
+            # State of the bucket iterator
+            train_iter.load_state(os.path.join(directory, iter_file))
+
+    def load_checkpoint(self, directory: str,
+                        train_iter: sockeye.data_io.ParallelBucketSentenceIter,
+                        mono_source_iter: sockeye.data_io.MonoBucketSentenceIter,
+                        mono_target_iter: sockeye.data_io.MonoBucketSentenceIter) -> _TrainingState:
         """
         Loads the full training state from disk. This includes optimizer,
         random number generators and everything needed.  Note that params
@@ -463,17 +599,15 @@ class TrainingModel(sockeye.model.SockeyeModel):
         :param directory: directory where the state has been saved.
         :param train_iter: training data iterator.
         """
-
-        # Optimzer state (from mxnet)
-        opt_state_fname = os.path.join(directory, C.MODULE_OPT_STATE_NAME)
-        if self.bucketing:
-            # Same hacky solution as for saving the state
-            self.module._curr_module.load_optimizer_states(opt_state_fname)
-        else:
-            self.module.load_optimizer_states(opt_state_fname)
-
-        # State of the bucket iterator
-        train_iter.load_state(os.path.join(directory, C.BUCKET_ITER_STATE_NAME))
+        self._load_checkpoint(directory,
+                              train_iter, C.BUCKET_ITER_STATE_NAME,
+                              self.module, C.MODULE_OPT_STATE_NAME)
+        self._load_checkpoint(directory,
+                              mono_source_iter, C.SOURCE_BUCKET_ITER_STATE_NAME,
+                              self.lm_source_module, C.SOURCE_MODULE_OPT_STATE_NAME)
+        self._load_checkpoint(directory,
+                              mono_target_iter, C.TARGET_BUCKET_ITER_STATE_NAME,
+                              self.lm_target_module, C.TARGET_MODULE_OPT_STATE_NAME)
 
         # RNG states: python's random and np.random provide functions for
         # storing the state, mxnet does not, but inside our code mxnet's RNG is
