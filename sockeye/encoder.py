@@ -34,7 +34,8 @@ def get_encoder(num_embed: int,
                 residual: bool,
                 dropout: float,
                 forget_bias: float,
-                fused: bool = False) -> 'Encoder':
+                fused: bool = False,
+                initialize_embedding: bool = True) -> 'Encoder':
     """
     Returns an encoder with embedding, batch2time-major conversion, and bidirectional RNN encoder.
     If num_layers > 1, adds uni-directional RNNs.
@@ -52,10 +53,13 @@ def get_encoder(num_embed: int,
     """
     # TODO give more control on encoder architecture
     encoders = list()
-    encoders.append(Embedding(num_embed=num_embed,
-                              vocab_size=vocab_size,
-                              prefix=C.SOURCE_EMBEDDING_PREFIX,
-                              dropout=dropout))
+    # Only add the embedding encoder if it is not meant to be externally supplied
+    if initialize_embedding:
+        encoders.append(Embedding(num_embed=num_embed,
+                                  vocab_size=vocab_size,
+                                  prefix=C.SOURCE_EMBEDDING_PREFIX,
+                                  dropout=dropout))
+
     encoders.append(BatchMajor2TimeMajor())
 
     EncoderClass = FusedRecurrentEncoder if fused else RecurrentEncoder

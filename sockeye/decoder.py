@@ -38,7 +38,8 @@ def get_decoder(num_embed: int,
                 dropout=0.,
                 weight_tying: bool = False,
                 lexicon: Optional[sockeye.lexicon.Lexicon] = None,
-                context_gating: bool = False) -> 'Decoder':
+                context_gating: bool = False,
+                initialize_embedding:bool = True) -> 'Decoder':
     """
     Returns a StackedRNNDecoder with the following properties.
     
@@ -67,7 +68,8 @@ def get_decoder(num_embed: int,
                              residual=residual,
                              forget_bias=forget_bias,
                              lexicon=lexicon,
-                             context_gating=context_gating)
+                             context_gating=context_gating,
+                             initialize_embedding=initialize_embedding)
 
 
 class Decoder:
@@ -138,7 +140,8 @@ class StackedRNNDecoder(Decoder):
                  residual: bool = False,
                  forget_bias: float = 0.0,
                  lexicon: Optional[sockeye.lexicon.Lexicon] = None,
-                 context_gating: bool = False) -> None:
+                 context_gating: bool = False,
+                 initialize_embedding: bool = True) -> None:
         # TODO: implement variant without input feeding
         self.num_layers = num_layers
         self.prefix = prefix
@@ -167,8 +170,10 @@ class StackedRNNDecoder(Decoder):
         self.hidden_w = mx.sym.Variable("%shidden_weight" % prefix)
         self.hidden_b = mx.sym.Variable("%shidden_bias" % prefix)
         # Embedding & output parameters
-        self.embedding = sockeye.encoder.Embedding(self.num_target_embed, self.target_vocab_size,
-                                                   prefix=C.TARGET_EMBEDDING_PREFIX, dropout=0.)  # TODO dropout?
+        self.embedding = None
+        if initialize_embedding:
+            self.embedding = sockeye.encoder.Embedding(self.num_target_embed, self.target_vocab_size,
+                                                       prefix=C.TARGET_EMBEDDING_PREFIX, dropout=0.)  # TODO dropout?
         if weight_tying:
             assert self.num_hidden == self.num_target_embed, \
                 "Weight tying requires target embedding size and rnn_num_hidden to be equal"
@@ -323,7 +328,8 @@ class StackedRNNDecoder(Decoder):
                source_length: mx.sym.Symbol,
                target: mx.sym.Symbol,
                target_seq_len: int,
-               source_lexicon: Optional[mx.sym.Symbol] = None) -> mx.sym.Symbol:
+               source_lexicon: Optional[mx.sym.Symbol] = None,
+               embedding = None) -> mx.sym.Symbol:
         """
         Returns decoder logits with batch size and target sequence length collapsed into a single dimension.
 
@@ -342,7 +348,10 @@ class StackedRNNDecoder(Decoder):
 
         # embed and slice target words
         # target_embed: (batch_size, target_seq_len, num_target_embed)
-        target_embed = self.embedding.encode(target, None, target_seq_len)
+        if embedding is None:
+            target_embed = embedding.encode(target, None, target_seq_len)
+        else:
+            target_embed = self.embedding.encode(target, None, target_seq_len)
         # target_embed: target_seq_len * (batch_size, num_target_embed)
         target_embed = mx.sym.split(data=target_embed, num_outputs=target_seq_len, axis=1, squeeze_axis=True)
 
@@ -408,7 +417,8 @@ class StackedRNNDecoder(Decoder):
                 attention_func: Callable,
                 attention_state_prev: sockeye.attention.AttentionState,
                 source_lexicon: Optional[mx.sym.Symbol] = None,
-                softmax_temperature: Optional[float] = None) -> Tuple[mx.sym.Symbol,
+                softmax_temperature: Optional[float] = None,
+                embedding=None) -> Tuple[mx.sym.Symbol,
                                                                       DecoderState,
                                                                       sockeye.attention.AttentionState]:
         """
@@ -425,8 +435,11 @@ class StackedRNNDecoder(Decoder):
         :param softmax_temperature: Optional parameter to control steepness of softmax distribution.
         :return: (predicted next-word distribution, decoder state, attention state).
         """
-        # target side embedding
-        word_vec_prev = self.embedding.encode(word_id_prev, None, 1)
+        # target side embedding (use external embedding when provided)
+        if embedding is None:
+            word_vec_prev = self.embedding.encode(word_id_prev, None, 1)
+        else:
+            word_vec_prev = embedding.encode(word_id_prev, None, 1)
 
         # state.hidden: (batch_size, rnn_num_hidden)
         # attention_state.dynamic_source: (batch_size, source_seq_len, coverage_num_hidden)

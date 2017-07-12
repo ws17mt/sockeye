@@ -80,14 +80,23 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
                  fused: bool,
                  bucketing: bool,
                  lr_scheduler,
-                 rnn_forget_bias: float) -> None:
+                 rnn_forget_bias: float,
+                 vocab_source,
+                 vocab_target,
+                 e_embedding,
+                 f_embedding) -> None:
         super().__init__(model_config)
         self.context = context
         self.lr_scheduler = lr_scheduler
         self.bucketing = bucketing
-        self._build_model_components(self.config.max_seq_len, fused, rnn_forget_bias)
+        self.f_embedding = f_embedding
+        self.e_embedding = e_embedding
+        self._build_model_components(self.config.max_seq_len, fused, rnn_forget_bias, initialize_embedding=False)
         self.module = self._build_module(train_iter, self.config.max_seq_len)
         self.training_monitor = None
+        self.vocab_source = vocab_source
+        self.vocab_target = vocab_target
+
 
     def _build_module(self,
                       train_iter: sockeye.data_io.ParallelBucketSentenceIter,
@@ -105,6 +114,7 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
         data_names = [x[0] for x in train_iter.provide_data]
         label_names = [x[0] for x in train_iter.provide_label]
 
+
         def sym_gen(seq_lens):
             """
             Returns a (grouped) loss symbol given source & target input lengths.
@@ -112,13 +122,30 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
             """
             source_seq_len, target_seq_len = seq_lens
 
+            # Process f->f and f->e
+            # Add the f embedding "encoder" to the list of encoders.
+            self.encoder.encoders = [self.f_embedding] + self.encoder.encoders
             source_encoded = self.encoder.encode(source, source_length, seq_len=source_seq_len)
             source_lexicon = self.lexicon.lookup(source) if self.lexicon else None
 
-            logits = self.decoder.decode(source_encoded, source_seq_len, source_length,
-                                         target, target_seq_len, source_lexicon)
+            # This is the autoencoder. It will use the f_embedding matrix
+            logits_autoencoder = self.decoder.decode(source_encoded, source_seq_len, source_length,
+                                                     target, target_seq_len, source_lexicon,
+                                                     self.f_embedding)
 
-            outputs = loss.get_loss(logits, labels)
+            #logits_transfer = self.decoder.decode(source_encoded, source_seq_len, source_length,
+            #                                        target=None, target_seq_len, source_lexicon)
+
+            #transfer_generator = sockeye.inference.Translator(context=self.context,
+            #                                                  ensemble_mode='linear',
+            #                                                  models=[self.model_inference],
+            #                                                  vocab_source=self.vocab_source,
+            #                                                  vocab_target=self.vocab_target)
+
+            #logits_transfer = self.decoder.decode(source_encoded, source_seq_len, source_length,
+            #                                      target, target_seq_len, source_lexicon)
+
+            outputs = loss.get_loss(logits_autoencoder, labels)
 
             return mx.sym.Group(outputs), data_names, label_names
 
