@@ -830,8 +830,8 @@ class MonoBucketSentenceIter(mx.io.DataIter):
                     raise NotImplementedError
                 elif self.fill_up == 'replicate':
                     logger.info(
-                        "%s: Replicating %d random examples from bucket %s to size it to multiple of batch size %d", rest,
-                        self.name, buck_shape, self.batch_size)
+                        "%s: Replicating %d random examples from bucket %s to size it to multiple of batch size %d",
+                        self.name, rest, buck_shape, self.batch_size)
                     random_indices = np.random.randint(self.data_input[i].shape[0], size=rest)
 
                     self.data_input[i] = np.concatenate((self.data_input[i], self.data_input[i][random_indices, :]),
