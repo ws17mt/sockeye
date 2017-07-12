@@ -23,18 +23,18 @@ import argparse
     ('--source test_src --target test_tgt '
      '--validation-source test_validation_src --validation-target test_validation_tgt '
      '--output test_output',
-     dict(source='test_src', target='test_tgt',
+     dict(source='test_src', target='test_tgt', no_bos=False,
           validation_source='test_validation_src', validation_target='test_validation_tgt',
           output='test_output', overwrite_output=False,
           source_vocab=None, target_vocab=None, use_tensorboard=False, quiet=False)),
 
     # all parameters
-    ('--source test_src --target test_tgt '
+    ('--source test_src --target test_tgt --no-bos '
      '--validation-source test_validation_src --validation-target test_validation_tgt '
      '--output test_output '
      '--source-vocab test_src_vocab --target-vocab test_tgt_vocab '
      '--use-tensorboard --overwrite-output --quiet',
-     dict(source='test_src', target='test_tgt',
+     dict(source='test_src', target='test_tgt', no_bos=True,
           validation_source='test_validation_src', validation_target='test_validation_tgt',
           output='test_output', overwrite_output=True,
           source_vocab='test_src_vocab', target_vocab='test_tgt_vocab', use_tensorboard=True, quiet=True)),
@@ -43,7 +43,7 @@ import argparse
     ('-s test_src -t test_tgt '
      '-vs test_validation_src -vt test_validation_tgt '
      '-o test_output -q',
-     dict(source='test_src', target='test_tgt',
+     dict(source='test_src', target='test_tgt', no_bos=False,
           validation_source='test_validation_src', validation_target='test_validation_tgt',
           output='test_output', overwrite_output=False,
           source_vocab=None, target_vocab=None, use_tensorboard=False, quiet=True))
@@ -118,19 +118,19 @@ def test_training_arg(test_params, expected_params):
 
 
 @pytest.mark.parametrize("test_params, expected_params", [
-    ('--models m1 m2 m3', dict(input=None, output=None, models=['m1', 'm2', 'm3'],
+    ('--models m1 m2 m3', dict(input=None, set_bos=None, output=None, models=['m1', 'm2', 'm3'],
                                checkpoints=None, beam_size=5, ensemble_mode='linear',
                                max_input_len=None, softmax_temperature=None, output_type='translation',
                                sure_align_threshold=0.9)),
-    ('--input test_input --output test_output --models m1 m2 m3 --checkpoints 1 2 3 --beam-size 10 '
-     '--ensemble-mode log_linear --max-input-len 10 --softmax-temperature 1.0 '
+    ('--input test_input --set-bos bos --output test_output --models m1 m2 m3 --checkpoints 1 2 3 '
+     '--beam-size 10 --ensemble-mode log_linear --max-input-len 10 --softmax-temperature 1.0 '
      '--output-type translation_with_alignments --sure-align-threshold 1.0',
-     dict(input='test_input', output='test_output', models=['m1', 'm2', 'm3'],
+     dict(input='test_input', set_bos='bos', output='test_output', models=['m1', 'm2', 'm3'],
           checkpoints=[1, 2, 3], beam_size=10, ensemble_mode='log_linear',
           max_input_len=10, softmax_temperature=1.0,
           output_type='translation_with_alignments', sure_align_threshold=1.0)),
     ('-i test_input -o test_output -m m1 m2 m3 -c 1 2 3 -b 10 -n 10',
-     dict(input='test_input', output='test_output', models=['m1', 'm2', 'm3'],
+     dict(input='test_input', set_bos=None, output='test_output', models=['m1', 'm2', 'm3'],
           checkpoints=[1, 2, 3], beam_size=10, ensemble_mode='linear',
           max_input_len=10, softmax_temperature=None, output_type='translation', sure_align_threshold=0.9))
 ])

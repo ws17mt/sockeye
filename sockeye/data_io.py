@@ -120,9 +120,9 @@ def read_parallel_corpus(data_source: str,
     return source_sentences, target_sentences
 
 
-def get_data_iters(source_sentences: List[List[int]], 
+def get_data_iters(source_sentences: List[List[int]],
                    target_sentences: List[List[int]],
-                   vocab_source: Dict[str, int], 
+                   vocab_source: Dict[str, int],
                    vocab_target: Dict[str, int],
                    batch_size: int,
                    fill_up: str,
@@ -161,15 +161,15 @@ def get_data_iters(source_sentences: List[List[int]],
     return data_iter
 
 
-def get_data_iters(source: str, 
-                   target: str,
-                   vocab_source: Dict[str, int], 
-                   vocab_target: Dict[str, int],
-                   batch_size: int,
-                   fill_up: str,
-                   max_seq_len: int,
-                   bucketing: bool,
-                   bucket_width: int) -> 'ParallelBucketSentenceIter':
+def get_data_iters_from_filenames(source: str,
+                                  target: str,
+                                  vocab_source: Dict[str, int],
+                                  vocab_target: Dict[str, int],
+                                  batch_size: int,
+                                  fill_up: str,
+                                  max_seq_len: int,
+                                  bucketing: bool,
+                                  bucket_width: int) -> 'ParallelBucketSentenceIter':
     """
     Returns data iterators for data.
     :param source: Path to source training data.
@@ -188,7 +188,7 @@ def get_data_iters(source: str,
                                                               target,
                                                               vocab_source,
                                                               vocab_target)
-    
+
     length_ratio = sum(len(t) / float(len(s)) for t, s in zip(source_sentences, target_sentences)) / len(target_sentences)
     logger.info("Average target/source data length ratio: %.2f", length_ratio)
 
