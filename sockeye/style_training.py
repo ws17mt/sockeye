@@ -89,13 +89,14 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
         self.context = context
         self.lr_scheduler = lr_scheduler
         self.bucketing = bucketing
+        self.f_embedding = f_embedding
+        self.e_embedding = e_embedding
         self._build_model_components(self.config.max_seq_len, fused, rnn_forget_bias, initialize_embedding=False)
-        self.module = self._build_module(train_iter, self.config.max_seq_len, f_embedding, e_embedding)
+        self.module = self._build_module(train_iter, self.config.max_seq_len)
         self.training_monitor = None
         self.vocab_source = vocab_source
         self.vocab_target = vocab_target
-        self.f_embedding = f_embedding
-        self.e_embedding = e_embedding
+
 
     def _build_module(self,
                       train_iter: sockeye.data_io.ParallelBucketSentenceIter,
@@ -112,6 +113,7 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
 
         data_names = [x[0] for x in train_iter.provide_data]
         label_names = [x[0] for x in train_iter.provide_label]
+
 
         def sym_gen(seq_lens):
             """
