@@ -4,6 +4,8 @@ import mxnet as mx
 
 import sockeye.data_io
 import sockeye.style_training
+import sockeye.inference
+import sockeye.encoder
 import sockeye.constants as C
 from sockeye.log import setup_main_logger
 
@@ -14,6 +16,8 @@ logger = setup_main_logger(__name__, file_logging=False, console=True)
 source = "/Users/gaurav/Dropbox/Projects/JSALT17-NMT-Lab/data/multi30k/train-toy.de.atok"
 target = "/Users/gaurav/Dropbox/Projects/JSALT17-NMT-Lab/data/multi30k/train-toy.en.atok"
 
+output_folder="/Users/gaurav/Dropbox/Projects/sockeye/sockeye/out"
+
 # TODO: hard-coded stuff; remove when user args are back.
 lr_scheduler = None
 num_embed_source = 32
@@ -21,7 +25,7 @@ num_embed_target = 32
 attention_type="fixed" # TODO:Fix
 attention_num_hidden = 32
 dropout=0.1
-rnn_cell_type="gru"
+rnn_cell_type=C.GRU_TYPE
 rnn_num_layers=1
 rnn_num_hidden=32
 num_words = 10000
@@ -42,6 +46,16 @@ vocab_source_size = len(vocab_source)
 vocab_target_size = len(vocab_target)
 logger.info("Vocabulary sizes: source=%d target=%d", vocab_source_size, vocab_target_size)
 
+e_embedding = sockeye.encoder.Embedding(num_embed=num_embed_target,
+                                         vocab_size=vocab_source_size,
+                                         prefix=C.SOURCE_EMBEDDING_PREFIX,
+                                         dropout=dropout)
+
+f_embedding = sockeye.encoder.Embedding(num_embed=num_embed_target,
+                                         vocab_size=vocab_target_size,
+                                         prefix=C.TARGET_EMBEDDING_PREFIX,
+                                         dropout=dropout)
+
 # NamedTuple which will keep track of stuff
 data_info = sockeye.data_io.StyleDataInfo(os.path.abspath(source),
                                           os.path.abspath(target),
@@ -57,7 +71,8 @@ source_train_iter = sockeye.data_io.get_style_training_data_iters(
                         fill_up=True,
                         max_seq_len=max_seq_len,
                         bucketing=False,
-                        bucket_width=100
+                        bucket_width=100,
+                        target_bos_symbol=C.F_BOS_SYMBOL
                     )
 
 # This is the actual target side processing which will return iterators
@@ -69,9 +84,9 @@ target_train_iter = sockeye.data_io.get_style_training_data_iters(
                         fill_up=True,
                         max_seq_len=max_seq_len,
                         bucketing=False,
-                        bucket_width=100
+                        bucket_width=100,
+                        target_bos_symbol=C.E_BOS_SYMBOL
                     )
-
 
 # TODO: Look at the model config in train.py
 # This has several "simple" options to make things work
@@ -99,14 +114,20 @@ model_config = sockeye.model.ModelConfig(max_seq_len=max_seq_len,
                                          normalize_loss=False,
                                          smoothed_cross_entropy_alpha=0.3)
 
-
 model = sockeye.style_training.StyleTrainingModel(model_config=model_config,
                                                   context=context,
                                                   train_iter=source_train_iter,
                                                   fused=False,
                                                   bucketing=False,
                                                   lr_scheduler=lr_scheduler,
-                                                  rnn_forget_bias=0.0)
+                                                  rnn_forget_bias=0.0,
+                                                  vocab_source=vocab_source,
+                                                  vocab_target=vocab_target,
+                                                  e_embedding=e_embedding,
+                                                  f_embedding=f_embedding
+                                                  )
+
+#import sys; sys.exit()
 
 # For lexical bias, set to None
 lexicon = None
@@ -124,7 +145,7 @@ optimizer_params["rescale_grad"] = 1.0 / batch_size
 logger.info("Optimizer: %s", optimizer)
 logger.info("Optimizer Parameters: %s", optimizer_params)
 
-output_folder="/Users/gaurav/Dropbox/Projects/sockeye/sockeye/out"
+
 
 model.fit(source_train_iter,
           output_folder=output_folder,

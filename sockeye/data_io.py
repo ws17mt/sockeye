@@ -88,7 +88,8 @@ def get_bucket(seq_len: int, buckets: List[int]) -> Optional[int]:
 def read_parallel_corpus(data_source: str,
                          data_target: str,
                          vocab_source: Dict[str, int],
-                         vocab_target: Dict[str, int]) -> Tuple[List[List[int]], List[List[int]]]:
+                         vocab_target: Dict[str, int],
+                         target_bos_symbol = None) -> Tuple[List[List[int]], List[List[int]]]:
     """
     Loads source and target data, making sure they have the same length.
 
@@ -98,8 +99,8 @@ def read_parallel_corpus(data_source: str,
     :param vocab_target: Target vocabulary.
     :return: Tuple of (source sentences, target sentences).
     """
-    source_sentences = read_sentences(data_source, vocab_source, add_bos=False)
-    target_sentences = read_sentences(data_target, vocab_target, add_bos=True)
+    source_sentences = read_sentences(data_source, vocab_source, bos_symbol=target_bos_symbol, add_bos=False)
+    target_sentences = read_sentences(data_target, vocab_target, bos_symbol=target_bos_symbol, add_bos=True)
     assert len(source_sentences) == len(
         target_sentences), "Number of source sentences does not match number of target sentences"
     return source_sentences, target_sentences
@@ -174,7 +175,8 @@ def get_style_training_data_iters(source: str,
                                   fill_up: str,
                                   max_seq_len: int,
                                   bucketing: bool,
-                                  bucket_width: int) -> 'ParallelBucketSentenceIter':
+                                  bucket_width: int,
+                                  target_bos_symbol) -> 'ParallelBucketSentenceIter':
     """
     Returns data iterators for training and validation data.
 
@@ -193,7 +195,8 @@ def get_style_training_data_iters(source: str,
     train_source_sentences, train_target_sentences = read_parallel_corpus(source,
                                                                           source,
                                                                           vocab,
-                                                                          vocab)
+                                                                          vocab,
+                                                                          target_bos_symbol=target_bos_symbol)
     # define buckets
     buckets = define_parallel_buckets(max_seq_len, bucket_width, length_ratio) if bucketing else [
         (max_seq_len, max_seq_len)]
@@ -304,7 +307,7 @@ def tokens2ids(tokens: Iterable[str], vocab: Dict[str, int]) -> List[int]:
     return [vocab.get(w, vocab[C.UNK_SYMBOL]) for w in tokens]
 
 
-def read_sentences(path: str, vocab: Dict[str, int], add_bos=False, limit=None) -> List[List[int]]:
+def read_sentences(path: str, vocab: Dict[str, int], add_bos=False, limit=None, bos_symbol=None) -> List[List[int]]:
     """
     Reads sentences from path and creates word id sentences.
 
@@ -317,14 +320,18 @@ def read_sentences(path: str, vocab: Dict[str, int], add_bos=False, limit=None) 
     assert C.UNK_SYMBOL in vocab
     assert C.UNK_SYMBOL in vocab
     assert vocab[C.PAD_SYMBOL] == C.PAD_ID
-    assert C.BOS_SYMBOL in vocab
+    if bos_symbol is not None:
+        assert bos_symbol in vocab
+    else:
+        assert C.BOS_SYMBOL in vocab
+        bos_symbol = C.BOS_SYMBOL
     assert C.EOS_SYMBOL in vocab
     sentences = []
     for sentence_tokens in read_content(path, limit):
         sentence = tokens2ids(sentence_tokens, vocab)
         assert len(sentence) > 0, "Empty sentence in file %s" % path
         if add_bos:
-            sentence.insert(0, vocab[C.BOS_SYMBOL])
+            sentence.insert(0, vocab[bos_symbol])
         sentences.append(sentence)
     logger.info("%d sentences loaded from '%s'", len(sentences), path)
     return sentences

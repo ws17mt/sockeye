@@ -15,17 +15,20 @@
 Defines various constants used througout the project
 """
 
+E_BOS_SYMBOL = "<s_e>"
+F_BOS_SYMBOL = "<s_f>"
 BOS_SYMBOL = "<s>"
 EOS_SYMBOL = "</s>"
 UNK_SYMBOL = "<unk>"
 PAD_SYMBOL = "<pad>"
 PAD_ID = 0
 TOKEN_SEPARATOR = " "
-VOCAB_SYMBOLS = [PAD_SYMBOL, UNK_SYMBOL, BOS_SYMBOL, EOS_SYMBOL]
+VOCAB_SYMBOLS = [PAD_SYMBOL, UNK_SYMBOL, E_BOS_SYMBOL, F_BOS_SYMBOL, BOS_SYMBOL, EOS_SYMBOL]
 
 # default encoder prefixes
 ENCODER_PREFIX = "encoder_"
-EMBEDDING_PREFIX = "embed_"
+SOURCE_EMBEDDING_PREFIX = "embed_source"
+TARGET_EMBEDDING_PREFIX = "embed_target"
 BIDIRECTIONALRNN_PREFIX = ENCODER_PREFIX + "birnn_"
 STACKEDRNN_PREFIX = ENCODER_PREFIX + "rnn_"
 FORWARD_PREFIX = "forward_"
@@ -33,7 +36,8 @@ REVERSE_PREFIX = "reverse_"
 
 # embedding prefixes
 SOURCE_EMBEDDING_PREFIX = "source_embed_"
-TARGET_EMBEDDING_PREFIX = "target_embed_"
+E_TARGET_EMBEDDING_PREFIX = "e_target_embed_"
+F_TARGET_EMBEDDING_PREFIX = "f_target_embed_"
 
 # rnn types
 LSTM_TYPE = 'lstm'
