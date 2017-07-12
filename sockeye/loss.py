@@ -56,6 +56,15 @@ class Loss:
         """
         raise NotImplementedError()
 
+def mask_labels_after_EOS():
+    range_batch = mx.nd.arange(target_seq_len)
+    range_batch = mx.sym.broadcast_to(range_batch, (batch_size,target_seq_len))
+    max_prob_indices = mx.sym.argmax(logits, axis=1)
+    # TODO: This is wrong, fix this
+    ignore_label_condition = mx.sym.broadcast_greater(range_batch, max_prob_indices)
+    # PAD_ID is 0, hence using mx.sym.zeros_like
+    labels = mx.sym.where(ignore_label_condition, labels, mx.sym.zeros_like(labels)))
+    return labels
 
 class CrossEntropyLoss(Loss):
     """
@@ -79,6 +88,13 @@ class CrossEntropyLoss(Loss):
             normalization = "valid"
         else:
             normalization = "null"
+	#TODO: create arange of shape (batch_size,target_seq_len)
+        range_batch = mx.nd.arange(target_seq_len)
+        range_batch = mx.sym.broadcast_to(range_batch, (batch_size,target_seq_len))
+        max_prob_indices = mx.sym.argmax(logits, axis=1)
+        ignore_label_condition = mx.sym.broadcast_greater(range_batch, max_prob_indices)
+        # PAD_ID is 0, hence using mx.sym.zeros_like
+        labels = mx.sym.where(ignore_label_condition, labels, mx.sym.zeros_like(labels)))
         return mx.sym.SoftmaxOutput(data=logits,
                                     label=labels,
                                     ignore_label=C.PAD_ID,
