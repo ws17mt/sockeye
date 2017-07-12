@@ -208,7 +208,8 @@ def get_data_iters_from_filenames(source: str,
     return data_iter
 
 
-def get_mono_data_iter(data: str,
+def get_mono_data_iter(name: str,
+                       data: str,
                        vocab: Dict[str, int],
                        batch_size: int,
                        fill_up: str,
@@ -221,7 +222,8 @@ def get_mono_data_iter(data: str,
     buckets = define_buckets(max_seq_len, step=bucket_width) if bucketing else [
         (max_seq_len, )]
 
-    iter = MonoBucketSentenceIter(sentences,
+    iter = MonoBucketSentenceIter(name,
+                                  sentences,
                                   buckets,
                                   batch_size,
                                   vocab[C.EOS_SYMBOL],

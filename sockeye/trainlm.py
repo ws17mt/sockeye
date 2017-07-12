@@ -110,7 +110,6 @@ def main():
     else:
         os.makedirs(output_folder)
 
-
     logger = setup_main_logger(__name__,
                                file_logging=True,
                                console=not args.quiet, path=os.path.join(output_folder, C.LOG_NAME))
@@ -156,24 +155,24 @@ def main():
                                              args.source_vocab,
                                              args.target_vocab)
 
-        
         # create data iterators
-        train_iter = sockeye.data_io.get_mono_data_iter(data=data_info.source,
+        train_iter = sockeye.data_io.get_mono_data_iter(name="mono_train",
+                                                        data=data_info.source,
                                                         vocab=vocab_source,
                                                         batch_size=args.batch_size,
                                                         fill_up=args.fill_up,
                                                         max_seq_len=args.max_seq_len,
-                                                        bucketing= not args.no_bucketing,
+                                                        bucketing=not args.no_bucketing,
                                                         bucket_width=args.bucket_width)
 
-        eval_iter = sockeye.data_io.get_mono_data_iter(data=data_info.validation_source,
-                                                        vocab=vocab_source,
-                                                        batch_size=args.batch_size,
-                                                        fill_up=args.fill_up,
-                                                        max_seq_len=args.max_seq_len,
-                                                        bucketing= not args.no_bucketing,
-                                                        bucket_width=args.bucket_width)
-        
+        eval_iter = sockeye.data_io.get_mono_data_iter(name="mono_eval",
+                                                       data=data_info.validation_source,
+                                                       vocab=vocab_source,
+                                                       batch_size=args.batch_size,
+                                                       fill_up=args.fill_up,
+                                                       max_seq_len=args.max_seq_len,
+                                                       bucketing=not args.no_bucketing,
+                                                       bucket_width=args.bucket_width)
 
         # learning rate scheduling
         learning_rate_half_life = none_if_negative(args.learning_rate_half_life)
@@ -193,7 +192,6 @@ def main():
         num_embed_target = args.num_embed if args.num_embed_target is None else args.num_embed_target
         attention_num_hidden = args.rnn_num_hidden if not args.attention_num_hidden else args.attention_num_hidden
 
-        
         model_config = sockeye.model.ModelConfig(max_seq_len=args.max_seq_len,
                                                  vocab_source_size=vocab_source_size,
                                                  vocab_target_size=vocab_source_size,
@@ -219,7 +217,7 @@ def main():
                                                  smoothed_cross_entropy_alpha=args.smoothed_cross_entropy_alpha)
 
         # create training model
-        print("Context ", context) 
+        print("Context ", context)
         model = sockeye.traininglm.TrainingLModel(model_config=model_config,
                                                   context=context,
                                                   train_iter=train_iter,
@@ -238,7 +236,7 @@ def main():
             model.load_params_from_file(args.params)
 
         lexicon = sockeye.lexicon.initialize_lexicon(args.lexical_bias,
-                                                     vocab_source, vocab_target) if args.lexical_bias else None
+                                                     vocab_source, vocab_source) if args.lexical_bias else None
 
         initializer = sockeye.initializer.get_initializer(args.rnn_h2h_init, lexicon=lexicon)
 
