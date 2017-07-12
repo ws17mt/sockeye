@@ -348,7 +348,7 @@ class StackedRNNDecoder(Decoder):
 
         # embed and slice target words
         # target_embed: (batch_size, target_seq_len, num_target_embed)
-        if embedding is None:
+        if embedding is not None:
             target_embed = embedding.encode(target, None, target_seq_len)
         else:
             target_embed = self.embedding.encode(target, None, target_seq_len)
