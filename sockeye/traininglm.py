@@ -63,7 +63,7 @@ class TrainingLModel(sockeye.training.TrainingModel):
         self.bucketing = bucketing
         self._build_model_components(self.config.max_seq_len, fused, rnn_forget_bias)
         self.module = self._build_module(train_iter, self.config.max_seq_len)
-        self.training_monitor = None
+        self.training_monitor = None	
 
     def _build_model_components(self, max_seq_len, fused, rnn_forget_bias):
         self.lm = sockeye.lm.get_lm_from_options(self.config.num_embed_source,
@@ -74,13 +74,16 @@ class TrainingLModel(sockeye.training.TrainingModel):
                                                  self.config.rnn_cell_type,
                                                  self.config.rnn_residual_connections,
                                                  rnn_forget_bias)
-
+	
+        self.rnn_cells = [self.lm.rnn]
+        self.built = True
     def _build_module(self,
                       train_iter: sockeye.data_io.MonoBucketSentenceIter,
                       max_seq_len: int):
         """
         Initializes model components, creates training symbol and module, and binds it.
         """
+
         source = mx.sym.Variable(C.MONO_NAME)
         #source_length = mx.sym.Variable(C.SOURCE_LENGTH_NAME)
         labels = mx.sym.reshape(data=mx.sym.Variable(C.MONO_LABEL_NAME), shape=(-1,))
@@ -94,6 +97,7 @@ class TrainingLModel(sockeye.training.TrainingModel):
         print(data_names)
         print(label_names)
         def sym_gen(seq_lens):
+
             """
             Returns a (grouped) loss symbol given source & target input lengths.
             Also returns data and label names for the BucketingModule.
