@@ -5,7 +5,7 @@
 # is located at
 #
 #     http://aws.amazon.com/apache2.0/
-# 
+#
 # or in the "license" file accompanying this file. This file is distributed on
 # an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
 # express or implied. See the License for the specific language governing
@@ -37,7 +37,12 @@ TARGET_EMBEDDING_PREFIX = "target_embed_"
 
 # rnn types
 LSTM_TYPE = 'lstm'
+LNLSTM_TYPE = 'lnlstm'
+LNGLSTM_TYPE = 'lnglstm'
 GRU_TYPE = 'gru'
+LNGRU_TYPE = 'lngru'
+LNGGRU_TYPE = 'lnggru'
+CELL_TYPES = [LSTM_TYPE, LNLSTM_TYPE, LNGLSTM_TYPE, GRU_TYPE, LNGRU_TYPE, LNGGRU_TYPE]
 
 # init types
 RNN_INIT_ORTHOGONAL = 'orthogonal'

@@ -5,7 +5,7 @@
 # is located at
 #
 #     http://aws.amazon.com/apache2.0/
-# 
+#
 # or in the "license" file accompanying this file. This file is distributed on
 # an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
 # express or implied. See the License for the specific language governing
@@ -492,7 +492,8 @@ class TrainingModel(sockeye.model.SockeyeModel):
             # State of the bucket iterator
             train_iter.save_state(os.path.join(training_state_dirname, iter_file))
 
-    def _checkpoint(self, training_state: _TrainingState, output_folder: str, train_iter: sockeye.data_io.ParallelBucketSentenceIter,
+    def _checkpoint(self, training_state: _TrainingState, output_folder: str,
+                    train_iter: sockeye.data_io.ParallelBucketSentenceIter,
                     mono_source_iter: sockeye.data_io.MonoBucketSentenceIter,
                     mono_target_iter: sockeye.data_io.MonoBucketSentenceIter):
         """
@@ -504,7 +505,8 @@ class TrainingModel(sockeye.model.SockeyeModel):
             os.mkdir(training_state_dirname)
         # Link current parameter file
         params_base_fname = C.PARAMS_NAME % training_state.checkpoint
-        os.symlink(os.path.join("..", params_base_fname), os.path.join(training_state_dirname, C.TRAINING_STATE_PARAMS_NAME))
+        os.symlink(os.path.join("..", params_base_fname),
+                   os.path.join(training_state_dirname, C.TRAINING_STATE_PARAMS_NAME))
 
         self._module_checkpoint(training_state_dirname,
                                 train_iter, C.BUCKET_ITER_STATE_NAME,
