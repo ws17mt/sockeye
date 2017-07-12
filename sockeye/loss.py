@@ -56,6 +56,18 @@ class Loss:
         """
         raise NotImplementedError()
 
+def mask_labels_after_EOS(labels, logits, batch_size, target_seq_len):
+    range_batch = mx.nd.arange(target_seq_len)
+    range_batch = mx.sym.broadcast_to(range_batch, (batch_size, target_seq_len))
+    best_tokens = mx.sym.argmax(logits, axis=1)
+    best_tokens = best_tokens.reshape((batch_size, target_seq_len))
+    eos_index = [C.VOCAB_SYMBOLS.index(C.EOS_SYMBOL)]
+    eos_indices = mx.sym.broadcast_equal_to(best_tokens, eos_index)
+    eos_position = mx.sym.argmax(eos_indices, axis=1)
+    ignore_label_condition = mx.sym.broadcast_greater(eos_position, range_batch)
+    # PAD_ID is 0, hence using mx.sym.zeros_like
+    labels = mx.sym.where(ignore_label_condition, labels, mx.sym.zeros_like(labels)))
+    return labels
 
 class CrossEntropyLoss(Loss):
     """
@@ -79,6 +91,7 @@ class CrossEntropyLoss(Loss):
             normalization = "valid"
         else:
             normalization = "null"
+        labels = mask_labels_after_EOS(labels, logits, batch_size, target_seq_len)
         return mx.sym.SoftmaxOutput(data=logits,
                                     label=labels,
                                     ignore_label=C.PAD_ID,
