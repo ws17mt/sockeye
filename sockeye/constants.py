@@ -55,6 +55,10 @@ LEXICON_NAME = "lexicon"
 MONO_NAME = "mono"
 MONO_LABEL_NAME = "mono_label"
 
+# iter names
+MONO_SOURCE_ITER_NAME = "mono_source_iter"
+MONO_TARGET_ITER_NAME = "mono_target_iter"
+
 SOURCE_ENCODED_NAME = "encoded_source"
 TARGET_PREVIOUS_NAME = "prev_target_word_id"
 HIDDEN_PREVIOUS_NAME = "prev_hidden"
@@ -79,15 +83,22 @@ DECODE_OUT_NAME = "decode.output.%04d"
 DECODE_IN_NAME = "decode.source"
 DECODE_REF_NAME = "decode.target"
 SYMBOL_NAME = "symbol" + JSON_SUFFIX
+L2R_SOURCE_SYMBOL_NAME = "sl2r_symbol" + JSON_SUFFIX
+R2L_SOURCE_SYMBOL_NAME = "sr2l_symbol" + JSON_SUFFIX
+TARGET_SYMBOL_NAME = "tl2r_symbol" + JSON_SUFFIX
 METRICS_NAME = "metrics"
 TENSORBOARD_NAME = "tensorboard"
 
 # training resumption constants
-TRAINING_STATE_DIRNAME= "training_state"
+TRAINING_STATE_DIRNAME = "training_state"
 TRAINING_STATE_TEMP_DIRNAME = "tmp.training_state"
 TRAINING_STATE_TEMP_DELETENAME = "delete.training_state"
 MODULE_OPT_STATE_NAME = "mx_optimizer.pkl"
+SOURCE_MODULE_OPT_STATE_NAME = "mx_source_optimizer.pkl"
+TARGET_MODULE_OPT_STATE_NAME = "mx_target_optimizer.pkl"
 BUCKET_ITER_STATE_NAME = "bucket.pkl"
+SOURCE_BUCKET_ITER_STATE_NAME = "source_bucket.pkl"
+TARGET_BUCKET_ITER_STATE_NAME = "target_bucket.pkl"
 RNG_STATE_NAME = "rng.pkl"
 MONITOR_STATE_NAME = "monitor.pkl"
 TRAINING_STATE_NAME = "training.pkl"

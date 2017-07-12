@@ -702,6 +702,7 @@ class MonoBucketSentenceIter(mx.io.DataIter):
     """
 
     def __init__(self,
+                 name: str,
                  sentences: List[List[int]],
                  buckets: List[Tuple[int, int]],
                  batch_size: int,
@@ -714,6 +715,7 @@ class MonoBucketSentenceIter(mx.io.DataIter):
                  dtype='float32'):
         super(MonoBucketSentenceIter, self).__init__()
 
+        self.name = name
         self.buckets = list(buckets)
         self.buckets.sort()
         self.default_bucket_key = get_default_bucket_key(self.buckets)
@@ -749,7 +751,7 @@ class MonoBucketSentenceIter(mx.io.DataIter):
         for i, buck in enumerate(self.data_input):
             rest = len(buck) % batch_size
             if rest > 0:
-                logger.info("Discarding %d samples from bucket %s due to incomplete batch", rest, self.buckets[i])
+                logger.info("%s: Discarding %d samples from bucket %s due to incomplete batch", self.name, rest, self.buckets[i])
             idxs = [(i, j) for j in range(0, len(buck) - batch_size + 1, batch_size)]
             self.idx.extend(idxs)
         self.curr_idx = 0
@@ -788,9 +790,9 @@ class MonoBucketSentenceIter(mx.io.DataIter):
         for bkt, buck in zip(self.buckets, self.data_input):
             logger.info("bucket of {0} : {1} samples".format(bkt, len(buck)))
             nsamples += len(buck)
-        check_condition(nsamples > 0, "0 data points available in the data iterator. "
+        check_condition(nsamples > 0, "0 data points available in the %s iterator. "
                         "%d data points have been discarded because they didn't fit into any bucket. Consider "
-                        "increasing the --max-seq-len to fit your data." % ndiscard)
+                        "increasing the --max-seq-len to fit your data." % (self.name, ndiscard))
         logger.info("%d sentence pairs out of buckets", ndiscard)
         logger.info("fill up mode: %s", self.fill_up)
         logger.info("")
@@ -808,8 +810,8 @@ class MonoBucketSentenceIter(mx.io.DataIter):
                     raise NotImplementedError
                 elif self.fill_up == 'replicate':
                     logger.info(
-                        "Replicating %d random examples from bucket %s to size it to multiple of batch size %d", rest,
-                        buck_shape, self.batch_size)
+                        "%s: Replicating %d random examples from bucket %s to size it to multiple of batch size %d", rest,
+                        self.name, buck_shape, self.batch_size)
                     random_indices = np.random.randint(self.data_input[i].shape[0], size=rest)
 
                     self.data_input[i] = np.concatenate((self.data_input[i], self.data_input[i][random_indices, :]),
