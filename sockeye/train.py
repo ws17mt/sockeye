@@ -5,7 +5,7 @@
 # is located at
 #
 #     http://aws.amazon.com/apache2.0/
-# 
+#
 # or in the "license" file accompanying this file. This file is distributed on
 # an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
 # express or implied. See the License for the specific language governing
@@ -41,8 +41,9 @@ import sockeye.model
 import sockeye.training
 import sockeye.utils
 import sockeye.vocab
-from sockeye.log import setup_main_logger
+from sockeye.log import setup_main_logger, log_sockeye_version
 from sockeye.utils import acquire_gpus, get_num_gpus, expand_requested_device_ids
+from sockeye.utils import check_condition
 
 
 def none_if_negative(val):
@@ -82,13 +83,19 @@ def main():
     mx.random.seed(args.seed)
 
     if args.use_fused_rnn:
-        assert not args.use_cpu, "GPU required for FusedRNN cells"
+        check_condition(not args.use_cpu, "GPU required for FusedRNN cells")
 
     if args.rnn_residual_connections:
-        assert args.rnn_num_layers > 2, "Residual connections require at least 3 RNN layers"
+        check_condition(args.rnn_num_layers > 2, "Residual connections require at least 3 RNN layers")
 
-    assert args.optimized_metric == C.BLEU or args.optimized_metric in args.metrics, \
-        "Must optimize either BLEU or one of tracked metrics (--metrics)"
+    check_condition(args.optimized_metric == C.BLEU or args.optimized_metric in args.metrics,
+                    "Must optimize either BLEU or one of tracked metrics (--metrics)")
+
+    # TODO(fosterg): fix. We could use a set-bos flag similar to translate.py,
+    # but this would only allow for one target lang in the val set, so some
+    # fancier scheme is needed.
+    assert args.no_bos is False or args.optimized_metric is not C.BLEU, \
+        "Can't optimize validation-set BLEU when suppressing BOS."
 
     # Checking status of output folder, resumption, etc.
     # Create temporary logger to console only
@@ -107,6 +114,9 @@ def main():
             arg_diffs = _dict_difference(vars(args), old_args) | _dict_difference(old_args, vars(args))
             # Remove args that may differ without affecting the training.
             arg_diffs -= set(C.ARGS_MAY_DIFFER)
+            # allow different device-ids provided their total count is the same
+            if 'device_ids' in arg_diffs and len(old_args['device_ids']) == len(vars(args)['device_ids']):
+                arg_diffs.discard('device_ids')
             if not arg_diffs:
                 resume_training = True
             else:
@@ -120,11 +130,10 @@ def main():
     else:
         os.makedirs(output_folder)
 
-
     logger = setup_main_logger(__name__,
                                file_logging=True,
                                console=not args.quiet, path=os.path.join(output_folder, C.LOG_NAME))
-    logger.info("Sockeye version %s", sockeye.__version__)
+    log_sockeye_version(logger)
     logger.info("Command: %s", " ".join(sys.argv))
     logger.info("Arguments: %s", args)
     with open(os.path.join(output_folder, C.ARGS_STATE_NAME), "w") as fp:
@@ -137,9 +146,10 @@ def main():
             context = [mx.cpu()]
         else:
             num_gpus = get_num_gpus()
-            assert num_gpus > 0, "No GPUs found, consider running on the CPU with --use-cpu " \
-                                 "(note: check depends on nvidia-smi and this could also mean that the nvidia-smi " \
-                                 "binary isn't on the path)."
+            check_condition(num_gpus >= 1,
+                            "No GPUs found, consider running on the CPU with --use-cpu "
+                            "(note: check depends on nvidia-smi and this could also mean that the nvidia-smi "
+                            "binary isn't on the path).")
             if args.disable_device_locking:
                 context = expand_requested_device_ids(args.device_ids)
             else:
@@ -147,12 +157,16 @@ def main():
             logger.info("Device(s): GPU %s", context)
             context = [mx.gpu(gpu_id) for gpu_id in context]
 
-        # create vocabs
-        vocab_source = _build_or_load_vocab(args.source_vocab, args.source, args.num_words, args.word_min_count)
-        sockeye.vocab.vocab_to_json(vocab_source, os.path.join(output_folder, C.VOCAB_SRC_NAME) + C.JSON_SUFFIX)
+        # load existing or create vocabs
+        if resume_training:
+            vocab_source = sockeye.vocab.vocab_from_json_or_pickle(os.path.join(output_folder, C.VOCAB_SRC_NAME))
+            vocab_target = sockeye.vocab.vocab_from_json_or_pickle(os.path.join(output_folder, C.VOCAB_TRG_NAME))
+        else:
+            vocab_source = _build_or_load_vocab(args.source_vocab, args.source, args.num_words, args.word_min_count)
+            sockeye.vocab.vocab_to_json(vocab_source, os.path.join(output_folder, C.VOCAB_SRC_NAME) + C.JSON_SUFFIX)
 
-        vocab_target = _build_or_load_vocab(args.target_vocab, args.target, args.num_words, args.word_min_count)
-        sockeye.vocab.vocab_to_json(vocab_target, os.path.join(output_folder, C.VOCAB_TRG_NAME) + C.JSON_SUFFIX)
+            vocab_target = _build_or_load_vocab(args.target_vocab, args.target, args.num_words, args.word_min_count)
+            sockeye.vocab.vocab_to_json(vocab_target, os.path.join(output_folder, C.VOCAB_TRG_NAME) + C.JSON_SUFFIX)
 
         vocab_source_size = len(vocab_source)
         vocab_target_size = len(vocab_target)
@@ -166,15 +180,19 @@ def main():
                                              args.target_vocab)
 
         # create data iterators
+        max_seq_len_source = args.max_seq_len if args.max_seq_len_source is None else args.max_seq_len_source
+        max_seq_len_target = args.max_seq_len if args.max_seq_len_target is None else args.max_seq_len_target
         train_iter, eval_iter = sockeye.data_io.get_training_data_iters(source=data_info.source,
                                                                         target=data_info.target,
                                                                         validation_source=data_info.validation_source,
                                                                         validation_target=data_info.validation_target,
                                                                         vocab_source=vocab_source,
                                                                         vocab_target=vocab_target,
+                                                                        no_bos=args.no_bos,
                                                                         batch_size=args.batch_size,
                                                                         fill_up=args.fill_up,
-                                                                        max_seq_len=args.max_seq_len,
+                                                                        max_seq_len_source=max_seq_len_source,
+                                                                        max_seq_len_target=max_seq_len_target,
                                                                         bucketing=not args.no_bucketing,
                                                                         bucket_width=args.bucket_width)
 
@@ -195,7 +213,7 @@ def main():
         num_embed_source = args.num_embed if args.num_embed_source is None else args.num_embed_source
         num_embed_target = args.num_embed if args.num_embed_target is None else args.num_embed_target
         attention_num_hidden = args.rnn_num_hidden if not args.attention_num_hidden else args.attention_num_hidden
-        model_config = sockeye.model.ModelConfig(max_seq_len=args.max_seq_len,
+        model_config = sockeye.model.ModelConfig(max_seq_len=max_seq_len_source,
                                                  vocab_source_size=vocab_source_size,
                                                  vocab_target_size=vocab_target_size,
                                                  num_embed_source=num_embed_source,
@@ -217,7 +235,8 @@ def main():
                                                  data_info=data_info,
                                                  loss=args.loss,
                                                  normalize_loss=args.normalize_loss,
-                                                 smoothed_cross_entropy_alpha=args.smoothed_cross_entropy_alpha)
+                                                 smoothed_cross_entropy_alpha=args.smoothed_cross_entropy_alpha,
+                                                 layer_normalization=args.layer_normalization)
 
         # create training model
         model = sockeye.training.TrainingModel(model_config=model_config,

@@ -5,7 +5,7 @@
 # is located at
 #
 #     http://aws.amazon.com/apache2.0/
-# 
+#
 # or in the "license" file accompanying this file. This file is distributed on
 # an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
 # express or implied. See the License for the specific language governing
@@ -26,6 +26,8 @@ VOCAB_SYMBOLS = [PAD_SYMBOL, UNK_SYMBOL, BOS_SYMBOL, EOS_SYMBOL]
 # default encoder prefixes
 ENCODER_PREFIX = "encoder_"
 EMBEDDING_PREFIX = "embed_"
+ATTENTION_PREFIX = "att_"
+COVERAGE_PREFIX = "cov_"
 BIDIRECTIONALRNN_PREFIX = ENCODER_PREFIX + "birnn_"
 STACKEDRNN_PREFIX = ENCODER_PREFIX + "rnn_"
 FORWARD_PREFIX = "forward_"
@@ -37,7 +39,12 @@ TARGET_EMBEDDING_PREFIX = "target_embed_"
 
 # rnn types
 LSTM_TYPE = 'lstm'
+LNLSTM_TYPE = 'lnlstm'
+LNGLSTM_TYPE = 'lnglstm'
 GRU_TYPE = 'gru'
+LNGRU_TYPE = 'lngru'
+LNGGRU_TYPE = 'lnggru'
+CELL_TYPES = [LSTM_TYPE, LNLSTM_TYPE, LNGLSTM_TYPE, GRU_TYPE, LNGRU_TYPE, LNGGRU_TYPE]
 
 # init types
 RNN_INIT_ORTHOGONAL = 'orthogonal'
@@ -52,6 +59,12 @@ SOURCE_LENGTH_NAME = "source_length"
 TARGET_NAME = "target"
 TARGET_LABEL_NAME = "target_label"
 LEXICON_NAME = "lexicon"
+MONO_NAME = "mono"
+MONO_LABEL_NAME = "mono_label"
+
+# iter names
+MONO_SOURCE_ITER_NAME = "mono_source_iter"
+MONO_TARGET_ITER_NAME = "mono_target_iter"
 
 SOURCE_ENCODED_NAME = "encoded_source"
 TARGET_PREVIOUS_NAME = "prev_target_word_id"
@@ -77,15 +90,22 @@ DECODE_OUT_NAME = "decode.output.%04d"
 DECODE_IN_NAME = "decode.source"
 DECODE_REF_NAME = "decode.target"
 SYMBOL_NAME = "symbol" + JSON_SUFFIX
+L2R_SOURCE_SYMBOL_NAME = "sl2r_symbol" + JSON_SUFFIX
+R2L_SOURCE_SYMBOL_NAME = "sr2l_symbol" + JSON_SUFFIX
+TARGET_SYMBOL_NAME = "tl2r_symbol" + JSON_SUFFIX
 METRICS_NAME = "metrics"
 TENSORBOARD_NAME = "tensorboard"
 
 # training resumption constants
-TRAINING_STATE_DIRNAME= "training_state"
+TRAINING_STATE_DIRNAME = "training_state"
 TRAINING_STATE_TEMP_DIRNAME = "tmp.training_state"
 TRAINING_STATE_TEMP_DELETENAME = "delete.training_state"
 MODULE_OPT_STATE_NAME = "mx_optimizer.pkl"
+SOURCE_MODULE_OPT_STATE_NAME = "mx_source_optimizer.pkl"
+TARGET_MODULE_OPT_STATE_NAME = "mx_target_optimizer.pkl"
 BUCKET_ITER_STATE_NAME = "bucket.pkl"
+SOURCE_BUCKET_ITER_STATE_NAME = "source_bucket.pkl"
+TARGET_BUCKET_ITER_STATE_NAME = "target_bucket.pkl"
 RNG_STATE_NAME = "rng.pkl"
 MONITOR_STATE_NAME = "monitor.pkl"
 TRAINING_STATE_NAME = "training.pkl"

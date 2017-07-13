@@ -5,7 +5,7 @@
 # is located at
 #
 #     http://aws.amazon.com/apache2.0/
-# 
+#
 # or in the "license" file accompanying this file. This file is distributed on
 # an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
 # express or implied. See the License for the specific language governing
@@ -20,6 +20,7 @@ import mxnet as mx
 
 import sockeye.constants as C
 import sockeye.model
+from sockeye.utils import check_condition
 
 
 def get_loss(config: sockeye.model.ModelConfig) -> 'Loss':
@@ -49,7 +50,7 @@ class Loss:
     def get_loss(self, logits: mx.sym.Symbol, labels: mx.sym.Symbol) -> mx.sym.Symbol:
         """
         Returns loss and softmax output symbols given logits and integer-coded labels.
-        
+
         :param logits: Shape: (batch_size * target_seq_len, target_vocab_size).
         :param labels: Shape: (batch_size * target_seq_len,).
         :return: Loss and softmax output symbols.
@@ -110,7 +111,7 @@ class SmoothedCrossEntropyLoss(Loss):
     """
 
     def __init__(self, alpha: float, vocab_size: int, normalize: bool = False):
-        assert alpha >= 0, "alpha must be >= 0"
+        check_condition(alpha >= 0, "alpha for smoothed loss must be >= 0")
         self._alpha = alpha
         self._vocab_size = vocab_size
         self._normalize = normalize
@@ -145,4 +146,3 @@ class SmoothedCrossEntropyLoss(Loss):
         cross_entropy = mx.sym.MakeLoss(cross_entropy, name=C.SMOOTHED_CROSS_ENTROPY)
         probs = mx.sym.BlockGrad(probs, name=C.SOFTMAX_NAME)
         return cross_entropy, probs
-

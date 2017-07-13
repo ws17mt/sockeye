@@ -5,7 +5,7 @@
 # is located at
 #
 #     http://aws.amazon.com/apache2.0/
-# 
+#
 # or in the "license" file accompanying this file. This file is distributed on
 # an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
 # express or implied. See the License for the specific language governing
@@ -19,6 +19,7 @@ import numpy as np
 
 import sockeye.constants as C
 from sockeye.data_io import smart_open
+from sockeye.utils import check_condition
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +100,7 @@ def initialize_lexicon(cmdline_arg: str, vocab_source: Dict[str, int], vocab_tar
     eps = 0.001
     if len(fields) == 2:
         eps = float(fields[1])
-        assert eps > 0, "epsilon must be >0"
+        check_condition(eps > 0, "epsilon must be >0")
     logger.info("Smoothing lexicon with eps=%.4f", eps)
     lexicon = mx.nd.array(np.log(lexicon + eps))
     return lexicon
