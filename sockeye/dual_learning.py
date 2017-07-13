@@ -179,7 +179,7 @@ class TrainableInferenceModel(sockeye.inference.InferenceModel):
         self.module.backward()
 
         # FIXME: how to update model parameters with reward-rescaled gradients?
-        self.module._curr_module._optimizer.set_wd_mult([reward_scale])
+        self.module._curr_module._optimizer.rescale_grad = reward_scale
         self.module.update()
 
     def save_params(self, output_folder: str, 

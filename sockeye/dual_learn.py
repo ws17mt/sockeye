@@ -205,7 +205,7 @@ def _dual_learn(context: mx.context.Context,
     print("Passed!")
 
     # create eval metric
-    metric_val = mx.metric.create([mx.metric.Perplexity(ignore_label=C.PAD_ID, output_names=[C.SOFTMAX_OUTPUT_NAME])])
+    metric_val = mx.metric.create([mx.metric.Perplexity(ignore_label=C.PAD_ID, output_names=[C.SOFTMAX_OUTPUT_NAME])]) # FIXME: use Loss instead
 
     # pointers for switching between the models 
     # including: p_dec_s2t, p_dec_t2s, p_dec (dynamically changed within the loop)
@@ -302,16 +302,16 @@ def _dual_learn(context: mx.context.Context,
         # 1) bind the data {(mid_hyp,mid_hyp)} into the model's module
         # 2) do forward step --> get the r1 = P(mid_hyp; mod_mlm_t)
         print("reward_1")
-        reward_1 = p_dec.models[0].compute_ll(input_iter_m, metric_val)
+        reward_1 = np.log(p_dec.models[0].compute_ll(input_iter_m, metric_val))
         print("reward_1=", reward_1)
 
         # set the communication reward for currently-sampled sentence from P(sentA|mid_hype; mod_am_t2s)
-        # 1) bind the data {(mid_hyp, sentA)} into the model's module
-        # 2) do forward step --> get the r2 = P(sentA|mid_hyp; mod_am_t2s)
+        # do forward step --> get the r2 = P(sentA|mid_hyp; mod_am_t2s)
+        # FIXME: conversion from perplexity to normalized log-likelihood, logLL = -log(perplexity)
         print("reward_2")
-        reward_2a = p_dec_s2t.models[0].compute_ll(input_iter_s2t, metric_val)
+        reward_2a = np.log(p_dec_s2t.models[0].compute_ll(input_iter_s2t, metric_val)) # FIXME: this reward_2a is unused, just for gradient computation later.
         print("reward_2a=", reward_2a)
-        reward_2b = p_dec_t2s.models[0].compute_ll(input_iter_t2s, metric_val)
+        reward_2b = np.log(p_dec_t2s.models[0].compute_ll(input_iter_t2s, metric_val))
         print("reward_2b=", reward_2b)
 
         # reward interpolation: r = alpha * r1 + (1 - alpha) * r2
@@ -329,10 +329,10 @@ def _dual_learn(context: mx.context.Context,
         # switch source and target roles
         flag = -flag
         vocab_source, vocab_target = vocab_target, vocab_source # FIXME: is this way fast and correct?
-        buckets[0], buckets[1] = buckets[1], buckets[0]
+        #buckets[0], buckets[1] = buckets[1], buckets[0]
         
         # testing over the development data (all_data[0] and all_data[1]) to check the improvements (after a desired number of rounds)
-        if r == opt_configs[1]:
+        if r == lmon[1]:
             # s2t model
             dev_loss_s2t = p_dec_s2t.models[0].evaluate_dev(all_data[0], metric_val)
 
