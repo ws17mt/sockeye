@@ -37,6 +37,11 @@ REVERSE_PREFIX = "reverse_"
 SOURCE_EMBEDDING_PREFIX = "source_embed_"
 TARGET_EMBEDDING_PREFIX = "target_embed_"
 
+# lm prefixes
+TM_PREFIX = ""
+LM_SOURCE_PREFIX = "lm_source_"
+LM_TARGET_PREFIX = "lm_target_"
+
 # rnn types
 LSTM_TYPE = 'lstm'
 LNLSTM_TYPE = 'lnlstm'
@@ -90,9 +95,6 @@ DECODE_OUT_NAME = "decode.output.%04d"
 DECODE_IN_NAME = "decode.source"
 DECODE_REF_NAME = "decode.target"
 SYMBOL_NAME = "symbol" + JSON_SUFFIX
-L2R_SOURCE_SYMBOL_NAME = "sl2r_symbol" + JSON_SUFFIX
-R2L_SOURCE_SYMBOL_NAME = "sr2l_symbol" + JSON_SUFFIX
-TARGET_SYMBOL_NAME = "tl2r_symbol" + JSON_SUFFIX
 METRICS_NAME = "metrics"
 TENSORBOARD_NAME = "tensorboard"
 
@@ -101,11 +103,7 @@ TRAINING_STATE_DIRNAME = "training_state"
 TRAINING_STATE_TEMP_DIRNAME = "tmp.training_state"
 TRAINING_STATE_TEMP_DELETENAME = "delete.training_state"
 MODULE_OPT_STATE_NAME = "mx_optimizer.pkl"
-SOURCE_MODULE_OPT_STATE_NAME = "mx_source_optimizer.pkl"
-TARGET_MODULE_OPT_STATE_NAME = "mx_target_optimizer.pkl"
 BUCKET_ITER_STATE_NAME = "bucket.pkl"
-SOURCE_BUCKET_ITER_STATE_NAME = "source_bucket.pkl"
-TARGET_BUCKET_ITER_STATE_NAME = "target_bucket.pkl"
 RNG_STATE_NAME = "rng.pkl"
 MONITOR_STATE_NAME = "monitor.pkl"
 TRAINING_STATE_NAME = "training.pkl"
