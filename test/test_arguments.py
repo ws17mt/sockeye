@@ -23,18 +23,18 @@ import argparse
     ('--source test_src --target test_tgt '
      '--validation-source test_validation_src --validation-target test_validation_tgt '
      '--output test_output',
-     dict(source='test_src', target='test_tgt',
+     dict(source='test_src', target='test_tgt', no_bos=False,
           validation_source='test_validation_src', validation_target='test_validation_tgt',
           output='test_output', overwrite_output=False,
           source_vocab=None, target_vocab=None, use_tensorboard=False, quiet=False)),
 
     # all parameters
-    ('--source test_src --target test_tgt '
+    ('--source test_src --target test_tgt --no-bos '
      '--validation-source test_validation_src --validation-target test_validation_tgt '
      '--output test_output '
      '--source-vocab test_src_vocab --target-vocab test_tgt_vocab '
      '--use-tensorboard --overwrite-output --quiet',
-     dict(source='test_src', target='test_tgt',
+     dict(source='test_src', target='test_tgt', no_bos=True,
           validation_source='test_validation_src', validation_target='test_validation_tgt',
           output='test_output', overwrite_output=True,
           source_vocab='test_src_vocab', target_vocab='test_tgt_vocab', use_tensorboard=True, quiet=True)),
@@ -43,7 +43,7 @@ import argparse
     ('-s test_src -t test_tgt '
      '-vs test_validation_src -vt test_validation_tgt '
      '-o test_output -q',
-     dict(source='test_src', target='test_tgt',
+     dict(source='test_src', target='test_tgt', no_bos=False,
           validation_source='test_validation_src', validation_target='test_validation_tgt',
           output='test_output', overwrite_output=False,
           source_vocab=None, target_vocab=None, use_tensorboard=False, quiet=True))
@@ -67,19 +67,21 @@ def test_device_args(test_params, expected_params):
               attention_type='mlp', attention_num_hidden=None, attention_coverage_type='count',
               attention_coverage_num_hidden=1,
               lexical_bias=None, learn_lexical_bias=False, weight_tying=False, max_seq_len=100,
-              attention_use_prev_word=False, context_gating=False)),
+              max_seq_len_source=None, max_seq_len_target=None,
+              attention_use_prev_word=False, context_gating=False, layer_normalization=False)),
     ('--params test_params --num-words 10 --word-min-count 10 --rnn-num-layers 10 --rnn-cell-type gru '
      '--rnn-num-hidden 512 --rnn-residual-connections --num-embed 1024 --num-embed-source 10 --num-embed-target 10 '
      '--attention-type dot --attention-num-hidden 10 --attention-coverage-type tanh '
      '--attention-coverage-num-hidden 10 --lexical-bias test_bias --learn-lexical-bias --weight-tying '
-     '--max-seq-len 10 --attention-use-prev-word --context-gating',
+     '--max-seq-len 10 --max-seq-len-source 11 --max-seq-len-target 12 --attention-use-prev-word --context-gating --layer-normalization',
      dict(params='test_params', num_words=10, word_min_count=10, rnn_num_layers=10, rnn_cell_type=C.GRU_TYPE,
           rnn_num_hidden=512,
           rnn_residual_connections=True, num_embed=1024, num_embed_source=10, num_embed_target=10,
           attention_type='dot', attention_num_hidden=10, attention_coverage_type='tanh',
           attention_coverage_num_hidden=10,
           lexical_bias='test_bias', learn_lexical_bias=True, weight_tying=True, max_seq_len=10,
-          attention_use_prev_word=True, context_gating=True))
+          max_seq_len_source=11, max_seq_len_target=12,
+          attention_use_prev_word=True, context_gating=True, layer_normalization=True))
 ])
 def test_model_parameters(test_params, expected_params):
     _test_args(test_params, expected_params, arguments.add_model_parameters)
@@ -116,19 +118,19 @@ def test_training_arg(test_params, expected_params):
 
 
 @pytest.mark.parametrize("test_params, expected_params", [
-    ('--models m1 m2 m3', dict(input=None, output=None, models=['m1', 'm2', 'm3'],
+    ('--models m1 m2 m3', dict(input=None, set_bos=None, output=None, models=['m1', 'm2', 'm3'],
                                checkpoints=None, beam_size=5, ensemble_mode='linear',
                                max_input_len=None, softmax_temperature=None, output_type='translation',
                                sure_align_threshold=0.9)),
-    ('--input test_input --output test_output --models m1 m2 m3 --checkpoints 1 2 3 --beam-size 10 '
-     '--ensemble-mode log_linear --max-input-len 10 --softmax-temperature 1.0 '
+    ('--input test_input --set-bos bos --output test_output --models m1 m2 m3 --checkpoints 1 2 3 '
+     '--beam-size 10 --ensemble-mode log_linear --max-input-len 10 --softmax-temperature 1.0 '
      '--output-type translation_with_alignments --sure-align-threshold 1.0',
-     dict(input='test_input', output='test_output', models=['m1', 'm2', 'm3'],
+     dict(input='test_input', set_bos='bos', output='test_output', models=['m1', 'm2', 'm3'],
           checkpoints=[1, 2, 3], beam_size=10, ensemble_mode='log_linear',
           max_input_len=10, softmax_temperature=1.0,
           output_type='translation_with_alignments', sure_align_threshold=1.0)),
     ('-i test_input -o test_output -m m1 m2 m3 -c 1 2 3 -b 10 -n 10',
-     dict(input='test_input', output='test_output', models=['m1', 'm2', 'm3'],
+     dict(input='test_input', set_bos=None, output='test_output', models=['m1', 'm2', 'm3'],
           checkpoints=[1, 2, 3], beam_size=10, ensemble_mode='linear',
           max_input_len=10, softmax_temperature=None, output_type='translation', sure_align_threshold=0.9))
 ])
