@@ -84,6 +84,15 @@ def add_io_args(params):
                              required=True,
                              help='Target side of validation data.')
 
+    data_params.add_argument('--mono-source', '-ms',
+                             required=False,
+                             default=None,
+                             help='Monolingual source training data.')
+    data_params.add_argument('--mono-target', '-mt',
+                             required=False,
+                             default=None,
+                             help='Monolingual target training data.')
+
     data_params.add_argument('--no-bos',
                              action='store_true',
                              default=False,
@@ -189,6 +198,13 @@ def add_model_parameters(params):
                               type=int_greater_or_equal(0),
                               default=4,
                               help="Number of highway layers for ConvolutionalEmbeddingEncoder. Default: %(default)s.")
+
+    # TODO: Consider having different values for source and target here
+    model_params.add_argument('--lm-pre-train-layers',
+                              type=int_greater_or_equal(0),
+                              default=0,
+                              help='Number of LM pretrain RNN layers used for LM initialization or dual '
+                              'objective training. Default: %s(default)s.')
 
     model_params.add_argument('--rnn-num-layers',
                               type=int_greater_or_equal(1),

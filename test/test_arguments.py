@@ -26,16 +26,19 @@ import argparse
      dict(source='test_src', target='test_tgt', no_bos=False,
           validation_source='test_validation_src', validation_target='test_validation_tgt',
           output='test_output', overwrite_output=False,
-          source_vocab=None, target_vocab=None, use_tensorboard=False, quiet=False)),
+          source_vocab=None, target_vocab=None, use_tensorboard=False, quiet=False,
+          mono_source=None, mono_target=None)),
 
     # all parameters
     ('--source test_src --target test_tgt --no-bos '
      '--validation-source test_validation_src --validation-target test_validation_tgt '
+     '--mono-source test_mono_source --mono-target test_mono_target '
      '--output test_output '
      '--source-vocab test_src_vocab --target-vocab test_tgt_vocab '
      '--use-tensorboard --overwrite-output --quiet',
      dict(source='test_src', target='test_tgt', no_bos=True,
           validation_source='test_validation_src', validation_target='test_validation_tgt',
+          mono_source='test_mono_source', mono_target='test_mono_target',
           output='test_output', overwrite_output=True,
           source_vocab='test_src_vocab', target_vocab='test_tgt_vocab', use_tensorboard=True, quiet=True)),
 
@@ -46,7 +49,8 @@ import argparse
      dict(source='test_src', target='test_tgt', no_bos=False,
           validation_source='test_validation_src', validation_target='test_validation_tgt',
           output='test_output', overwrite_output=False,
-          source_vocab=None, target_vocab=None, use_tensorboard=False, quiet=True))
+          source_vocab=None, target_vocab=None, use_tensorboard=False, quiet=True,
+          mono_source=None, mono_target=None))
 ])
 def test_io_args(test_params, expected_params):
     _test_args(test_params, expected_params, arguments.add_io_args)
@@ -71,7 +75,7 @@ def test_device_args(test_params, expected_params):
               max_seq_len_source=None, max_seq_len_target=None,
               attention_use_prev_word=False, context_gating=False, layer_normalization=False,
               encoder=C.RNN_NAME, conv_embed_max_filter_width=8, conv_embed_num_filters=[200, 200, 250, 250, 300, 300, 300, 300],
-              conv_embed_num_highway_layers=4, conv_embed_pool_stride=5)),
+              conv_embed_num_highway_layers=4, conv_embed_pool_stride=5, lm_pre_train_layers=0)),
     ('--params test_params --num-words 10 --num-words-source 11 --num-words-target 12 --word-min-count 10 '
      '--rnn-num-layers 10 --rnn-cell-type gru '
      '--rnn-num-hidden 512 --rnn-residual-connections --num-embed 1024 --num-embed-source 10 --num-embed-target 10 '
@@ -79,7 +83,7 @@ def test_device_args(test_params, expected_params):
      '--attention-coverage-num-hidden 10 --lexical-bias test_bias --learn-lexical-bias --weight-tying '
      '--max-seq-len 10 --max-seq-len-source 11 --max-seq-len-target 12 --attention-use-prev-word --context-gating --layer-normalization '
      '--encoder rnn-with-conv-embed --conv-embed-max-filter-width 2 --conv-embed-num-filters 100 100 '
-     '--conv-embed-num-highway-layers 2 --conv-embed-pool-stride 2',
+     '--conv-embed-num-highway-layers 2 --conv-embed-pool-stride 2 --lm-pre-train-layers 1',
      dict(params='test_params', num_words=10, num_words_source=11, num_words_target=12,
           word_min_count=10, rnn_num_layers=10, rnn_cell_type=C.GRU_TYPE,
           rnn_num_hidden=512,
@@ -90,7 +94,7 @@ def test_device_args(test_params, expected_params):
           max_seq_len_source=11, max_seq_len_target=12,
           attention_use_prev_word=True, context_gating=True, layer_normalization=True,
           encoder=C.RNN_WITH_CONV_EMBED_NAME, conv_embed_max_filter_width=2, conv_embed_num_filters=[100, 100],
-          conv_embed_num_highway_layers=2, conv_embed_pool_stride=2))
+          conv_embed_num_highway_layers=2, conv_embed_pool_stride=2, lm_pre_train_layers=1))
 ])
 def test_model_parameters(test_params, expected_params):
     _test_args(test_params, expected_params, arguments.add_model_parameters)
