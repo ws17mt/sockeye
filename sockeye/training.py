@@ -663,4 +663,3 @@ def cleanup_params_files(output_folder: str, max_to_keep: int, checkpoint: int, 
             param_fname_n = params_name_with_dir % n
             if param_fname_n in existing_files:
                 os.remove(param_fname_n)
->>>>>>> master
