@@ -97,7 +97,7 @@ class TrainingModel(sockeye.model.SockeyeModel):
         self.module_list = [self.module]
         self.lm_source_module = None
         self.lm_target_module = None
-        if mono_source_iter is not None:
+        if lm_pre_layers > 0 and mono_source_iter is not None:
             self.lm_source = sockeye.lm.get_lm_from_encoder(config=self.config,
                                                             lm_pre_layers=lm_pre_layers,
                                                             encoder=self.encoder,
@@ -106,7 +106,7 @@ class TrainingModel(sockeye.model.SockeyeModel):
             # self.rnn_cells.append(self.lm_source.rnn)  # TODO: Does this need to be here since they will share params?
             self.lm_source_module = self.build_lm_module(mono_source_iter, self.lm_source, self.config.max_seq_len)
             self.module_list.append(self.lm_source_module)
-        if mono_target_iter is not None:
+        if lm_pre_layers > 0 and mono_target_iter is not None:
             self.lm_target = sockeye.lm.get_lm_from_decoder(config=self.config,
                                                             lm_pre_layers=lm_pre_layers,
                                                             decoder=self.decoder,
@@ -320,7 +320,7 @@ class TrainingModel(sockeye.model.SockeyeModel):
                 next_data_batch,
                 train_state,
                 metric_train):
-        if train_iter is not None:
+        if module is not None:
             if not train_iter.iter_next():
                 train_state.epoch += 1
                 train_iter.reset()
@@ -378,6 +378,7 @@ class TrainingModel(sockeye.model.SockeyeModel):
             states = self.load_checkpoint(training_state_dir, train_iter, mono_source_iter, mono_target_iter)
         else:
             states = []
+            # TODO: Should be checking if the module exists, not the iterator
             for it in [train_iter, mono_source_iter, mono_target_iter]:
                 if it is not None:
                     state = _TrainingState(
@@ -394,10 +395,10 @@ class TrainingModel(sockeye.model.SockeyeModel):
         next_data_batch = train_iter.next()
         next_source_batch = None
         next_target_batch = None
-        if mono_source_iter is not None:
+        if self.lm_source_module is not None:
             next_source_batch = mono_source_iter.next()
             metric_train_source_lm = self._create_eval_metric(metrics, C.LM_SOURCE_PREFIX)
-        if mono_target_iter is not None:
+        if self.lm_target_module is not None:
             next_target_batch = mono_target_iter.next()
             metric_train_target_lm = self._create_eval_metric(metrics, C.LM_TARGET_PREFIX)
 
@@ -501,7 +502,7 @@ class TrainingModel(sockeye.model.SockeyeModel):
                            prefix,
                            train_iter,
                            module):
-        if train_iter is not None:
+        if module is not None:
             # Optimizer state (from mxnet)
             opt_state_fname = os.path.join(training_state_dirname, prefix+C.MODULE_OPT_STATE_NAME)
             if self.bucketing:
@@ -599,7 +600,7 @@ class TrainingModel(sockeye.model.SockeyeModel):
                          train_iter,
                          prefix: str,
                          module: mx.mod.Module):
-        if train_iter is not None:
+        if module is not None:
             # Source optimzer state (from mxnet)
             opt_state_fname = os.path.join(directory, prefix+C.MODULE_OPT_STATE_NAME)
             if self.bucketing:
