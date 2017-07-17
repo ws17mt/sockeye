@@ -35,7 +35,8 @@ def get_encoder(num_embed: int,
                 residual: bool,
                 dropout: float,
                 forget_bias: float,
-                fused: bool = False) -> 'Encoder':
+                fused: bool = False,
+                lm_pre_layers: int = 0) -> 'Encoder':
     """
     Returns an encoder with embedding, batch2time-major conversion, and bidirectional RNN encoder.
     If num_layers > 1, adds uni-directional RNNs.
@@ -60,6 +61,14 @@ def get_encoder(num_embed: int,
     encoders.append(BatchMajor2TimeMajor())
 
     encoder_class = FusedRecurrentEncoder if fused else RecurrentEncoder
+    if lm_pre_layers > 0:
+        encoders.append(encoder_class(num_hidden=rnn_num_hidden,
+                                      num_layers=lm_pre_layers,
+                                      dropout=dropout,
+                                      layout=C.TIME_MAJOR,
+                                      cell_type=cell_type,
+                                      residual=residual,
+                                      forget_bias=forget_bias))
     encoders.append(BiDirectionalRNNEncoder(num_hidden=rnn_num_hidden,
                                             num_layers=1,
                                             dropout=dropout,

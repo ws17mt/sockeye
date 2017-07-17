@@ -41,7 +41,8 @@ def get_decoder(num_embed: int,
                 weight_tying: bool = False,
                 lexicon: Optional[sockeye.lexicon.Lexicon] = None,
                 context_gating: bool = False,
-                layer_normalization: bool = False) -> 'Decoder':
+                layer_normalization: bool = False,
+                lm_pre_layers: int = 0) -> 'Decoder':
     """
     Returns a StackedRNNDecoder with the following properties.
 
@@ -72,7 +73,8 @@ def get_decoder(num_embed: int,
                              forget_bias=forget_bias,
                              lexicon=lexicon,
                              context_gating=context_gating,
-                             layer_normalization=layer_normalization)
+                             layer_normalization=layer_normalization,
+                             lm_pre_layers=lm_pre_layers)
 
 
 class Decoder:
@@ -100,13 +102,15 @@ class Decoder:
 DecoderState = NamedTuple('DecoderState', [
     ('hidden', mx.sym.Symbol),
     ('layer_states', List[mx.sym.Symbol]),
+    ('lm_pre_states', List[mx.sym.Symbol])
 ])
+DecoderState.__new__.__defaults__ = (None,)
 """
 Decoder state.
 
 :param hidden: Hidden state after attention mechanism. Shape: (batch_size, num_hidden).
 :param layer_states: Hidden states for RNN layers of StackedRNNDecoder. Shape: List[(batch_size, rnn_num_hidden)]
-
+:param lm_pre_states: Hidden states for RNN layers for language model pre-training. Shape: List[(batch_size, rnn_num_hidden)]
 """
 
 
@@ -145,7 +149,8 @@ class StackedRNNDecoder(Decoder):
                  forget_bias: float = 0.0,
                  lexicon: Optional[sockeye.lexicon.Lexicon] = None,
                  context_gating: bool = False,
-                 layer_normalization: bool = False) -> None:
+                 layer_normalization: bool = False,
+                 lm_pre_layers: int = 0) -> None:
         # TODO: implement variant without input feeding
         self.num_layers = num_layers
         self.prefix = prefix
@@ -163,6 +168,13 @@ class StackedRNNDecoder(Decoder):
             self.mapped_context_w = mx.sym.Variable("%smapped_context_weight" % prefix)
             self.mapped_context_b = mx.sym.Variable("%smapped_context_bias" % prefix)
         self.layer_norm = layer_normalization
+        self.lm_pre_layers = lm_pre_layers
+
+        # LM Pretraining stacked RNN
+        self.lm_pre_rnn = None
+        if self.lm_pre_layers > 0:
+            self.lm_pre_rnn = sockeye.rnn.get_stacked_rnn(cell_type, num_hidden, self.lm_pre_layers, dropout,
+                                                          prefix, residual, forget_bias)
 
         # Decoder stacked RNN
         self.rnn = sockeye.rnn.get_stacked_rnn(cell_type, num_hidden, num_layers, dropout, prefix, residual,
@@ -262,7 +274,12 @@ class StackedRNNDecoder(Decoder):
             init = mx.sym.Activation(data=init, act_type="tanh",
                                      name="%senc2dec_inittanh_%d" % (self.prefix, state_idx))
             layer_states.append(init)
-        return DecoderState(hidden, layer_states)
+        # initial states for lm_pre_train layer
+        lm_pre_states = None
+        if self.lm_pre_rnn is not None:
+            lm_pre_states = self.lm_pre_rnn.begin_state()
+
+        return DecoderState(hidden, layer_states, lm_pre_states)
 
     def _step(self,
               word_vec_prev: mx.sym.Symbol,
@@ -282,6 +299,11 @@ class StackedRNNDecoder(Decoder):
         :param seq_idx: Decoder time step.
         :return: (new decoder state, updated attention state).
         """
+        # (0) lm_pre RNN step
+        lm_pre_states = None
+        if self.lm_pre_rnn is not None:
+            word_vec_prev, lm_pre_states = self.lm_pre_rnn(word_vec_prev, state.lm_pre_states)
+
         # (1) RNN step
         # concat previous word embedding and previous hidden state
         rnn_input = mx.sym.concat(word_vec_prev, state.hidden, dim=1,
@@ -336,7 +358,7 @@ class StackedRNNDecoder(Decoder):
             hidden = mx.sym.Activation(data=hidden, act_type="tanh",
                                        name="%snext_hidden_t%d" % (self.prefix, seq_idx))
 
-        return DecoderState(hidden, layer_states), attention_state
+        return DecoderState(hidden, layer_states, lm_pre_states), attention_state
 
     def decode(self,
                source_encoded: mx.sym.Symbol,
