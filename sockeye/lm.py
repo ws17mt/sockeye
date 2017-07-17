@@ -152,7 +152,7 @@ class SharedLanguageModel:
 
     def encode(self, data, seq_len):
 
-        data = self.embedding.encode(data, None, seq_len)
+        data, _, _ = self.embedding.encode(data, None, seq_len)
 
         self.rnn.reset()
         outputs, states = self.rnn.unroll(seq_len, inputs=data, merge_outputs=True)
