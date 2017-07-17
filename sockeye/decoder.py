@@ -214,7 +214,10 @@ class StackedRNNDecoder(Decoder):
         """
         Returns a list of RNNCells used by this decoder.
         """
-        return [self.rnn]
+        if self.lm_pre_rnn is not None:
+            return [self.lm_pre_rnn] + [self.rnn]
+        else:
+            return [self.rnn]
 
     def _create_layer_parameters(self):
         """

@@ -85,6 +85,7 @@ class TrainingModel(sockeye.model.SockeyeModel):
                  bucketing: bool,
                  lr_scheduler,
                  rnn_forget_bias: float,
+                 lm_pre_layers: int=0,
                  mono_source_iter: sockeye.data_io.MonoBucketSentenceIter=None,
                  mono_target_iter: sockeye.data_io.MonoBucketSentenceIter=None) -> None:
         super().__init__(model_config)
@@ -97,13 +98,20 @@ class TrainingModel(sockeye.model.SockeyeModel):
         self.lm_source_module = None
         self.lm_target_module = None
         if mono_source_iter is not None:
-            self.lm_source = sockeye.lm.get_lm_from_encoder(self.encoder)
-            self.rnn_cells.append(self.lm_source.rnn)  # TODO: Write _build_model_components for these?
+            self.lm_source = sockeye.lm.get_lm_from_encoder(config=self.config,
+                                                            lm_pre_layers=lm_pre_layers,
+                                                            encoder=self.encoder,
+                                                            fused=fused,
+                                                            rnn_forget_bias=rnn_forget_bias)
+            # self.rnn_cells.append(self.lm_source.rnn)  # TODO: Does this need to be here since they will share params?
             self.lm_source_module = self.build_lm_module(mono_source_iter, self.lm_source, self.config.max_seq_len)
             self.module_list.append(self.lm_source_module)
         if mono_target_iter is not None:
-            self.lm_target = sockeye.lm.get_lm_from_decoder(self.decoder)
-            self.rnn_cells.append(self.lm_target.rnn)  # TODO: Write _build_model_components for these?
+            self.lm_target = sockeye.lm.get_lm_from_decoder(config=self.config,
+                                                            lm_pre_layers=lm_pre_layers,
+                                                            decoder=self.decoder,
+                                                            rnn_forget_bias=rnn_forget_bias)
+            # self.rnn_cells.append(self.lm_target.rnn)  # TODO: Does this need to be here since they will share params?
             self.lm_target_module = self.build_lm_module(mono_target_iter, self.lm_target, self.config.max_seq_len)
             self.module_list.append(self.lm_target_module)
         self.training_monitor = None

@@ -46,10 +46,11 @@ def get_encoder(config: "ModelConfig",
     # TODO give more control on encoder architecture
     encoders = list()
 
-    encoders.append(Embedding(num_embed=config.num_embed_source,
-                              vocab_size=config.vocab_source_size,
-                              prefix=C.SOURCE_EMBEDDING_PREFIX,
-                              dropout=config.dropout))
+    embed = Embedding(num_embed=config.num_embed_source,
+                      vocab_size=config.vocab_source_size,
+                      prefix=C.SOURCE_EMBEDDING_PREFIX,
+                      dropout=config.dropout)
+    encoders.append(embed)
 
     if config.encoder == C.RNN_WITH_CONV_EMBED_NAME:
         encoders.append(ConvolutionalEmbeddingEncoder(num_embed=config.num_embed_source,
@@ -63,14 +64,18 @@ def get_encoder(config: "ModelConfig",
     encoders.append(BatchMajor2TimeMajor())
 
     encoder_class = FusedRecurrentEncoder if fused else RecurrentEncoder
+    lm_pre_rnn = None
     if lm_pre_layers > 0:
-        encoders.append(encoder_class(num_hidden=config.rnn_num_hidden,
-                                      num_layers=lm_pre_layers,
-                                      dropout=config.dropout,
-                                      layout=C.TIME_MAJOR,
-                                      cell_type=config.cell_type,
-                                      residual=config.rnn_residual_connections,
-                                      forget_bias=forget_bias))
+        lm_pre_rnn = encoder_class(num_hidden=config.rnn_num_hidden,
+                                   num_layers=lm_pre_layers,
+                                   dropout=config.dropout,
+                                   prefix=C.LM_SOURCE_PREFIX+C.STACKEDRNN_PREFIX,
+                                   layout=C.TIME_MAJOR,
+                                   cell_type=config.cell_type,
+                                   residual=config.rnn_residual_connections,
+                                   forget_bias=forget_bias)
+        encoders.append(lm_pre_rnn)
+
     encoders.append(BiDirectionalRNNEncoder(num_hidden=config.rnn_num_hidden,
                                             num_layers=1,
                                             dropout=config.dropout,
@@ -88,7 +93,7 @@ def get_encoder(config: "ModelConfig",
                                       residual=config.rnn_residual_connections,
                                       forget_bias=forget_bias))
 
-    return EncoderSequence(encoders)
+    return EncoderSequence(encoders, embed=embed, lm_pre_rnn=lm_pre_rnn)
 
 
 class Encoder:
@@ -227,8 +232,13 @@ class EncoderSequence(Encoder):
     :param encoders: List of encoders.
     """
 
-    def __init__(self, encoders: List[Encoder]):
+    def __init__(self,
+                 encoders: List[Encoder],
+                 embed: Embedding=None,
+                 lm_pre_rnn: mx.rnn.SequentialRNNCell=None):
         self.encoders = encoders
+        self.embed = embed
+        self.lm_pre_rnn = lm_pre_rnn
 
     def encode(self,
                data: mx.sym.Symbol,
