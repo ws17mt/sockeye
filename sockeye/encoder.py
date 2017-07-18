@@ -441,12 +441,17 @@ class GraphConvEncoder(Encoder):
         Convolve data using adj and the GCN parameters
         """
         adj = metadata
+        with mx.AttrScope(__layout__=C.BATCH_MAJOR):
+            data = mx.sym.swapaxes(data=data, dim1=0, dim2=1)
+        outputs = mx.sym.batch_dot(adj, data)
         #outputs = self.gcn.convolve(data, adj)
         #print(adj)
         logger.info("I am here!")
         logger.info(str(adj))
         logger.info(str(data))
-        outputs = data
+        #outputs = data
+        with mx.AttrScope(__layout__=C.TIME_MAJOR):
+            outputs = mx.sym.swapaxes(data=outputs, dim1=0, dim2=1)
         return outputs
 
     def get_num_hidden(self) -> int:

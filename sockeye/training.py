@@ -269,7 +269,7 @@ class TrainingModel(sockeye.model.SockeyeModel):
 
             # process batch
             batch = next_data_batch
-            print(batch)
+            #print(batch)
             self.module.forward_backward(batch)
             self.module.update()
 
