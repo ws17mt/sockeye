@@ -12,75 +12,67 @@
 # permissions and limitations under the License.
 
 """
-Decoders for sequence-to-sequence models.
+Sequence-to-Sequence Decoders
 """
 from typing import Callable, List, NamedTuple, Tuple
 from typing import Optional
 
 import mxnet as mx
 
-from sockeye.config import Config
+import sockeye.attention
+import sockeye.constants as C
+import sockeye.coverage
+import sockeye.encoder
+import sockeye.lexicon
+import sockeye.rnn
+import sockeye.utils
 from sockeye.layers import LayerNormalization
 from sockeye.utils import check_condition
-from . import attention as attentions
-from . import constants as C
-from . import encoder
-from . import lexicon as lexicons
-from . import rnn
 
 
-class RecurrentDecoderConfig(Config):
+def get_decoder(num_embed: int,
+                vocab_size: int,
+                num_layers: int,
+                rnn_num_hidden: int,
+                attention: sockeye.attention.Attention,
+                cell_type: str, residual: bool,
+                forget_bias: float,
+                dropout=0.,
+                weight_tying: bool = False,
+                lexicon: Optional[sockeye.lexicon.Lexicon] = None,
+                context_gating: bool = False,
+                layer_normalization: bool = False) -> 'Decoder':
     """
-    Recurrent decoder configuration.
+    Returns a StackedRNNDecoder with the following properties.
 
-    :param vocab_size: Target vocabulary size.
     :param num_embed: Target word embedding size.
-    :param rnn_config: RNN configuration.
+    :param vocab_size: Target vocabulary size.
+    :param num_layers: Number of RNN layers in the decoder.
+    :param rnn_num_hidden: Number of hidden units per decoder RNN cell.
+    :param attention: Attention model.
+    :param cell_type: RNN cell type.
+    :param residual: Whether to add residual connections to multi-layer RNNs.
+    :param forget_bias: Initial value of the RNN forget bias.
     :param dropout: Dropout probability for decoder RNN.
     :param weight_tying: Whether to share embedding and prediction parameter matrices.
+    :param lexicon: Optional Lexicon.
     :param context_gating: Whether to use context gating.
     :param layer_normalization: Apply layer normalization.
-    """
-    yaml_tag = "!RecurrentDecoderConfig"
-
-    def __init__(self,
-                 vocab_size: int,
-                 num_embed: int,
-                 rnn_config: rnn.RNNConfig,
-                 dropout: float = .0,
-                 weight_tying: bool = False,
-                 context_gating: bool = False,
-                 layer_normalization: bool = False) -> None:
-        super().__init__()
-        self.vocab_size = vocab_size
-        self.num_embed = num_embed
-        self.rnn_config = rnn_config
-        self.dropout = dropout
-        self.weight_tying = weight_tying
-        self.context_gating = context_gating
-        self.layer_normalization = layer_normalization
-
-
-def get_recurrent_decoder(config: RecurrentDecoderConfig,
-                          attention: attentions.Attention,
-                          lexicon: Optional[lexicons.Lexicon] = None) -> 'Decoder':
-    """
-    Returns a recurrent decoder.
-
-    :param config: Configuration for RecurrentDecoder.
-    :param attention: Attention model.
-    :param lexicon: Optional Lexicon.
     :return: Decoder instance.
     """
-    return RecurrentDecoder(rnn_config=config.rnn_config,
-                            vocab_size=config.vocab_size,
-                            num_target_embed=config.num_embed,
-                            attention=attention,
-                            weight_tying=config.weight_tying,
-                            context_gating=config.context_gating,
-                            layer_normalization=config.layer_normalization,
-                            lexicon=lexicon,
-                            prefix=C.DECODER_PREFIX)
+    return StackedRNNDecoder(rnn_num_hidden,
+                             attention,
+                             vocab_size,
+                             num_embed,
+                             num_layers,
+                             weight_tying=weight_tying,
+                             dropout=dropout,
+                             cell_type=cell_type,
+                             residual=residual,
+                             forget_bias=forget_bias,
+                             lexicon=lexicon,
+                             context_gating=context_gating,
+                             layer_normalization=layer_normalization)
 
 
 class Decoder:
@@ -113,50 +105,56 @@ DecoderState = NamedTuple('DecoderState', [
 Decoder state.
 
 :param hidden: Hidden state after attention mechanism. Shape: (batch_size, num_hidden).
-:param layer_states: Hidden states for RNN layers of RecurrentDecoder. Shape: List[(batch_size, rnn_num_hidden)]
+:param layer_states: Hidden states for RNN layers of StackedRNNDecoder. Shape: List[(batch_size, rnn_num_hidden)]
 
 """
 
 
-class RecurrentDecoder(Decoder):
+class StackedRNNDecoder(Decoder):
     """
     Class to generate the decoder part of the computation graph in sequence-to-sequence models.
-    The architecture is based on Luong et al, 2015: Effective Approaches to Attention-based Neural Machine Translation.
+    The architecture is based on Luong et al, 2015: Effective Approaches to Attention-based Neural Machine Translation
 
-    :param rnn_config: RNN configuration.
-    :param vocab_size: Size of target vocabulary.
-    :param num_target_embed: Size of target word embedding.
+    :param num_hidden: Number of hidden units in decoder RNN.
     :param attention: Attention model.
+    :param target_vocab_size: Size of target vocabulary.
+    :param num_target_embed: Size of target word embedding.
+    :param num_layers: Number of decoder RNN layers.
+    :param prefix: Decoder symbol prefix.
     :param weight_tying: Whether to share embedding and prediction parameter matrices.
+    :param dropout: Dropout probability for decoder RNN.
+    :param cell_type: RNN cell type.
+    :param residual: Whether to add residual connections to multi-layer RNNs.
+    :param forget_bias: Initial value of the RNN forget bias.
+    :param lexicon: Optional Lexicon.
     :param context_gating: Whether to use context gating.
     :param layer_normalization: Apply layer normalization to output layer and decoder state initializations.
-    :param lexicon: Optional Lexicon.
-    :param prefix: Decoder symbol prefix.
     """
 
     def __init__(self,
-                 rnn_config: rnn.RNNConfig,
-                 vocab_size: int,
+                 num_hidden: int,
+                 attention: sockeye.attention.Attention,
+                 target_vocab_size: int,
                  num_target_embed: int,
-                 attention: attentions.Attention,
-                 weight_tying: bool = False,
+                 num_layers=1,
+                 prefix=C.DECODER_PREFIX,
+                 weight_tying=False,
+                 dropout=0.0,
+                 cell_type: str = C.LSTM_TYPE,
+                 residual: bool = False,
+                 forget_bias: float = 0.0,
+                 lexicon: Optional[sockeye.lexicon.Lexicon] = None,
                  context_gating: bool = False,
-                 layer_normalization: bool = False,
-                 lexicon: Optional[lexicons.Lexicon] = None,
-                 prefix=C.DECODER_PREFIX) -> None:
+                 layer_normalization: bool = False) -> None:
         # TODO: implement variant without input feeding
-        self.rnn_config = rnn_config
-        self.target_vocab_size = vocab_size
-        self.num_target_embed = num_target_embed
-        self.attention = attention
-        self.weight_tying = weight_tying
-        self.context_gating = context_gating
-        self.layer_norm = layer_normalization
-        self.lexicon = lexicon
+        self.num_layers = num_layers
         self.prefix = prefix
-
-        self.num_hidden = self.rnn_config.num_hidden
-
+        self.dropout = dropout
+        self.num_hidden = num_hidden
+        self.attention = attention
+        self.target_vocab_size = target_vocab_size
+        self.num_target_embed = num_target_embed
+        self.context_gating = context_gating
         if self.context_gating:
             self.gate_w = mx.sym.Variable("%sgate_weight" % prefix)
             self.gate_b = mx.sym.Variable("%sgate_bias" % prefix)
@@ -164,9 +162,13 @@ class RecurrentDecoder(Decoder):
             self.mapped_rnn_output_b = mx.sym.Variable("%smapped_rnn_output_bias" % prefix)
             self.mapped_context_w = mx.sym.Variable("%smapped_context_weight" % prefix)
             self.mapped_context_b = mx.sym.Variable("%smapped_context_bias" % prefix)
+        self.layer_norm = layer_normalization
 
-        # Stacked RNN
-        self.rnn = rnn.get_stacked_rnn(self.rnn_config, self.prefix)
+        # Decoder stacked RNN
+        self.rnn = sockeye.rnn.get_stacked_rnn(cell_type, num_hidden, num_layers, dropout, prefix, residual,
+                                               forget_bias)
+
+        # Decoder parameters
         # RNN init state parameters
         self._create_layer_parameters()
 
@@ -176,8 +178,8 @@ class RecurrentDecoder(Decoder):
         self.hidden_norm = LayerNormalization(self.num_hidden,
                                               prefix="%shidden_norm" % prefix) if self.layer_norm else None
         # Embedding & output parameters
-        self.embedding = encoder.Embedding(self.num_target_embed, self.target_vocab_size,
-                                           prefix=C.TARGET_EMBEDDING_PREFIX, dropout=0.)  # TODO dropout?
+        self.embedding = sockeye.encoder.Embedding(self.num_target_embed, self.target_vocab_size,
+                                                   prefix=C.TARGET_EMBEDDING_PREFIX, dropout=0.)  # TODO dropout?
         if weight_tying:
             check_condition(self.num_hidden == self.num_target_embed,
                             "Weight tying requires target embedding size and rnn_num_hidden to be equal")
@@ -185,6 +187,8 @@ class RecurrentDecoder(Decoder):
         else:
             self.cls_w = mx.sym.Variable("%scls_weight" % prefix)
         self.cls_b = mx.sym.Variable("%scls_bias" % prefix)
+
+        self.lexicon = lexicon
 
     def get_num_hidden(self) -> int:
         """
@@ -264,8 +268,8 @@ class RecurrentDecoder(Decoder):
               word_vec_prev: mx.sym.Symbol,
               state: DecoderState,
               attention_func: Callable,
-              attention_state: attentions.AttentionState,
-              seq_idx: int = 0) -> Tuple[DecoderState, attentions.AttentionState]:
+              attention_state: sockeye.attention.AttentionState,
+              seq_idx: int = 0) -> Tuple[DecoderState, sockeye.attention.AttentionState]:
 
         """
         Performs single-time step in the RNN, given previous word vector, previous hidden state, attention function,
@@ -423,11 +427,11 @@ class RecurrentDecoder(Decoder):
                 word_id_prev: mx.sym.Symbol,
                 state_prev: DecoderState,
                 attention_func: Callable,
-                attention_state_prev: attentions.AttentionState,
+                attention_state_prev: sockeye.attention.AttentionState,
                 source_lexicon: Optional[mx.sym.Symbol] = None,
                 softmax_temperature: Optional[float] = None) -> Tuple[mx.sym.Symbol,
                                                                       DecoderState,
-                                                                      attentions.AttentionState]:
+                                                                      sockeye.attention.AttentionState]:
         """
         Given previous word id, attention function, previous hidden state and RNN layer states,
         returns Softmax predictions (not a loss symbol), next hidden state, and next layer

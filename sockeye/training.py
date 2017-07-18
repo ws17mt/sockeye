@@ -26,14 +26,16 @@ from typing import AnyStr, List, Optional
 import mxnet as mx
 import numpy as np
 
-from . import callback
-from . import checkpoint_decoder
-from . import constants as C
-from . import data_io
-from . import loss
-from . import lm
-from . import model
-from . import utils
+import sockeye.callback
+import sockeye.checkpoint_decoder
+import sockeye.constants as C
+import sockeye.data_io
+import sockeye.inference
+import sockeye.loss
+import sockeye.lm
+import sockeye.lr_scheduler
+import sockeye.model
+import sockeye.utils
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +45,6 @@ class _TrainingState:
     Stores the state of the training process. These are the variables that will
     be stored to disk when resuming training.
     """
-
     def __init__(self,
                  num_not_improved,
                  epoch,
@@ -59,13 +60,13 @@ class _TrainingState:
         self.mono_epoch = mono_epoch
 
 
-class TrainingModel(model.SockeyeModel):
+class TrainingModel(sockeye.model.SockeyeModel):
     """
     Defines an Encoder/Decoder model (with attention).
     RNN configuration (number of hidden units, number of layers, cell type)
     is shared between encoder & decoder.
 
-    :param config: Configuration object holding details about the model.
+    :param model_config: Configuration object holding details about the model.
     :param context: The context(s) that MXNet will be run in (GPU(s)/CPU)
     :param train_iter: The iterator over the training data.
     :param fused: If True fused RNN cells will be used (should be slightly more efficient, but is only available
@@ -73,47 +74,49 @@ class TrainingModel(model.SockeyeModel):
     :param bucketing: If True bucketing will be used, if False the computation graph will always be
             unrolled to the full length.
     :param lr_scheduler: The scheduler that lowers the learning rate during training.
+    :param rnn_forget_bias: Initial value of the RNN forget biases.
     :param mono_source_iter: Optional iterator for monolingual source data.
     :param mono_source_iter: Optional iterator for monolingual target data.
     """
 
     def __init__(self,
-                 config: model.ModelConfig,
+                 model_config: sockeye.model.ModelConfig,
                  context: List[mx.context.Context],
-                 train_iter: data_io.ParallelBucketSentenceIter,
+                 train_iter: sockeye.data_io.ParallelBucketSentenceIter,
                  fused: bool,
                  bucketing: bool,
                  lr_scheduler,
-                 mono_source_iter: data_io.MonoBucketSentenceIter=None,
-                 mono_target_iter: data_io.MonoBucketSentenceIter=None) -> None:
-        super().__init__(config)
+                 rnn_forget_bias: float,
+                 mono_source_iter: sockeye.data_io.MonoBucketSentenceIter=None,
+                 mono_target_iter: sockeye.data_io.MonoBucketSentenceIter=None) -> None:
+        super().__init__(model_config)
         self.context = context
         self.lr_scheduler = lr_scheduler
         self.bucketing = bucketing
-        self._build_model_components(self.config.max_seq_len, fused)
+        self._build_model_components(self.config.max_seq_len, fused, rnn_forget_bias)
         self.module = self._build_module(train_iter, self.config.max_seq_len)
         self.lm_source_module = None
         self.lm_target_module = None
         if mono_source_iter is not None:
-            self.lm_source = lm.get_lm_from_encoder(self.encoder)
+            self.lm_source = sockeye.lm.get_lm_from_encoder(self.encoder)
             self.rnn_cells.append(self.lm_source.rnn)
             self.lm_source_module = self.build_lm_module(mono_source_iter, self.lm_source, self.config.max_seq_len)
         if mono_target_iter is not None:
-            self.lm_target = lm.get_lm_from_decoder(self.decoder)
+            self.lm_target = sockeye.lm.get_lm_from_decoder(self.decoder)
             self.rnn_cells.append(self.lm_target.rnn)
             self.lm_target_module = self.build_lm_module(mono_target_iter, self.lm_target, self.config.max_seq_len)
         self.training_monitor = None
 
     def _build_lm_module(self,
-                         mono_iter: data_io.MonoBucketSentenceIter,
-                         lm: lm.SharedLanguageModel,
+                         mono_iter: sockeye.data_io.MonoBucketSentenceIter,
+                         lm: sockeye.lm.SharedLanguageModel,
                          max_seq_len: int):
         """
         Build a sister module for training an LM
         """
         mono = mx.sym.Variable(C.MONO_NAME)
         labels = mx.sym.reshape(data=mx.sym.Variable(C.MONO_LABEL_NAME))
-        lm_loss = loss.get_loss(self.config)
+        loss = sockeye.loss.get_loss(self.config)
 
         data_names = [x[0] for x in mono_iter.provide_data]
         label_names = [x[0] for x in mono_iter.provide_label]
@@ -124,7 +127,7 @@ class TrainingModel(model.SockeyeModel):
             Also returns data and label names for the BucketingModule
             """
             logits = lm.encode(mono, seq_len=seq_len)
-            outputs = lm_loss.get_loss(logits, labels)
+            outputs = loss.get_loss(logits, labels)
             return mx.sym.Group(outputs), data_names, label_names
 
         if self.bucketing:
@@ -143,7 +146,7 @@ class TrainingModel(model.SockeyeModel):
                                  context=self.context)
 
     def _build_module(self,
-                      train_iter: data_io.ParallelBucketSentenceIter,
+                      train_iter: sockeye.data_io.ParallelBucketSentenceIter,
                       max_seq_len: int):
         """
         Initializes model components, creates training symbol and module, and binds it.
@@ -153,7 +156,7 @@ class TrainingModel(model.SockeyeModel):
         target = mx.sym.Variable(C.TARGET_NAME)
         labels = mx.sym.reshape(data=mx.sym.Variable(C.TARGET_LABEL_NAME), shape=(-1,))
 
-        model_loss = loss.get_loss(self.config.config_loss)
+        loss = sockeye.loss.get_loss(self.config)
 
         data_names = [x[0] for x in train_iter.provide_data]
         label_names = [x[0] for x in train_iter.provide_label]
@@ -173,7 +176,7 @@ class TrainingModel(model.SockeyeModel):
             logits = self.decoder.decode(source_encoded, source_encoded_seq_len, source_encoded_length,
                                          target, target_seq_len, source_lexicon)
 
-            outputs = model_loss.get_loss(logits, labels)
+            outputs = loss.get_loss(logits, labels)
 
             return mx.sym.Group(outputs), data_names, label_names
 
@@ -201,7 +204,7 @@ class TrainingModel(model.SockeyeModel):
         # output_names refers to the list of outputs this metric should use to update itself, e.g. the softmax output
         for metric_name in metric_names:
             if metric_name == C.ACCURACY:
-                metrics.append(utils.Accuracy(ignore_label=C.PAD_ID, output_names=[C.SOFTMAX_OUTPUT_NAME]))
+                metrics.append(sockeye.utils.Accuracy(ignore_label=C.PAD_ID, output_names=[C.SOFTMAX_OUTPUT_NAME]))
             elif metric_name == C.PERPLEXITY:
                 metrics.append(mx.metric.Perplexity(ignore_label=C.PAD_ID, output_names=[C.SOFTMAX_OUTPUT_NAME]))
             else:
@@ -221,8 +224,8 @@ class TrainingModel(model.SockeyeModel):
             module.init_optimizer(kvstore='device', optimizer=optimizer, optimizer_params=optimizer_params)
 
     def fit(self,
-            train_iter: data_io.ParallelBucketSentenceIter,
-            val_iter: data_io.ParallelBucketSentenceIter,
+            train_iter: sockeye.data_io.ParallelBucketSentenceIter,
+            val_iter: sockeye.data_io.ParallelBucketSentenceIter,
             output_folder: str,
             max_params_files_to_keep: int,
             metrics: List[AnyStr],
@@ -236,8 +239,8 @@ class TrainingModel(model.SockeyeModel):
             min_num_epochs: Optional[int] = None,
             monitor_bleu: int = 0,
             use_tensorboard: bool = False,
-            mono_source_iter: data_io.MonoBucketSentenceIter=None,
-            mono_target_iter: data_io.MonoBucketSentenceIter=None):
+            mono_source_iter: sockeye.data_io.MonoBucketSentenceIter=None,
+            mono_target_iter: sockeye.data_io.MonoBucketSentenceIter=None):
         """
         Fits model to data given by train_iter using early-stopping w.r.t data given by val_iter.
         Saves all intermediate and final output to output_folder
@@ -261,7 +264,6 @@ class TrainingModel(model.SockeyeModel):
                validation metrics.
         :return: Best score on validation data observed during training.
         """
-        self.save_version(output_folder)
         self.save_config(output_folder)
 
         self._prime_module(self.module, train_iter, output_folder,
@@ -271,18 +273,18 @@ class TrainingModel(model.SockeyeModel):
         self._prime_module(self.lm_target_module, mono_target_iter, output_folder,
                            C.TARGET_SYMBOL_NAME, initializer, optimizer, optimizer_params)
 
-        cp_decoder = checkpoint_decoder.CheckpointDecoder(self.context[-1],
-                                                          self.config.config_data.validation_source,
-                                                          self.config.config_data.validation_target,
-                                                          output_folder, self.config.max_seq_len,
-                                                          limit=monitor_bleu) \
+        checkpoint_decoder = sockeye.checkpoint_decoder.CheckpointDecoder(self.context[-1],
+                                                                          self.config.data_info.validation_source,
+                                                                          self.config.data_info.validation_target,
+                                                                          output_folder, self.config.max_seq_len,
+                                                                          limit=monitor_bleu) \
             if monitor_bleu else None
 
         logger.info("Training started.")
-        self.training_monitor = callback.TrainingMonitor(train_iter.batch_size, output_folder,
-                                                         optimized_metric=optimized_metric,
-                                                         use_tensorboard=use_tensorboard,
-                                                         checkpoint_decoder=cp_decoder)
+        self.training_monitor = sockeye.callback.TrainingMonitor(train_iter.batch_size, output_folder,
+                                                                 optimized_metric=optimized_metric,
+                                                                 use_tensorboard=use_tensorboard,
+                                                                 checkpoint_decoder=checkpoint_decoder)
         self._fit(train_iter, val_iter, output_folder,
                   max_params_files_to_keep,
                   metrics=metrics,
@@ -326,8 +328,8 @@ class TrainingModel(model.SockeyeModel):
             return next_data_batch
 
     def _fit(self,
-             train_iter: data_io.ParallelBucketSentenceIter,
-             val_iter: data_io.ParallelBucketSentenceIter,
+             train_iter: sockeye.data_io.ParallelBucketSentenceIter,
+             val_iter: sockeye.data_io.ParallelBucketSentenceIter,
              output_folder: str,
              max_params_files_to_keep: int,
              metrics: List[AnyStr],
@@ -335,8 +337,8 @@ class TrainingModel(model.SockeyeModel):
              checkpoint_frequency: int,
              max_num_not_improved: int,
              min_num_epochs: Optional[int] = None,
-             mono_source_iter: data_io.MonoBucketSentenceIter=None,
-             mono_target_iter: data_io.MonoBucketSentenceIter=None):
+             mono_source_iter: sockeye.data_io.MonoBucketSentenceIter=None,
+             mono_target_iter: sockeye.data_io.MonoBucketSentenceIter=None):
         """
         Internal fit method. Runtime determined by early stopping.
 
@@ -509,9 +511,9 @@ class TrainingModel(model.SockeyeModel):
             train_iter.save_state(os.path.join(training_state_dirname, iter_file))
 
     def _checkpoint(self, training_state: _TrainingState, output_folder: str,
-                    train_iter: data_io.ParallelBucketSentenceIter,
-                    mono_source_iter: data_io.MonoBucketSentenceIter,
-                    mono_target_iter: data_io.MonoBucketSentenceIter):
+                    train_iter: sockeye.data_io.ParallelBucketSentenceIter,
+                    mono_source_iter: sockeye.data_io.MonoBucketSentenceIter,
+                    mono_target_iter: sockeye.data_io.MonoBucketSentenceIter):
         """
         Saves checkpoint. Note that the parameters are saved in _save_params.
         """
@@ -606,9 +608,9 @@ class TrainingModel(model.SockeyeModel):
             train_iter.load_state(os.path.join(directory, iter_file))
 
     def load_checkpoint(self, directory: str,
-                        train_iter: data_io.ParallelBucketSentenceIter,
-                        mono_source_iter: data_io.MonoBucketSentenceIter,
-                        mono_target_iter: data_io.MonoBucketSentenceIter) -> _TrainingState:
+                        train_iter: sockeye.data_io.ParallelBucketSentenceIter,
+                        mono_source_iter: sockeye.data_io.MonoBucketSentenceIter,
+                        mono_target_iter: sockeye.data_io.MonoBucketSentenceIter) -> _TrainingState:
         """
         Loads the full training state from disk. This includes optimizer,
         random number generators and everything needed.  Note that params

@@ -16,83 +16,64 @@ from typing import Optional, List
 
 import mxnet as mx
 
-from sockeye.config import Config
+from sockeye import constants as C
 from sockeye.layers import LayerNormalization
-from . import constants as C
 
 
-class RNNConfig(Config):
+def get_stacked_rnn(cell_type: str,
+                    num_hidden: int,
+                    num_layers: int,
+                    dropout: float,
+                    prefix: str,
+                    residual: bool = False,
+                    forget_bias: float = 0.0,
+                    params=None) -> mx.rnn.SequentialRNNCell:
     """
-    RNN configuration.
+    Returns (stacked) RNN cell given parameters.
 
     :param cell_type: RNN cell type.
     :param num_hidden: Number of RNN hidden units.
     :param num_layers: Number of RNN layers.
     :param dropout: Dropout probability on RNN outputs.
+    :param prefix: Symbol prefix for RNN.
     :param residual: Whether to add residual connections between multi-layered RNNs.
     :param forget_bias: Initial value of forget biases.
-    """
-    yaml_tag = '!RNNConfig'
-
-    def __init__(self,
-                 cell_type: str,
-                 num_hidden: int,
-                 num_layers: int,
-                 dropout: float,
-                 residual: bool = False,
-                 forget_bias: float = 0.0) -> None:
-        super().__init__()
-        self.cell_type = cell_type
-        self.num_hidden = num_hidden
-        self.num_layers = num_layers
-        self.dropout = dropout
-        self.residual = residual
-        self.forget_bias = forget_bias
-
-
-def get_stacked_rnn(config: RNNConfig, prefix: str, params: Optional[List[mx.rnn.RNNParams]]=None) -> mx.rnn.SequentialRNNCell:
-    """
-    Returns (stacked) RNN cell given parameters.
-
-    :param config: rnn configuration.
-    :param prefix: Symbol prefix for RNN.
-    :param params: List of params for weight sharing (one per layer)
+    :param params: List of containers for weight sharing, one per layer.
     :return: RNN cell.
     """
 
     # Check for weight sharing parameters, otherwise initialize each layer with None
     if params is not None:
-        assert len(params) == config.num_layers
+        assert len(params) == num_layers
     else:
-        params = [None for layer in range(config.num_layers)]
+        params = [None for layer in range(num_layers)]
 
     rnn = mx.rnn.SequentialRNNCell()
-    for layer in range(config.num_layers):
+    for layer in range(num_layers):
         # fhieber: the 'l' in the prefix does NOT stand for 'layer' but for the direction 'l' as in mx.rnn.rnn_cell::517
         # this ensures parameter name compatibility of training w/ FusedRNN and decoding with 'unfused' RNN.
         cell_prefix = "%sl%d_" % (prefix, layer)
-        if config.cell_type == C.LSTM_TYPE:
-            cell = mx.rnn.LSTMCell(num_hidden=config.num_hidden, prefix=cell_prefix, forget_bias=config.forget_bias, params=params[layer])
-        elif config.cell_type == C.LNLSTM_TYPE:
-            cell = LayerNormLSTMCell(num_hidden=config.num_hidden, prefix=cell_prefix, forget_bias=config.forget_bias, params=params[layer])
-        elif config.cell_type == C.LNGLSTM_TYPE:
-            cell = LayerNormPerGateLSTMCell(num_hidden=config.num_hidden, prefix=cell_prefix,
-                                            forget_bias=config.forget_bias, params=params[layer])
-        elif config.cell_type == C.GRU_TYPE:
-            cell = mx.rnn.GRUCell(num_hidden=config.num_hidden, prefix=cell_prefix, params=params[layer])
-        elif config.cell_type == C.LNGRU_TYPE:
-            cell = LayerNormGRUCell(num_hidden=config.num_hidden, prefix=cell_prefix, params=params[layer])
-        elif config.cell_type == C.LNGGRU_TYPE:
-            cell = LayerNormPerGateGRUCell(num_hidden=config.num_hidden, prefix=cell_prefix, params=params[layer])
+        if cell_type == C.LSTM_TYPE:
+            cell = mx.rnn.LSTMCell(num_hidden=num_hidden, prefix=cell_prefix, forget_bias=forget_bias, params=params[layer])
+        elif cell_type == C.LNLSTM_TYPE:
+            cell = LayerNormLSTMCell(num_hidden=num_hidden, prefix=cell_prefix, forget_bias=forget_bias, params=params[layer])
+        elif cell_type == C.LNGLSTM_TYPE:
+            cell = LayerNormPerGateLSTMCell(num_hidden=num_hidden, prefix=cell_prefix, forget_bias=forget_bias, params=params[layer])
+        elif cell_type == C.GRU_TYPE:
+            cell = mx.rnn.GRUCell(num_hidden=num_hidden, prefix=cell_prefix, params=params[layer])
+        elif cell_type == C.LNGRU_TYPE:
+            cell = LayerNormGRUCell(num_hidden=num_hidden, prefix=cell_prefix, params=params[layer])
+        elif cell_type == C.LNGGRU_TYPE:
+            cell = LayerNormPerGateGRUCell(num_hidden=num_hidden, prefix=cell_prefix, params=params[layer])
         else:
             raise NotImplementedError()
-        if config.residual and layer > 0:
+        if residual and layer > 0:
             cell = mx.rnn.ResidualCell(cell)
         rnn.add(cell)
 
-        if config.dropout > 0.:
+        if dropout > 0.:
             # TODO(fhieber): add pervasive dropout?
-            rnn.add(mx.rnn.DropoutCell(config.dropout, prefix=cell_prefix + "_dropout"))
+            rnn.add(mx.rnn.DropoutCell(dropout, prefix=cell_prefix + "_dropout"))
     return rnn
 
 
@@ -170,30 +151,6 @@ class LayerNormLSTMCell(mx.rnn.LSTMCell):
                                                          act_type="tanh"),
                                        name='%sout' % name)
         return next_h, [next_h, next_c]
-
-    def unpack_weights(self, args):
-        args = args.copy()
-        if not self._gate_names:
-            return args
-        h = self._num_hidden
-        for group_name in ['i2h', 'h2h']:
-            weight = args.pop('%s%s_weight'%(self._prefix, group_name))
-            for j, gate in enumerate(self._gate_names):
-                wname = '%s%s%s_weight' % (self._prefix, group_name, gate)
-                args[wname] = weight[j*h:(j+1)*h].copy()
-        return args
-
-    def pack_weights(self, args):
-        args = args.copy()
-        if not self._gate_names:
-            return args
-        for group_name in ['i2h', 'h2h']:
-            weight = []
-            for gate in self._gate_names:
-                wname = '%s%s%s_weight'%(self._prefix, group_name, gate)
-                weight.append(args.pop(wname))
-            args['%s%s_weight'%(self._prefix, group_name)] = mx.nd.concatenate(weight)
-        return args
 
 
 class LayerNormPerGateLSTMCell(mx.rnn.LSTMCell):
@@ -331,30 +288,6 @@ class LayerNormGRUCell(mx.rnn.GRUCell):
                                         name='%sout' % name)
 
         return next_h, [next_h]
-
-    def unpack_weights(self, args):
-        args = args.copy()
-        if not self._gate_names:
-            return args
-        h = self._num_hidden
-        for group_name in ['i2h', 'h2h']:
-            weight = args.pop('%s%s_weight'%(self._prefix, group_name))
-            for j, gate in enumerate(self._gate_names):
-                wname = '%s%s%s_weight' % (self._prefix, group_name, gate)
-                args[wname] = weight[j*h:(j+1)*h].copy()
-        return args
-
-    def pack_weights(self, args):
-        args = args.copy()
-        if not self._gate_names:
-            return args
-        for group_name in ['i2h', 'h2h']:
-            weight = []
-            for gate in self._gate_names:
-                wname = '%s%s%s_weight'%(self._prefix, group_name, gate)
-                weight.append(args.pop(wname))
-            args['%s%s_weight'%(self._prefix, group_name)] = mx.nd.concatenate(weight)
-        return args
 
 
 class LayerNormPerGateGRUCell(mx.rnn.GRUCell):

@@ -18,48 +18,24 @@ from typing import List
 
 import mxnet as mx
 
-from . import config
-from . import constants as C
-from . import utils
+import sockeye.constants as C
+import sockeye.model
+from sockeye.utils import check_condition
 
 
-class LossConfig(config.Config):
+def get_loss(config: sockeye.model.ModelConfig) -> 'Loss':
     """
-    Loss configuration.
+    Returns Loss instance given loss_name.
 
-    :param type: Loss name.
-    :param vocab_size: Target vocab size.
-    :param normalize: Whether to normalize loss value.
-    :param smoothed_cross_entropy_alpha: Smoothing value for smoothed-cross-entropy loss.
+    :param config: Model configuration.
     """
-    yaml_tag = '!LossConfig'
-
-    def __init__(self,
-                 type: str,
-                 vocab_size: int,
-                 normalize: bool,
-                 smoothed_cross_entropy_alpha: float = 0.0) -> None:
-        super().__init__()
-        self.type = type
-        self.vocab_size = vocab_size
-        self.normalize = normalize
-        self.smoothed_cross_entropy_alpha = smoothed_cross_entropy_alpha
-
-
-def get_loss(config: LossConfig) -> 'Loss':
-    """
-    Returns Loss instance.
-
-    :param config: Loss configuration.
-    """
-    if config.type == C.CROSS_ENTROPY:
-        return CrossEntropyLoss(config.normalize)
-    elif config.type == C.SMOOTHED_CROSS_ENTROPY:
-        return SmoothedCrossEntropyLoss(config.smoothed_cross_entropy_alpha,
-                                        config.vocab_size,
-                                        config.normalize)
+    if config.loss == C.CROSS_ENTROPY:
+        return CrossEntropyLoss(config.normalize_loss)
+    elif config.loss == C.SMOOTHED_CROSS_ENTROPY:
+        return SmoothedCrossEntropyLoss(config.smoothed_cross_entropy_alpha, config.vocab_target_size,
+                                        config.normalize_loss)
     else:
-        raise ValueError("unknown loss name: %s" % config.type)
+        raise ValueError("unknown loss name")
 
 
 class Loss:
@@ -135,7 +111,7 @@ class SmoothedCrossEntropyLoss(Loss):
     """
 
     def __init__(self, alpha: float, vocab_size: int, normalize: bool = False):
-        utils.check_condition(alpha >= 0, "alpha for smoothed loss must be >= 0")
+        check_condition(alpha >= 0, "alpha for smoothed loss must be >= 0")
         self._alpha = alpha
         self._vocab_size = vocab_size
         self._normalize = normalize
