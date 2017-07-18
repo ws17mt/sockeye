@@ -504,6 +504,7 @@ class ParallelBucketSentenceIter(mx.io.DataIter):
         for i, graph in enumerate(data_src_metadata):
             for tup in graph:
                 new_src_metadata[i][tup[0]][tup[1]] = 1.0
+                new_src_metadata[i][tup[1]][tup[0]] = 1.0
         #self.data_src_metadata[i] = np.asarray([np.asarray(row) for row in self.data_src_metadata[i]])#, dtype=self.dtype)
         return new_src_metadata
         
