@@ -38,6 +38,31 @@ import sockeye.utils
 
 logger = logging.getLogger(__name__)
 
+# TODO not sure where to put this
+def mask_labels_after_EOS(logits: mx.sym.Symbol,
+                          batch_size: int,
+                          target_seq_len: int) -> mx.sym.Symbol:
+    """
+    Calculate sentence lengths for translated sentences.
+    
+    :param logits: Input data. Shape: (target_seq_len*batch_size, target_vocab_size).
+    :param batch_size: Batch size for the input data.
+    :param target_seq_len: Maximum sequence length for target sentences.
+    :return: Actual sequence lengths for each target sequence. Shape: (batch_size,).
+    """
+    best_tokens = mx.sym.argmax(logits, axis=1)
+    # NOTE rows are word1,sent1 - word1,sent2, -... and not word1,sent1 - word2,sent1, ...
+    # TODO: check that this is actually the case
+    best_tokens = best_tokens.reshape((target_seq_len, batch_size)).T
+    eos_index = [C.VOCAB_SYMBOLS.index(C.EOS_SYMBOL)]
+    eos_indices = mx.sym.broadcast_equal(best_tokens, eos_index)
+    eos_position = mx.sym.argmax(eos_indices, axis=1)
+    # if we got a zero, we will not mask anything -- use target_seq_len as sentence length
+    zero_condition = mx.sym.broadcast_greater(eos_position, mx.sym.zeros(1,))
+    eos_position = mx.sym.where(zero_condition, eos_position, target_seq_len-1)
+    # in fact, we want length, not position)
+    sentence_length = broadcast_plus(eos_position, mx.sym.ones(1,))
+    return sentence_length
 
 class _StyleTrainingState:
     """
@@ -57,7 +82,7 @@ class _StyleTrainingState:
         self.samples = samples
 
 
-# TODO: encoder-generator-discriminator(s)
+# encoder-generator-discriminator(s)
 class StyleTrainingModel(sockeye.model.SockeyeModel):
     """
     Defines an Encoder/Decoder/Discriminators model (with attention).
@@ -174,11 +199,12 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
             #                                      target, target_seq_len, source_lexicon)
             
             # feed these into the discriminator
-            #TODO not sure if this is the correct input -- hidden states of decoder
             logits_ae_f = self.discriminator_f.discriminate(logits_autoencoder, target_seq_len,
                                                             target_lexicon, target_length)
+
+            target_tr_length = mask_labels_after_EOS(logits_transfer, train_iter.batch_size, target_seq_len)
             logits_tr_e = self.discriminator_e.discriminate(logits_transfer, target_seq_len,
-                                                            target_lexicon, target_length)
+                                                            target_lexicon, target_tr_length)
             # TODO not sure about using target_seq_len for both..
             # TODO maybe get the labels from here?
             

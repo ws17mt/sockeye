@@ -90,10 +90,9 @@ class MLPDiscriminator(Discriminator):
         :param data: Input data. Shape: (target_seq_len*batch_size, target_vocab_size).
         :param target_seq_len: Maximum length of target sequences.
         :param target_vocab_size: Target vocabulary size.
-        :param target_length: Lengths of target sequences. Shape: (batch_size, target_seq_len).
+        :param target_length: Lengths of target sequences. Shape: (batch_size,).
         :return: Logits of discriminator decision for target sequence. Shape: (batch_size, 2).
         """
-        # TODO make this more flexible..
         # reshape the data so it's max len x batch size x vocab size
         target = mx.sym.reshape(data=data, shape=(target_seq_len, -1, target_vocab_size))
         decoder_last_state = mx.sym.SequenceLast(data=target, sequence_length=target_length,
