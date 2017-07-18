@@ -145,6 +145,12 @@ class InferenceModel(sockeye.model.SockeyeModel):
                                      attention_func,
                                      attention_state,
                                      softmax_temperature=self.softmax_temperature)
+            #softmax_out, next_state, next_attention_state = \
+            #    self.decoder.soft_predict(word_id_prev,
+            #                              state,
+            #                              attention_func,
+            #                              attention_state,
+            #                              softmax_temperature=self.softmax_temperature)
 
             symbol_group = [softmax_out,
                             next_attention_state.probs,

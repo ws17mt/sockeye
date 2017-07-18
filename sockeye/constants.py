@@ -74,6 +74,8 @@ SOURCE_DYNAMIC_PREVIOUS_NAME = "prev_dynamic_source"
 LOGITS_NAME = "logits"
 SOFTMAX_NAME = "softmax"
 SOFTMAX_OUTPUT_NAME = SOFTMAX_NAME + "_output"
+GUMBEL_SOFTMAX_NAME = "gumbel_softmax"
+GUMBEL_SOFTMAX_OUTPUT_NAME = GUMBEL_SOFTMAX_NAME + "_output"
 
 MEASURE_SPEED_EVERY = 50  # measure speed and metrics every X batches
 

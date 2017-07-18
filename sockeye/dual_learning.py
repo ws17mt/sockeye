@@ -27,10 +27,26 @@ from sockeye.decoder import DecoderState
 
 logger = logging.getLogger(__name__)
 
-# The purpose is to support both translation/learning during dual learning framework.
+class InferenceLModel(sockeye.training.TrainingModel):
+    """
+    InferenceLModel is a SockeyeModel that supports inference functionalities for RNNLM.
+
+    :param model_folder: Folder to load model from.
+    :param context: MXNet context to bind modules to.
+    :param fused: Whether to use FusedRNNCell (CuDNN). Only works with GPU context.
+    :param max_input_len: Maximum input length.   
+    """
+    def __init__(self,
+                 model_folder: str,
+                 context: mx.context.Context,
+                 fused: bool,
+                 max_input_len: Optional[int]) -> None:
+        # FIXME
+        return
+
 class TrainableInferenceModel(sockeye.inference.InferenceModel):
     """
-    TrainableInferenceModel is a SockeyeModel that supports both training and inference functionalities.
+    TrainableInferenceModel is a SockeyeModel that supports both training and inference functionalities for attention-based encoder-decoder model.
 
     :param model_folder: Folder to load model from.
     :param context: MXNet context to bind modules to.
@@ -40,16 +56,15 @@ class TrainableInferenceModel(sockeye.inference.InferenceModel):
     :param checkpoint: Checkpoint to load. If None, finds best parameters in model_folder.
     :param softmax_temperature: Optional parameter to control steepness of softmax distribution.
     """
-
     def __init__(self,
                  model_folder: str,
                  context: mx.context.Context,
-                 train_iter: sockeye.data_io.ParallelBucketSentenceIter,
                  fused: bool,
                  beam_size: int,
                  max_input_len: Optional[int],   
                  checkpoint: Optional[int] = None,
-                 softmax_temperature: Optional[float] = None):
+                 softmax_temperature: Optional[float] = None,
+                 bucketing: Optional[bool] = True):
         # inherit InferenceModel
         super().__init__(model_folder=model_folder,
                          context=context,
@@ -58,24 +73,41 @@ class TrainableInferenceModel(sockeye.inference.InferenceModel):
                          beam_size=beam_size,
                          softmax_temperature=softmax_temperature,
                          checkpoint=checkpoint)
+        
+        # bucketing flag
+        self.bucketing = bucketing
 
-        # extra things if required!  
-        self.bucketing = True # FIXME: is it necessary?
-        self.module = self._build_module(train_iter, self.config.max_seq_len)
+        # build module for learnable model(s)  
+        self.module = self._build_module() # learning module
 
         # init model
-        self.module.bind(data_shapes=train_iter.provide_data, label_shapes=train_iter.provide_label,
-                         for_training=True, force_rebind=True, grad_req='write')
+        # bind the abstract data
+        max_data_shapes = self._get_module_data_shapes(self.max_input_len)
+        max_label_shapes = self._get_module_label_shapes(self.max_input_len)
+        self.module.bind(data_shapes=max_data_shapes, 
+                         label_shapes=max_label_shapes, 
+                         for_training=True, 
+                         grad_req='write')
+        
         self.module.symbol.save(os.path.join(model_folder, C.SYMBOL_NAME))
+
         initializer = sockeye.initializer.get_initializer(C.RNN_INIT_ORTHOGONAL, lexicon=None) # FIXME: these values are set manually for now!
         self.module.init_params(initializer=initializer, arg_params=self.params, aux_params=None,
                                 allow_missing=False, force_init=False)
-        
+
+    def _get_module_data_shapes(self, 
+                                max_seq_len: int):
+        return [mx.io.DataDesc(name=C.SOURCE_NAME, shape=(1, max_seq_len), layout=C.BATCH_MAJOR),
+                mx.io.DataDesc(name=C.SOURCE_LENGTH_NAME, shape=(1,), layout=C.BATCH_MAJOR),
+                mx.io.DataDesc(name=C.TARGET_NAME, shape=(1, max_seq_len), layout=C.BATCH_MAJOR)]
+
+    def _get_module_label_shapes(self, 
+                                 max_seq_len: int):
+        return [mx.io.DataDesc(name=C.TARGET_LABEL_NAME, shape=(1, max_seq_len), layout=C.BATCH_MAJOR)]
+
     # self.encoder_module and self.decoder_module will be used for translation.
     # this self.module will be used for training/learning the model parameters.
-    def _build_module(self,
-                      train_iter: sockeye.data_io.ParallelBucketSentenceIter,
-                      max_seq_len: int):
+    def _build_module(self):
         """
         Initializes model components, creates training symbol and module, and binds it.
         """
@@ -86,8 +118,8 @@ class TrainableInferenceModel(sockeye.inference.InferenceModel):
 
         loss = sockeye.loss.get_loss(self.config)
 
-        data_names = [x[0] for x in train_iter.provide_data]
-        label_names = [x[0] for x in train_iter.provide_label]
+        data_names = [C.SOURCE_NAME, C.SOURCE_LENGTH_NAME, C.TARGET_NAME]
+        label_names = [C.TARGET_LABEL_NAME]
 
         def sym_gen(seq_lens):
             """
@@ -106,20 +138,18 @@ class TrainableInferenceModel(sockeye.inference.InferenceModel):
 
             return mx.sym.Group(outputs), data_names, label_names
 
-        if self.bucketing:
-            logger.info("Using bucketing. Default max_seq_len=%s", train_iter.default_bucket_key)
-            return mx.mod.BucketingModule(sym_gen=sym_gen,
-                                          logger=logger,
-                                          default_bucket_key=train_iter.default_bucket_key,
-                                          context=self.context)
-        else:
-            logger.info("No bucketing. Unrolled to max_seq_len=%s", max_seq_len)
-            symbol, _, __ = sym_gen(train_iter.buckets[0])
+        if self.bucketing == False: # run-roll
+            symbol, _, __ = sym_gen((self.max_input_len, self.max_input_len))
             return mx.mod.Module(symbol=symbol,
                                  data_names=data_names,
                                  label_names=label_names,
                                  logger=logger,
                                  context=self.context)
+        else:
+            return mx.mod.BucketingModule(sym_gen=sym_gen,
+                                          logger=logger,
+                                          default_bucket_key=(self.max_input_len, self.max_input_len),
+                                          context=self.context)
 
     def setup_optimizer(self, initial_learning_rate: float, 
                         opt_configs: Tuple[str, float, float, float, 'sockeye.lr_scheduler.LearningRateScheduler']):
@@ -139,24 +169,23 @@ class TrainableInferenceModel(sockeye.inference.InferenceModel):
 
     # get the log-likelihood given a batch of data
     def compute_ll(self, 
-                   input_iter: sockeye.data_io.ParallelBucketSentenceIter, 
-                   val_metric: mx.metric.CompositeEvalMetric):
-        # bind the data
-        input_iter.reset()
+                     batch: mx.io.DataBatch, 
+                     val_metric: mx.metric.CompositeEvalMetric):
         val_metric.reset()
         
-        # do the forward and backward steps
-        input_batch = input_iter.next() # only one bucket in input_inter
-        self.module.forward(input_batch)  
-        self.module.update_metric(val_metric, input_batch.label)
+        self.module.forward(data_batch=batch, is_train=True)  
+        self.module.update_metric(val_metric, batch.label)
         
         total_loss = 0
         for name, val in val_metric.get_name_value():
             total_loss += val
         
-        # return the loss
-        return total_loss
+        return np.log(total_loss) # FIXME: conversion from perplexity to normalized log-likelihood, logLL = -log(perplexity). Smarter way?
 
+    def forward(self, 
+                batch: mx.io.DataBatch):         
+        self.module.forward(data_batch=batch, is_train=True)  
+ 
     # evaluate over a given development set
     def evaluate_dev(self, 
                      val_iter: sockeye.data_io.ParallelBucketSentenceIter,
@@ -169,18 +198,17 @@ class TrainableInferenceModel(sockeye.inference.InferenceModel):
             self.module.update_metric(val_metric, eval_batch.label)
 
         total_loss = 0.0
-        for name, val in val_metric.get_name_value(): # name is unused.
+        for _, val in val_metric.get_name_value(): 
             total_loss += val
 
         return total_loss
 
-    def update_params(self, reward_scale: float):
-        # backward step
-        self.module.backward()
+    def update_params(self, 
+                      reward_scale: float):
+        self.module.backward() # backward step
 
-        # FIXME: how to update model parameters with reward-rescaled gradients?
-        self.module._curr_module._optimizer.rescale_grad = reward_scale
-        self.module.update()
+        self.module._curr_module._optimizer.rescale_grad = reward_scale # FIXME: this is hacky, thinking another way?
+        self.module.update() # update the parameters
 
     def save_params(self, output_folder: str, 
                     checkpoint: int):

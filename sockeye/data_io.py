@@ -408,7 +408,6 @@ def read_sentences(path: str, vocab: Dict[str, int], add_bos=False, limit=None) 
     logger.info("%d sentences loaded from '%s'", len(sentences), path)
     return sentences
 
-
 def get_default_bucket_key(buckets: List[Tuple[int, int]]) -> Tuple[int, int]:
     """
     Returns the default bucket from a list of buckets, i.e. the largest bucket.

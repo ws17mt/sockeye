@@ -474,3 +474,69 @@ class StackedRNNDecoder(Decoder):
 
         softmax_out = mx.sym.softmax(data=logits, name=C.SOFTMAX_NAME)
         return softmax_out, state, attention_state
+
+    # Coded by Vu Cong Duy Hoang and Kevin Duh
+    def soft_predict(self,
+                word_id_prev: mx.sym.Symbol,
+                state_prev: DecoderState,
+                attention_func: Callable,
+                attention_state_prev: sockeye.attention.AttentionState,
+                hard = True,
+                eps = 1e-20, 
+                source_lexicon: Optional[mx.sym.Symbol] = None,
+                softmax_temperature: Optional[float] = None) -> Tuple[mx.sym.Symbol,
+                                                                      DecoderState,
+                                                                      sockeye.attention.AttentionState]:
+        """
+        Given previous word id, attention function, previous hidden state and RNN layer states,
+        returns Softmax predictions (not a loss symbol), next hidden state, and next layer
+        states. Used for inference.
+
+        :param word_id_prev: Previous target word id. Shape: (1,).
+        :param state_prev: Previous decoder state consisting of hidden and layer states.
+        :param attention_func: Attention function to produce context vector.
+        :param attention_state_prev: Previous attention state.
+        :param source_lexicon: Lexical biases for current sentence.
+               Shape: (batch_size, target_vocab_size, source_seq_len).
+        :param softmax_temperature: Optional parameter to control steepness of softmax distribution.
+        :return: (predicted next-word distribution, decoder state, attention state).
+        """
+        # target side embedding
+        word_vec_prev = self.embedding.encode(word_id_prev, None, 1)
+
+        # state.hidden: (batch_size, rnn_num_hidden)
+        # attention_state.dynamic_source: (batch_size, source_seq_len, coverage_num_hidden)
+        # attention_state.probs: (batch_size, source_seq_len)
+        state, attention_state = self._step(word_vec_prev,
+                                            state_prev,
+                                            attention_func,
+                                            attention_state_prev)
+
+        # logits: (batch_size, target_vocab_size)
+        logits = mx.sym.FullyConnected(data=state.hidden, num_hidden=self.target_vocab_size,
+                                       weight=self.cls_w, bias=self.cls_b, name=C.LOGITS_NAME)
+
+        if source_lexicon is not None:
+            assert self.lexicon is not None
+            # lex_bias: (batch_size, 1, target_vocab_size)
+            lex_bias = self.lexicon.calculate_lex_bias(source_lexicon, attention_state.probs)
+            # lex_bias: (batch_size, target_vocab_size)
+            lex_bias = mx.sym.reshape(data=lex_bias, shape=(-1, self.target_vocab_size))
+            logits = mx.sym.broadcast_add(lhs=logits, rhs=lex_bias, name='%s_plus_lex_bias' % C.LOGITS_NAME)
+
+        if softmax_temperature is not None:
+            temperature = softmax_temperature
+        else: 
+            temperature = 1.0
+
+        """ Draw a sample from the Gumbel-Softmax distribution (mxnet implementation)"""
+        uniform = mx.sym.random_uniform(low=0, high=1) # FIXME: do we need the shape here?
+        gumbel = -mx.sym.log(-mx.sym.log(uniform + eps) + eps)
+        y = mx.sym.softmax((logits + gumbel)/temperature, name=C.GUMBEL_SOFTMAX_NAME)
+        if hard:
+            y_hard = mx.sym.one_hot(indices=mx.sym.argmax(y, axis=1), depth=self.target_vocab_size)
+            y = mx.sym.BlockGrad(y_hard - y) + y
+            
+        softmax_out = y
+
+        return softmax_out, state, attention_state
