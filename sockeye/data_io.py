@@ -314,6 +314,7 @@ DataInfo = NamedTuple('DataInfo', [
     ('mono_source', str),
     ('mono_target', str)
 ])
+DataInfo.__new__.__defaults__ = (None, None)
 """
 Tuple to collect data information for training.
 
