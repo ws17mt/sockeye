@@ -50,6 +50,10 @@ RNN_INIT_ORTHOGONAL_STACKED = 'orthogonal_stacked'
 # default decoder prefixes
 DECODER_PREFIX = "decoder_"
 
+# default discriminator prefixes
+DISCRIMINATOR_E_PREFIX = "disc_e_"
+DISCRIMINATOR_F_PREFIX = "disc_f_"
+
 # default I/O variable names
 SOURCE_NAME = "source"
 SOURCE_LENGTH_NAME = "source_length"

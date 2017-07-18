@@ -29,6 +29,7 @@ import sockeye.callback
 import sockeye.checkpoint_decoder
 import sockeye.constants as C
 import sockeye.data_io
+import sockeye.discriminator
 import sockeye.inference
 import sockeye.loss
 import sockeye.lr_scheduler
@@ -62,6 +63,8 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
     Defines an Encoder/Decoder/Discriminators model (with attention).
     RNN configuration (number of hidden units, number of layers, cell type)
     is shared between encoder & decoder.
+    Discriminator configuration (number of hidden units, number of layers, activation)
+    is shared between discriminators.
 
     :param model_config: Configuration object holding details about the model.
     :param context: The context(s) that MXNet will be run in (GPU(s)/CPU)
@@ -85,20 +88,43 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
                  vocab_source,
                  vocab_target,
                  e_embedding,
-                 f_embedding) -> None:
+                 f_embedding,
+                 disc_act: str,
+                 disc_num_hidden: int,
+                 disc_num_layers: int,
+                 disc_dropout: float) -> None:
         super().__init__(model_config)
         self.context = context
         self.lr_scheduler = lr_scheduler
         self.bucketing = bucketing
         self.f_embedding = f_embedding
         self.e_embedding = e_embedding
+        self.disc_act = disc_act
+        self.disc_num_hidden = disc_num_hidden
+        self.disc_num_layers = disc_num_layers
+        self.disc_dropout = disc_dropout
         self._build_model_components(self.config.max_seq_len, fused, rnn_forget_bias, initialize_embedding=False)
-        #self._build_discriminators(TODO)
+        self._build_discriminators(self.disc_act, self.disc_num_hidden, self.disc_num_layers, self.disc_dropout)
         self.module = self._build_module(train_iter, self.config.max_seq_len)
         self.training_monitor = None
         self.vocab_source = vocab_source
         self.vocab_target = vocab_target
 
+    def _build_discriminators(self, act: str, num_hidden: int, num_layers: int, dropout: float):
+        """
+        Builds and sets discriminators for style transfer.
+
+        :param act: Activation function for the discriminators.
+        :param num_hidden: Number of hidden units for the discriminators.
+        :param num_layers: Number of layers for the discriminators.
+        :param dropout: Dropout probability for the discriminators.
+        """
+        self.discriminator_e = sockeye.discriminator.get_discriminator(act, num_hidden,
+                                                                       num_layers, dropout,
+                                                                       prefix=C.DISCRIMINATOR_E_PREFIX)
+        self.discriminator_f = sockeye.discriminator.get_discriminator(act, num_hidden,
+                                                                       num_layers, dropout,
+                                                                       prefix=C.DISCRIMINATOR_F_PREFIX)
 
     def _build_module(self,
                       train_iter: sockeye.data_io.ParallelBucketSentenceIter,

@@ -20,28 +20,25 @@ from typing import Optional
 import mxnet as mx
 
 import sockeye.constants as C
-import sockeye.mlp
 import sockeye.utils
 
 
 def get_discriminator(act: str,
-                      data_length: int,
                       num_hidden: int,
                       num_layers: int,
-                      dropout=0.,
+                      dropout: float,
                       prefix: str) -> 'Discriminator':
     """
     Returns a MLPDiscriminator with the following properties.
     
     :param act: Activation function.
-    :param data_length: Maximum length of the input data.
     :param num_hidden: Number of hidden units.
     :param num_layers: Number of hidden layers.
     :param dropout: Dropout probability.
     :param prefix: Symbol prefix for MLP.
     :returns: Discriminator instance.
     """
-    return MLPDiscriminator(act, data_length, num_hidden, num_layers, dropout, prefix)
+    return MLPDiscriminator(act, num_hidden, num_layers, dropout, prefix)
 
 
 class Discriminator:
@@ -64,7 +61,6 @@ class MLPDiscriminator(Discriminator):
     Currently can only use an MLP; later will add CNN or RNN.
     
     :param act: Activation function.
-    :param data_length: Maximum input data length.
     :param num_hidden: Number of hidden units in the discriminator.
     :param num_layers: Number of hidden layers in the discriminator.
     :param dropout: Dropout probability on discriminator outputs.
@@ -72,22 +68,17 @@ class MLPDiscriminator(Discriminator):
     """
     
     def __init__(self,
-                 data_length,
-                 act='relu',
+                 act: str,
                  num_hidden: int,
                  num_layers: int,
-                 dropout=0.,
+                 dropout: float,
                  prefix: str) -> None:
-    self.act = act
-    self.prefix = prefix
-    self.data_length = data_length
-    self.num_hidden = num_hidden
-    self.num_layers = num_layers
-    self.dropout = dropout # TODO add dropout (currently don't use this at all)
-    
-    # Discriminator MLP
-    self.mlp = sockeye.mlp.get_mlp(act, data_length, num_hidden, num_layers, dropout, prefix)
-    
+        self.act = act
+        self.prefix = prefix
+        self.num_hidden = num_hidden
+        self.num_layers = num_layers
+        self.dropout = dropout # TODO add dropout (currently don't use this at all)
+
     def discriminate(self, 
                      data: mx.sym.Symbol,
                      target_seq_len: int,

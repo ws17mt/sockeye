@@ -128,8 +128,11 @@ model = sockeye.style_training.StyleTrainingModel(model_config=model_config,
                                                   vocab_source=vocab_source,
                                                   vocab_target=vocab_target,
                                                   e_embedding=e_embedding,
-                                                  f_embedding=f_embedding
-                                                  )
+                                                  f_embedding=f_embedding,
+                                                  disc_act=disc_act,
+                                                  disc_num_hidden=disc_num_hidden,
+                                                  disc_num_layers=disc_num_layers,
+                                                  disc_dropout=disc_dropout)
 
 #import sys; sys.exit()
 
