@@ -98,8 +98,8 @@ class TrainingLModel(sockeye.training.TrainingModel):
         #data_names.remove(C.SOURCE_LENGTH_NAME)
         #data_names.remove(C.TARGET_NAME)
         label_names = [x[0] for x in train_iter.provide_label]
-        print(data_names)
-        print(label_names)
+        #print(data_names)
+        #print(label_names)
         def sym_gen(seq_lens):
 
             """

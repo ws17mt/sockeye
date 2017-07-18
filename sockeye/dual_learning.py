@@ -261,7 +261,7 @@ class TrainableInferenceModel(sockeye.inference.InferenceModel):
         self.module.update_metric(val_metric, batch.label)
         
         total_loss = 0
-        for name, val in val_metric.get_name_value():
+        for _, val in val_metric.get_name_value():
             total_loss += val
         
         return -np.log(total_loss) # FIXME: conversion from perplexity to normalized log-likelihood, -logLL = log(perplexity). Smarter way?
@@ -281,11 +281,11 @@ class TrainableInferenceModel(sockeye.inference.InferenceModel):
             self.module.forward(eval_batch, is_train=False)
             self.module.update_metric(val_metric, eval_batch.label)
 
-        total_loss = 0.0
+        total_val = 0.0
         for _, val in val_metric.get_name_value(): 
-            total_loss += val
+            total_val += val
 
-        return total_loss
+        return total_val
 
     def update_params(self, 
                       reward_scale: float):

@@ -117,14 +117,8 @@ def _dual_learn(context: mx.context.Context,
                                            ensemble_mode="linear", #unused
                                            set_bos=None, #unused
                                            models=[models[1]], 
-                                           vocab_target=vocab_target, 
-                                           vocab_source=vocab_source)
-    #dec_s = sockeye.inference.Translator(context,
-    #                                     "linear", #unused
-    #                                     [models[2]], vocab_source, vocab_source)
-    #dec_t = sockeye.inference.Translator(context,
-    #                                     "linear", #unused
-    #                                     [models[3]], vocab_target, vocab_target)
+                                           vocab_source=vocab_target,
+                                           vocab_target=vocab_source)
     print("Passed!")
 
     # set up monolingual data access/ids
@@ -185,14 +179,14 @@ def _dual_learn(context: mx.context.Context,
             # switch the pointers
             p_dec_s2t = dec_s2t
             p_dec_t2s = dec_t2s
-            #p_dec = dec_t
+            #p_dec = models[3]
         else:
             sent = all_data[3][orders_t[id_t]]
 
             # switch the pointers
             p_dec_s2t = dec_t2s
             p_dec_t2s = dec_s2t
-            #p_dec = dec_s
+            #p_dec = models[4]
 
         print("Sampled sentence: ", sent)
         
@@ -200,14 +194,15 @@ def _dual_learn(context: mx.context.Context,
         print("DEBUG 8d (learning loop) - K-best translation")
         trans_input = p_dec_s2t.make_input(0, sent) # 0: unused for now!
         trans_outputs = p_dec_s2t.translate_kbest(trans_input, k) # generate k-best translations
-        mid_hyps = [sockeye.data_io.tokens2ids(trans[1], vocab_target) for trans in trans_outputs]
-        #print(mid_hyps)
+        mid_hyps = [list(sockeye.data_io.get_tokens(trans[1])) for trans in trans_outputs]
+        print(mid_hyps)
         print("Passed!")
 
         # create an input batch as input_iter
+        # FIXME: just apply for one best translation (thinking about gradient updates)
         print("DEBUG 8d (learning loop) - create data batches")
         infer_input_s2t = p_dec_s2t._get_inference_input(trans_input[2])
-        infer_input_t2s = p_dec_t2s._get_inference_input(mid_hyps[0]) # FIXME: just apply for one best translation
+        infer_input_t2s = p_dec_t2s._get_inference_input(mid_hyps[0]) 
         input_batch_s2t = mx.io.DataBatch(data=[infer_input_s2t[0], infer_input_s2t[1]], 
                                          label=[infer_input_t2s[0]],
                                          bucket_key=(infer_input_s2t[2],infer_input_t2s[2]),
@@ -222,6 +217,11 @@ def _dual_learn(context: mx.context.Context,
                                                        mx.io.DataDesc(name=C.SOURCE_LENGTH_NAME, shape=(1,), layout=C.BATCH_MAJOR),
                                                        mx.io.DataDesc(name=C.TARGET_NAME, shape=(1, infer_input_s2t[2]), layout=C.BATCH_MAJOR)],
                                          provide_label=[mx.io.DataDesc(name=C.TARGET_LABEL_NAME, shape=(1, infer_input_s2t[2]), layout=C.BATCH_MAJOR)])
+        input_batch_mono = mx.io.DataBatch(data=[infer_input_t2s[0]], 
+                                           label=[infer_input_t2s[0]],
+                                           bucket_key=infer_input_t2s[2],
+                                           provide_data=[mx.io.DataDesc(name=C.MONO_NAME, shape=(1, infer_input_t2s[2]), layout=C.BATCH_MAJOR)],
+                                           provide_label=[mx.io.DataDesc(name=C.MONO_LABEL_NAME, shape=(1, infer_input_t2s[2]), layout=C.BATCH_MAJOR)])
         print("Passed!")
 
         print("DEBUG 8e (learning loop) - computing rewards")
@@ -229,14 +229,14 @@ def _dual_learn(context: mx.context.Context,
         # 1) bind the data {(mid_hyp,mid_hyp)} into the model's module
         # 2) do forward step --> get the r1 = P(mid_hyp; mod_mlm_t)
         #print("Computing reward_1")
-        #reward_1 = p_dec.models[0].compute_ll(input_iter_m, metric_val)
+        #reward_1 = p_dec.compute_nll(input_batch_mono, metric_val)
         #print("reward_1=", reward_1)
         reward_1 = 0.0
-
+  
         # set the communication reward for currently-sampled sentence from P(sentA|mid_hype; mod_am_t2s)
         # do forward step --> get the r2 = P(sentA|mid_hyp; mod_am_t2s)
         print("Computing reward_2") 
-        reward_2 = p_dec_t2s.models[0].compute_ll(input_batch_t2s, metric_val)
+        reward_2 = p_dec_t2s.models[0].compute_nll(input_batch_t2s, metric_val)
         print("reward_2=", reward_2)
 
         # reward interpolation: r = alpha * r1 + (1 - alpha) * r2
@@ -258,6 +258,7 @@ def _dual_learn(context: mx.context.Context,
    
         # switch source and target roles
         flag = not flag
+        vocab_source, vocab_target = vocab_target, vocab_source
                 
         # testing over the development data (all_data[0] and all_data[1]) to check the improvements (after a desired number of rounds)
         if r == lmon[1]:
@@ -442,6 +443,7 @@ def main():
         
         # RNNLMs 
         print("DEBUG 6b")
+        '''
         models.append(sockeye.dual_learning.InferenceLModel(model_folder=model_paths[2],
                                                             context=context,
                                                             fused=False,
@@ -450,6 +452,7 @@ def main():
                                                             context=context,
                                                             fused=False,
                                                             max_input_len=args.max_input_len))
+        '''
         print("Passed!")
 
         # learning rate scheduling
