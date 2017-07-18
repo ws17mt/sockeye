@@ -41,6 +41,8 @@ TARGET_EMBEDDING_PREFIX = "target_embed_"
 # encoder names (arguments)
 RNN_NAME = "rnn"
 RNN_WITH_CONV_EMBED_NAME = "rnn-with-conv-embed"
+# available encoders
+ENCODERS = [RNN_NAME, RNN_WITH_CONV_EMBED_NAME]
 
 # rnn types
 LSTM_TYPE = 'lstm'
@@ -84,6 +86,7 @@ MEASURE_SPEED_EVERY = 50  # measure speed and metrics every X batches
 
 DEFAULT_BEAM_SIZE = 5
 
+VERSION_NAME = "version"
 CONFIG_NAME = "config"
 LOG_NAME = "log"
 JSON_SUFFIX = ".json"
