@@ -33,6 +33,8 @@ def get_loss(config: sockeye.model.ModelConfig) -> 'Loss':
     elif config.loss == C.SMOOTHED_CROSS_ENTROPY:
         return SmoothedCrossEntropyLoss(config.smoothed_cross_entropy_alpha, config.vocab_target_size,
                                         config.normalize_loss)
+    elif config.loss == C.GAN_LOSS:
+        return GANLoss(config.normalize_loss)
     else:
         raise ValueError("unknown loss name")
 
@@ -66,7 +68,7 @@ def mask_labels_after_EOS(labels, logits, batch_size, target_seq_len):
     eos_position = mx.sym.argmax(eos_indices, axis=1)
     ignore_label_condition = mx.sym.broadcast_greater(eos_position, range_batch)
     # PAD_ID is 0, hence using mx.sym.zeros_like
-    labels = mx.sym.where(ignore_label_condition, labels, mx.sym.zeros_like(labels)))
+    labels = mx.sym.where(ignore_label_condition, labels, mx.sym.zeros_like(labels))
     return labels
 
 class CrossEntropyLoss(Loss):
@@ -91,7 +93,7 @@ class CrossEntropyLoss(Loss):
             normalization = "valid"
         else:
             normalization = "null"
-        labels = mask_labels_after_EOS(labels, logits, batch_size, target_seq_len)
+        #labels = mask_labels_after_EOS(labels, logits, batch_size, target_seq_len)
         return mx.sym.SoftmaxOutput(data=logits,
                                     label=labels,
                                     ignore_label=C.PAD_ID,
@@ -159,3 +161,61 @@ class SmoothedCrossEntropyLoss(Loss):
         probs = mx.sym.BlockGrad(probs, name=C.SOFTMAX_NAME)
         return cross_entropy, probs
 
+class GANLoss(Loss):
+    """
+    Computes a loss for G, D_e, and D_f for GANs.
+    
+    :param normalize: If True normalize the gradient by dividing by the number of non-PAD tokens.
+    """
+    
+    def __init__(self, normalize: bool = False):
+        self._normalize = normalize
+    
+    def get_loss_G(self, logits_e: mx.sym.Symbol, logits_f: mx.sym.Symbol,
+                   labels_e: mx.sym.Symbol, labels_f: mx.sym.Symbol,
+                   loss_De: mx.sym.Symbol, loss_Df: mx.sym.Symbol, lambd: float) -> mx.sym.Symbol:
+        """
+        Returns generator loss for GAN given logits and discriminator loss.
+        
+        :param logits_e: Logits from e autoencode minibatch. Shape: (batch_size * e_sequence_len, e_vocab_size).
+        :param logits_f: Logits from f autoencode minibatch. Shape: (batch_size * f_sequence_len, f_vocab_size).
+        :param labels_e: Labels from e autoencode minibatch. Shape: (batch_size * e_sequence_len, ).
+        :param labels_f: Labels from f autoencode minibatch. Shape: (batch_size * f_sequence_len, ).
+        :param loss_De: Loss symbol for e discriminator.
+        :param loss_Df: Loss symbol for f discriminator.
+        :param lambd: Weight for the discriminator losses.
+        """
+        if self._normalize:
+            normalization = "valid"
+        else:
+            normalization = "null"
+        return mx.sym.SoftmaxOuput(data=mx.sym.concat(logits_e, logits_f, dim=0),
+                                   label=mx.sym.concat(labels_e, labels_f, dim=0),
+                                   ignore_label=C.PAD_ID, use_ignore=True,
+                                   normalization=normalization) - lambd * (loss_De + loss_Df)
+        # TODO name
+        # TODO is the shape of this right for adding them? 
+    
+    def get_loss_D(self, logits_ae: mx.sym.Symbol, logits_trans: mx.sym.Symbol,
+                   labels_ae: mx.sym.Symbol, labels_trans: mx.sym.Symbol, name: str) -> mx.sym.Symbol:
+        """
+        Returns discriminator loss and softmax output symbols for GAN given logits.
+        
+        :param logits_ae: Logits from autoencoding minibatch. Shape: (batch_size, 2).
+        :param logits_trans: Logits from translation minibatch. Shape: (batch_size, 2).
+        :param labels_ae: Labels from autoencoding minibatch. Shape: (batch_size,).
+        :param labels_trans: Labels from translation minibatch. Shape: (batch_size,).
+        :param name: Desired name for softmax symbol (since this is used for both discriminators).
+        :return: Loss and softmax output symbols.
+        """
+        if self._normalize:
+            normalization = "valid"
+        else:
+            normalization = "null"
+        # TODO this is not quite right since we need to feed the autoencoder logits into the discriminator..
+        return mx.sym.SoftmaxOutput(data=mx.sym.concat(logits_ae, logits_trans, dim=0),
+                                    label=mx.sym.concat(labels_ae, labels_trans, dim=0),
+                                    ignore_label=C.PAD_ID,
+                                    use_ignore=True,
+                                    normalization=normalization,
+                                    name=name)

@@ -253,7 +253,7 @@ def add_training_args(params):
 
     train_params.add_argument('--loss',
                               default=C.CROSS_ENTROPY,
-                              choices=[C.CROSS_ENTROPY, C.SMOOTHED_CROSS_ENTROPY],
+                              choices=[C.CROSS_ENTROPY, C.SMOOTHED_CROSS_ENTROPY, C.GAN_LOSS],
                               help='Loss to optimize. Default: %(default)s.')
     train_params.add_argument('--smoothed-cross-entropy-alpha',
                               default=0.3,

@@ -56,9 +56,10 @@ class _StyleTrainingState:
         self.samples = samples
 
 
+# TODO: encoder-generator-discriminator(s)
 class StyleTrainingModel(sockeye.model.SockeyeModel):
     """
-    Defines an Encoder/Decoder model (with attention).
+    Defines an Encoder/Decoder/Discriminators model (with attention).
     RNN configuration (number of hidden units, number of layers, cell type)
     is shared between encoder & decoder.
 
@@ -92,6 +93,7 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
         self.f_embedding = f_embedding
         self.e_embedding = e_embedding
         self._build_model_components(self.config.max_seq_len, fused, rnn_forget_bias, initialize_embedding=False)
+        #self._build_discriminators(TODO)
         self.module = self._build_module(train_iter, self.config.max_seq_len)
         self.training_monitor = None
         self.vocab_source = vocab_source
@@ -144,10 +146,33 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
 
             #logits_transfer = self.decoder.decode(source_encoded, source_seq_len, source_length,
             #                                      target, target_seq_len, source_lexicon)
+            
+            # feed these into the discriminator
+            #TODO not sure if this is the correct input -- hidden states of decoder
+            logits_ae_f = self.discriminator_f.discriminate(logits_autoencoder, target_seq_len,
+                                                            target_lexicon, target_length)
+            logits_tr_e = self.discriminator_e.discriminate(logits_transfer, target_seq_len,
+                                                            target_lexicon, target_length)
+            # TODO not sure about using target_seq_len for both..
+            # TODO maybe get the labels from here?
+            
+            # TODO need to do the same for e->e and e->F 
 
-            outputs = loss.get_loss(logits_autoencoder, labels)
+            # get labels for autoencoders (all ones) and translators (all zeros)
+            # TODO not sure about shape
+            labels_ae_e = mx.symbol.ones(shape=(train_iter.batch_size,))
+            labels_ae_f = mx.symbol.ones(shape=(train_iter.batch_size,))
+            labels_tr_e = mx.symbol.zeros(shape=(train_iter.batch_size,))
+            labels_tr_f = mx.symbol.zeros(shape=(train_iter.batch_size,))
 
-            return mx.sym.Group(outputs), data_names, label_names
+            # logits_ae_e and logits_tr_f are originally in e
+            outputs_De = loss.get_loss_D(logits_ae_e, logits_tr_e, labels_ae_e, labels_tr_e, C.DISC_LOSS + '_e')
+            outputs_Df = loss.get_loss_D(logits_ae_f, logits_tr_f, labels_ae_f, labels_tr_f, C.DISC_LOSS + '_f')
+            outputs_G = loss.get_loss_G(logits_e, logits_f, labels_e, labels_f, outputs_De, outputs_Df, self.lambd)
+            
+            # TODO not sure if should group like this..
+            # TODO need to add lambd to input params..
+            return mx.sym.Group(outputs_De, outputs_Df, outputs_G), data_names, label_names
 
         if self.bucketing:
             logger.info("Using bucketing. Default max_seq_len=%s", train_iter.default_bucket_key)

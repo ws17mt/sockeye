@@ -13,10 +13,10 @@ from sockeye.train import _build_or_load_vocab
 
 logger = setup_main_logger(__name__, file_logging=False, console=True)
 
-source = "/Users/gaurav/Dropbox/Projects/JSALT17-NMT-Lab/data/multi30k/train-toy.de.atok"
-target = "/Users/gaurav/Dropbox/Projects/JSALT17-NMT-Lab/data/multi30k/train-toy.en.atok"
+source = "/home/acurrey/labs/nmt/JSALT17-NMT-Lab/data/multi30k/train-toy.de.atok"
+target = "/home/acurrey/labs/nmt/JSALT17-NMT-Lab/data/multi30k/train-toy.en.atok"
 
-output_folder="/Users/gaurav/Dropbox/Projects/sockeye/sockeye/out"
+output_folder="tmp"
 
 # TODO: hard-coded stuff; remove when user args are back.
 lr_scheduler = None
@@ -32,6 +32,10 @@ num_words = 10000
 word_min_count = 1
 batch_size = 20
 max_seq_len=50
+disc_num_hidden=50
+disc_num_layers=1
+disc_dropout=0.
+disc_act='relu'
 
 # TODO: Device selection hardcoded to use CPU
 context = [mx.cpu()]
@@ -110,7 +114,7 @@ model_config = sockeye.model.ModelConfig(max_seq_len=max_seq_len,
                                          lexical_bias=False,
                                          learn_lexical_bias=False,
                                          data_info=data_info,
-                                         loss=C.CROSS_ENTROPY, # TODO: Fix this
+                                         loss=C.GAN_LOSS,
                                          normalize_loss=False,
                                          smoothed_cross_entropy_alpha=0.3)
 

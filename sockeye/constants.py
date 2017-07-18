@@ -112,3 +112,4 @@ BLEU = 'bleu'
 # loss names
 CROSS_ENTROPY = 'cross-entropy'
 SMOOTHED_CROSS_ENTROPY = 'smoothed-cross-entropy'
+GAN_LOSS = 'gan-loss'
