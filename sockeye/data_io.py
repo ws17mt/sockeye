@@ -282,7 +282,8 @@ def process_edges(graph_tokens: Iterable[str]): #TODO: add typing
     :param graph_tokens: List of tokens containing graph edges.
     :return: List of (int, int) tuples
     """
-    return [(int(tok[1:-1].split(',')[0]), int(tok[1:-1].split(',')[1])) for tok in graph_tokens]
+    adj_list = [(int(tok[1:-1].split(',')[0]), int(tok[1:-1].split(',')[1])) for tok in graph_tokens]
+    return adj_list
     
 
 # TODO: consider more memory-efficient data reading (load from disk on demand)
@@ -453,11 +454,13 @@ class ParallelBucketSentenceIter(mx.io.DataIter):
             self.data_label[i] = np.asarray(self.data_label[i], dtype=self.dtype)
             #####
             # GCN
-            print(self.data_src_metadata[i])
-            self.data_src_metadata[i] = np.asarray([np.asarray(row) for row in self.data_src_metadata[i]])#, dtype=self.dtype)
-            print(self.data_src_metadata[i])
+            logger.info(self.data_src_metadata[i])
+            logger.info(self.data_length[i])
+            logger.info(self.buckets[i])
+            self.data_src_metadata[i] = self._convert_to_adj_matrix(self.buckets[i][1], self.data_src_metadata[i])
+            #self.data_src_metadata[i] = np.asarray([np.asarray(row) for row in self.data_src_metadata[i]])#, dtype=self.dtype)
+            logger.info(self.data_src_metadata[i])
             #####
-
             
             n = len(self.data_source[i])
             if n % self.batch_size != 0:
@@ -487,7 +490,21 @@ class ParallelBucketSentenceIter(mx.io.DataIter):
                     print(self.data_source[i])
                     print(self.data_src_metadata[i])
                     
-
+    def _convert_to_adj_matrix(self, bucket_size, data_src_metadata):
+        """
+        Graph information is in the form of an adjacency list.
+        We convert this to an adjacency matrix in NumPy format.
+        TODO: extend this to tensors using label information.
+        """
+        batch_size = len(data_src_metadata)
+        #new_src_metadata = np.zeroes((batch_size, bucket_size, bucket_size))
+        new_src_metadata = np.array([np.eye(bucket_size) for sent in range(batch_size)])
+        for i, graph in enumerate(data_src_metadata):
+            for tup in graph:
+                new_src_metadata[i][tup[0]][tup[1]] = 1.0
+        #self.data_src_metadata[i] = np.asarray([np.asarray(row) for row in self.data_src_metadata[i]])#, dtype=self.dtype)
+        return new_src_metadata
+        
     def reset(self):
         """
         Resets and reshuffles the data.
