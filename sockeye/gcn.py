@@ -5,7 +5,10 @@ Trying to follow the structure of rnn_cell.py in the mxnet code.
 
 import mxnet as mx
 
-
+def get_gcn(prefix: str):
+    gcn = GCNCell()
+    return gcn
+   
 
 class GCNParams(object):
     """Container to hold GCN variables.
@@ -34,7 +37,7 @@ class GCNParams(object):
         """
         name = self._prefix + name
         if name not in self._params:
-            self._params[name] = symbol.Variable(name, **kwargs)
+            self._params[name] = mx.sym.Variable(name, **kwargs)
         return self._params[name]
     
 
@@ -52,5 +55,12 @@ class GCNCell(object):
         self._modified = False
         self.reset()
         self._activation = activation
-        self._W = self.params.get('W_matrix')
-        self._b = self.params.get('bias')
+        self._W = self._params.get('W_matrix')
+        self._b = self._params.get('bias')
+
+    def convolve(self, adj, inputs):
+        outputs = mx.sym.batch_dot(adj, inputs)
+        return outputs
+
+    def reset(self):
+        pass

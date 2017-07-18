@@ -23,6 +23,8 @@ import sockeye.constants as C
 import sockeye.rnn
 import sockeye.utils
 
+import sockeye.gcn
+
 logger = logging.getLogger(__name__)
 
 
@@ -433,7 +435,7 @@ class GraphConvEncoder(Encoder):
                  fused: bool = False):
         self.layout = layout
         self.fused = fused
-        #self.gcn = sockeye.gcn.get_gcn(prefix)
+        self.gcn = sockeye.gcn.get_gcn(prefix)
 
     def encode(self, data: mx.sym.Symbol, 
                data_length: mx.sym.Symbol, seq_len: int, metadata=None):
@@ -443,12 +445,12 @@ class GraphConvEncoder(Encoder):
         adj = metadata
         with mx.AttrScope(__layout__=C.BATCH_MAJOR):
             data = mx.sym.swapaxes(data=data, dim1=0, dim2=1)
-        outputs = mx.sym.batch_dot(adj, data)
-        #outputs = self.gcn.convolve(data, adj)
+        #outputs = mx.sym.batch_dot(adj, data)
+        outputs = self.gcn.convolve(adj, data)
         #print(adj)
-        logger.info("I am here!")
-        logger.info(str(adj))
-        logger.info(str(data))
+        #logger.info("I am here!")
+        #logger.info(str(adj))
+        #logger.info(str(data))
         #outputs = data
         with mx.AttrScope(__layout__=C.TIME_MAJOR):
             outputs = mx.sym.swapaxes(data=outputs, dim1=0, dim2=1)
