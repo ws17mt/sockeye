@@ -311,6 +311,8 @@ DataInfo = NamedTuple('DataInfo', [
     ('validation_target', str),
     ('vocab_source', str),
     ('vocab_target', str),
+    ('mono_source', str),
+    ('mono_target', str)
 ])
 """
 Tuple to collect data information for training.

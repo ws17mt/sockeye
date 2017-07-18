@@ -174,7 +174,7 @@ class StackedRNNDecoder(Decoder):
         self.lm_pre_rnn = None
         if self.lm_pre_layers > 0:
             self.lm_pre_rnn = sockeye.rnn.get_stacked_rnn(cell_type, num_hidden, self.lm_pre_layers, dropout,
-                                                          prefix, residual, forget_bias)
+                                                          prefix+C.LM_TARGET_PREFIX, residual, forget_bias)
 
         # Decoder stacked RNN
         self.rnn = sockeye.rnn.get_stacked_rnn(cell_type, num_hidden, num_layers, dropout, prefix, residual,

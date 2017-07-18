@@ -92,7 +92,7 @@ class TrainingModel(sockeye.model.SockeyeModel):
         self.context = context
         self.lr_scheduler = lr_scheduler
         self.bucketing = bucketing
-        self._build_model_components(self.config.max_seq_len, fused, rnn_forget_bias)
+        self._build_model_components(self.config.max_seq_len, fused, rnn_forget_bias, lm_pre_layers)
         self.module = self._build_module(train_iter, self.config.max_seq_len)
         self.module_list = [self.module]
         self.lm_source_module = None

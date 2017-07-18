@@ -147,7 +147,7 @@ class SockeyeModel:
             self.params = cell.pack_weights(self.params)
         logger.info('Loaded params from "%s"', fname)
 
-    def _build_model_components(self, max_seq_len: int, fused_encoder: bool, rnn_forget_bias: float = 0.0):
+    def _build_model_components(self, max_seq_len: int, fused_encoder: bool, rnn_forget_bias: float = 0.0, lm_pre_layers: int=0):
         """
         Builds and sets model components given maximum sequence length.
 
@@ -157,7 +157,8 @@ class SockeyeModel:
         """
         self.encoder = sockeye.encoder.get_encoder(self.config,
                                                    rnn_forget_bias,
-                                                   fused_encoder)
+                                                   fused_encoder,
+                                                   lm_pre_layers=lm_pre_layers)
 
         self.attention = sockeye.attention.get_attention(self.config.attention_use_prev_word,
                                                          self.config.attention_type,
@@ -184,7 +185,8 @@ class SockeyeModel:
                                                    self.config.weight_tying,
                                                    self.lexicon,
                                                    self.config.context_gating,
-                                                   self.config.layer_normalization)
+                                                   self.config.layer_normalization,
+                                                   lm_pre_layers=lm_pre_layers)
 
         self.rnn_cells = self.encoder.get_rnn_cells() + self.decoder.get_rnn_cells()
 

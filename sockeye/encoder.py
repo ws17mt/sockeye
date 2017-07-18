@@ -69,9 +69,9 @@ def get_encoder(config: "ModelConfig",
         lm_pre_rnn = encoder_class(num_hidden=config.rnn_num_hidden,
                                    num_layers=lm_pre_layers,
                                    dropout=config.dropout,
-                                   prefix=C.LM_SOURCE_PREFIX+C.STACKEDRNN_PREFIX,
+                                   prefix=C.STACKEDRNN_PREFIX+C.LM_SOURCE_PREFIX,
                                    layout=C.TIME_MAJOR,
-                                   cell_type=config.cell_type,
+                                   cell_type=config.rnn_cell_type,
                                    residual=config.rnn_residual_connections,
                                    forget_bias=forget_bias)
         encoders.append(lm_pre_rnn)

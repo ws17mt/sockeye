@@ -179,7 +179,11 @@ def main():
                                              os.path.abspath(args.validation_source),
                                              os.path.abspath(args.validation_target),
                                              args.source_vocab,
-                                             args.target_vocab)
+                                             args.target_vocab,
+                                             (os.path.abspath(args.mono_source)
+                                              if args.mono_source is not None else None),
+                                             (os.path.abspath(args.mono_target)
+                                              if args.mono_target is not None else None))
 
         # create data iterators
         max_seq_len_source = args.max_seq_len if args.max_seq_len_source is None else args.max_seq_len_source
@@ -197,6 +201,27 @@ def main():
                                                                         max_seq_len_target=max_seq_len_target,
                                                                         bucketing=not args.no_bucketing,
                                                                         bucket_width=args.bucket_width)
+
+        mono_source_iter = None
+        if data_info.mono_source is not None:
+            mono_source_iter = sockeye.data_io.get_mono_data_iter(name="mono_source",
+                                                                  data=data_info.mono_source,
+                                                                  vocab=vocab_source,
+                                                                  batch_size=args.batch_size,
+                                                                  fill_up=args.fill_up,
+                                                                  max_seq_len=args.max_seq_len,
+                                                                  bucketing=not args.no_bucketing,
+                                                                  bucket_width=args.bucket_width)
+        mono_target_iter = None
+        if data_info.mono_target is not None:
+            mono_target_iter = sockeye.data_io.get_mono_data_iter(name="mono_target",
+                                                                  data=data_info.mono_target,
+                                                                  vocab=vocab_target,
+                                                                  batch_size=args.batch_size,
+                                                                  fill_up=args.fill_up,
+                                                                  max_seq_len=args.max_seq_len,
+                                                                  bucketing=not args.no_bucketing,
+                                                                  bucket_width=args.bucket_width)
 
         # learning rate scheduling
         learning_rate_half_life = none_if_negative(args.learning_rate_half_life)
@@ -252,7 +277,10 @@ def main():
                                                fused=args.use_fused_rnn,
                                                bucketing=not args.no_bucketing,
                                                lr_scheduler=lr_scheduler,
-                                               rnn_forget_bias=args.rnn_forget_bias)
+                                               rnn_forget_bias=args.rnn_forget_bias,
+                                               lm_pre_layers=args.lm_pretrain_layers,
+                                               mono_source_iter=mono_source_iter,
+                                               mono_target_iter=mono_target_iter)
 
         # We may consider loading the params in TrainingModule, for consistency
         # with the training state saving
