@@ -111,6 +111,8 @@ class TrainingModel(sockeye.model.SockeyeModel):
             """
             source_seq_len, target_seq_len = seq_lens
 
+            logger.info(str(source))
+            logger.info(str(source_metadata))
             source_encoded = self.encoder.encode(source, source_length, seq_len=source_seq_len,
                                                  metadata=source_metadata)
             source_lexicon = self.lexicon.lookup(source) if self.lexicon else None

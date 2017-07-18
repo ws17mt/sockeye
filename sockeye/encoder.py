@@ -79,6 +79,7 @@ def get_encoder(num_embed: int,
     if use_gcn:
         encoders.append(GraphConvEncoder())
 
+    logger.info(encoders)    
     return EncoderSequence(encoders)
 
 
@@ -86,7 +87,6 @@ class Encoder:
     """
     Generic encoder interface.
     """
-
     def encode(self, data: mx.sym.Symbol, data_length: mx.sym.Symbol, seq_len: int,
                metadata=None) -> mx.sym.Symbol:
         """
@@ -118,7 +118,7 @@ class BatchMajor2TimeMajor(Encoder):
     Converts batch major data to time major
     """
 
-    def encode(self, data: mx.sym.Symbol, data_length: mx.sym.Symbol, seq_len: int) -> mx.sym.Symbol:
+    def encode(self, data: mx.sym.Symbol, data_length: mx.sym.Symbol, seq_len: int, **kwargs) -> mx.sym.Symbol:
         """
         Encodes data given sequence lengths of individual examples (data_length) and maximum sequence length (seq_len).
 
@@ -160,7 +160,7 @@ class Embedding(Encoder):
         self.dropout = dropout
         self.embed_weight = mx.sym.Variable(prefix + "weight")
 
-    def encode(self, data: mx.sym.Symbol, data_length: mx.sym.Symbol, seq_len: int) -> mx.sym.Symbol:
+    def encode(self, data: mx.sym.Symbol, data_length: mx.sym.Symbol, seq_len: int, **kwargs) -> mx.sym.Symbol:
         """
         Encodes data given sequence lengths of individual examples and maximum sequence length.
 
@@ -169,6 +169,7 @@ class Embedding(Encoder):
         :param seq_len: Maximum sequence length.
         :return: Encoded input data.
         """
+        logger.info(str(data))
         embedding = mx.sym.Embedding(data=data,
                                      input_dim=self.vocab_size,
                                      weight=self.embed_weight,
@@ -213,8 +214,8 @@ class EncoderSequence(Encoder):
         :return: Encoded input data.
         """
         for encoder in self.encoders:
-            print(encoder)
-            data = encoder.encode(data, data_length, seq_len)#, metadata=metadata)
+            logger.info(str(encoder))
+            data = encoder.encode(data, data_length, seq_len, metadata=metadata)
         return data
 
     def get_num_hidden(self) -> int:
@@ -373,7 +374,7 @@ class BiDirectionalRNNEncoder(Encoder):
         self.layout = layout
         self.prefix = prefix
 
-    def encode(self, data: mx.sym.Symbol, data_length: mx.sym.Symbol, seq_len: int) -> mx.sym.Symbol:
+    def encode(self, data: mx.sym.Symbol, data_length: mx.sym.Symbol, seq_len: int, **kwargs) -> mx.sym.Symbol:
         """
         Encodes data given sequence lengths of individual examples and maximum sequence length.
 
@@ -444,6 +445,7 @@ class GraphConvEncoder(Encoder):
         #print(adj)
         logger.info("I am here!")
         logger.info(str(adj))
+        logger.info(str(data))
         outputs = data
         return outputs
 
