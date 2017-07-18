@@ -246,11 +246,10 @@ def _dual_learn(context: mx.context.Context,
         # do backward steps and update model parameters
         print("DEBUG 8f (learning loop) - re-update model parameters")
         p_dec_s2t.models[0].forward(input_batch_s2t)
-        p_dec_s2t.models[0].update_params(reward)
+        p_dec_s2t.models[0].update_params(reward) # for gradient ascent
         p_dec_t2s.models[0].update_params(1.0 - grad_alphas[0])
         print("Passed!")
 
-        
         if flag == False: 
             r += 1 # next round
             id_t += 1
@@ -429,6 +428,7 @@ def main():
         print("DEBUG 6")
         models = []
         # NMT models
+        print("DEBUG 6a")
         models.append(sockeye.dual_learning.TrainableInferenceModel(model_folder=model_paths[0],
                                                                     context=context, 
                                                                     fused=False,
@@ -441,7 +441,7 @@ def main():
                                                                     max_input_len=args.max_input_len)) # FIXME: can get bucketing info from rev_train_iter
         
         # RNNLMs 
-        # FIXME: not yet completed yet!
+        print("DEBUG 6b")
         models.append(sockeye.dual_learning.InferenceLModel(model_folder=model_paths[2],
                                                             context=context,
                                                             fused=False,

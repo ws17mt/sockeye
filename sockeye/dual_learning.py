@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 class InferenceLModel(sockeye.training.TrainingModel):
     """
     InferenceLModel is a SockeyeModel that supports inference functionalities for RNNLM.
+    This object is orthogonal to sockeye.traininglm.TrainingLModel which is used for training only.
 
     :param model_folder: Folder to load model from.
     :param context: MXNet context to bind modules to.
@@ -40,9 +41,92 @@ class InferenceLModel(sockeye.training.TrainingModel):
                  model_folder: str,
                  context: mx.context.Context,
                  fused: bool,
-                 max_input_len: Optional[int]) -> None:
-        # FIXME
-        return
+                 max_input_len: Optional[int],
+                 rnn_forget_bias: Optional[float] = None,
+                 bucketing: Optional[bool] = True) -> None:
+        super(sockeye.training.TrainingModel, self).__init__(sockeye.model.SockeyeModel.load_config(os.path.join(model_folder, C.CONFIG_NAME)))
+        
+        self.context = context
+        
+        self.bucketing = bucketing
+        
+        self._build_model_components(self.config.max_seq_len, fused, rnn_forget_bias)
+        
+        self.module = self._build_module(train_iter, self.config.max_seq_len)
+        self.module_list = [self.module]
+        
+        self.lm_source_module = None
+        self.lm_target_module = None
+        
+        self.training_monitor = None
+
+    def _build_model_components(self, 
+                                fused, 
+                                rnn_forget_bias):
+        self.lm = sockeye.lm.get_lm_from_options(self.config.num_embed_source,
+                                                 self.config.vocab_source_size,
+                                                 self.config.dropout,
+                                                 self.config.rnn_num_layers,
+                                                 self.config.rnn_num_hidden,
+                                                 self.config.rnn_cell_type,
+                                                 self.config.rnn_residual_connections,
+                                                 rnn_forget_bias)
+
+        self.rnn_cells = [self.lm.rnn]
+        self.built = True
+
+    def _build_module(self,
+                      max_seq_len: int):
+        """
+        Initializes model components, creates training symbol and module, and binds it.
+        """
+        source = mx.sym.Variable(C.MONO_NAME)
+        labels = mx.sym.reshape(data=mx.sym.Variable(C.MONO_LABEL_NAME), shape=(-1,))
+
+        loss = sockeye.loss.get_loss(self.config)
+
+        data_names = [C.MONO_NAME]
+        label_names = [C.MONO_LABEL_NAME]
+
+        def sym_gen(seq_len):
+
+            """
+            Returns a (grouped) loss symbol given source & target input lengths.
+            Also returns data and label names for the BucketingModule.
+            """
+            logits = self.lm.encode(source, seq_len=seq_len)
+
+            outputs = loss.get_loss(logits, labels)
+
+            return mx.sym.Group(outputs), data_names, label_names
+
+        if self.bucketing:
+            return mx.mod.BucketingModule(sym_gen=sym_gen,
+                                          logger=logger,
+                                          default_bucket_key=max_seq_len,
+                                          context=self.context)
+        else:
+            symbol, _, __ = sym_gen(max_seq_len)
+            return mx.mod.Module(symbol=symbol,
+                                 data_names=data_names,
+                                 label_names=label_names,
+                                 logger=logger,
+                                 context=self.context)
+
+    # get the negative log-likelihood given a batch of data
+    def compute_nll(self, 
+                   batch: mx.io.DataBatch, 
+                   val_metric: mx.metric.CompositeEvalMetric):
+        val_metric.reset()
+        
+        self.module.forward(data_batch=batch, is_train=False)  
+        self.module.update_metric(val_metric, batch.label)
+        
+        total_loss = 0
+        for name, val in val_metric.get_name_value():
+            total_loss += val
+        
+        return -np.log(total_loss) # FIXME: conversion from perplexity to normalized log-likelihood, -logLL = log(perplexity). Smarter way?
 
 class TrainableInferenceModel(sockeye.inference.InferenceModel):
     """
@@ -168,7 +252,7 @@ class TrainableInferenceModel(sockeye.inference.InferenceModel):
         self.module.init_optimizer(kvstore='device', optimizer=optimizer, optimizer_params=optimizer_params)
 
     # get the log-likelihood given a batch of data
-    def compute_ll(self, 
+    def compute_nll(self, 
                      batch: mx.io.DataBatch, 
                      val_metric: mx.metric.CompositeEvalMetric):
         val_metric.reset()
@@ -180,7 +264,7 @@ class TrainableInferenceModel(sockeye.inference.InferenceModel):
         for name, val in val_metric.get_name_value():
             total_loss += val
         
-        return np.log(total_loss) # FIXME: conversion from perplexity to normalized log-likelihood, logLL = -log(perplexity). Smarter way?
+        return -np.log(total_loss) # FIXME: conversion from perplexity to normalized log-likelihood, -logLL = log(perplexity). Smarter way?
 
     def forward(self, 
                 batch: mx.io.DataBatch):         
