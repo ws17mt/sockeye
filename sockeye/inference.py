@@ -107,8 +107,8 @@ class InferenceModel(sockeye.model.SockeyeModel):
             source_encoded_batch_major = mx.sym.swapaxes(source_encoded, dim1=0, dim2=1)
 
             # initial decoder states
-            decoder_hidden_init, decoder_init_states = self.decoder.compute_init_states(source_encoded,
-                                                                                        source_encoded_length)
+            decoder_hidden_init, decoder_init_states, _ = self.decoder.compute_init_states(source_encoded,
+                                                                                        source_encoded_length) # note the _
             # initial attention state
             attention_state = self.attention.get_initial_state(source_encoded_length, source_encoded_seq_len)
 

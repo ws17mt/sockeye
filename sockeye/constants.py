@@ -32,10 +32,20 @@ BIDIRECTIONALRNN_PREFIX = ENCODER_PREFIX + "birnn_"
 STACKEDRNN_PREFIX = ENCODER_PREFIX + "rnn_"
 FORWARD_PREFIX = "forward_"
 REVERSE_PREFIX = "reverse_"
+CHAR_SEQ_ENCODER_PREFIX = ENCODER_PREFIX + "char_"
 
 # embedding prefixes
 SOURCE_EMBEDDING_PREFIX = "source_embed_"
 TARGET_EMBEDDING_PREFIX = "target_embed_"
+
+# lm prefixes
+TM_PREFIX = ""
+LM_SOURCE_PREFIX = "lm_source_"
+LM_TARGET_PREFIX = "lm_target_"
+
+# encoder names (arguments)
+RNN_NAME = "rnn"
+RNN_WITH_CONV_EMBED_NAME = "rnn-with-conv-embed"
 
 # rnn types
 LSTM_TYPE = 'lstm'
@@ -86,15 +96,13 @@ LOG_NAME = "log"
 JSON_SUFFIX = ".json"
 VOCAB_SRC_NAME = "vocab.src"
 VOCAB_TRG_NAME = "vocab.trg"
-PARAMS_NAME = "params.%04d"
+PARAMS_PREFIX = "params."
+PARAMS_NAME = PARAMS_PREFIX + "%04d"
 PARAMS_BEST_NAME = "params.best"
 DECODE_OUT_NAME = "decode.output.%04d"
 DECODE_IN_NAME = "decode.source"
 DECODE_REF_NAME = "decode.target"
 SYMBOL_NAME = "symbol" + JSON_SUFFIX
-L2R_SOURCE_SYMBOL_NAME = "sl2r_symbol" + JSON_SUFFIX
-R2L_SOURCE_SYMBOL_NAME = "sr2l_symbol" + JSON_SUFFIX
-TARGET_SYMBOL_NAME = "tl2r_symbol" + JSON_SUFFIX
 METRICS_NAME = "metrics"
 TENSORBOARD_NAME = "tensorboard"
 
@@ -103,11 +111,7 @@ TRAINING_STATE_DIRNAME = "training_state"
 TRAINING_STATE_TEMP_DIRNAME = "tmp.training_state"
 TRAINING_STATE_TEMP_DELETENAME = "delete.training_state"
 MODULE_OPT_STATE_NAME = "mx_optimizer.pkl"
-SOURCE_MODULE_OPT_STATE_NAME = "mx_source_optimizer.pkl"
-TARGET_MODULE_OPT_STATE_NAME = "mx_target_optimizer.pkl"
 BUCKET_ITER_STATE_NAME = "bucket.pkl"
-SOURCE_BUCKET_ITER_STATE_NAME = "source_bucket.pkl"
-TARGET_BUCKET_ITER_STATE_NAME = "target_bucket.pkl"
 RNG_STATE_NAME = "rng.pkl"
 MONITOR_STATE_NAME = "monitor.pkl"
 TRAINING_STATE_NAME = "training.pkl"
@@ -116,7 +120,16 @@ TRAINING_STATE_PARAMS_NAME = "params"
 ARGS_STATE_NAME = "args.json"
 
 # Arguments that may differ and still resume training
-ARGS_MAY_DIFFER = ["overwrite_output", "use-tensorboard", "quiet", "align_plot_prefix", "sure_align_threshold"]
+ARGS_MAY_DIFFER = ["overwrite_output", "use-tensorboard", "quiet",
+                   "align_plot_prefix", "sure_align_threshold",
+                   "keep_last_params"]
+
+# Other argument constants
+INFERENCE_ARG_INPUT_LONG = "--input"
+INFERENCE_ARG_INPUT_SHORT = "-i"
+INFERENCE_ARG_OUTPUT_LONG = "--output"
+INFERENCE_ARG_OUTPUT_SHORT = "-o"
+
 
 # data layout strings
 BATCH_MAJOR = "NTC"

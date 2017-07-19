@@ -179,14 +179,14 @@ def _dual_learn(context: mx.context.Context,
             # switch the pointers
             p_dec_s2t = dec_s2t
             p_dec_t2s = dec_t2s
-            #p_dec = models[3]
+            p_dec = models[2]
         else:
             sent = all_data[3][orders_t[id_t]]
 
             # switch the pointers
             p_dec_s2t = dec_t2s
             p_dec_t2s = dec_s2t
-            #p_dec = models[4]
+            p_dec = models[3]
 
         print("Sampled sentence: ", sent)
         
@@ -217,22 +217,23 @@ def _dual_learn(context: mx.context.Context,
                                                        mx.io.DataDesc(name=C.SOURCE_LENGTH_NAME, shape=(1,), layout=C.BATCH_MAJOR),
                                                        mx.io.DataDesc(name=C.TARGET_NAME, shape=(1, infer_input_s2t[2]), layout=C.BATCH_MAJOR)],
                                          provide_label=[mx.io.DataDesc(name=C.TARGET_LABEL_NAME, shape=(1, infer_input_s2t[2]), layout=C.BATCH_MAJOR)])
-        input_batch_mono = mx.io.DataBatch(data=[infer_input_t2s[0]], 
-                                           label=[infer_input_t2s[0]],
-                                           bucket_key=infer_input_t2s[2],
-                                           provide_data=[mx.io.DataDesc(name=C.MONO_NAME, shape=(1, infer_input_t2s[2]), layout=C.BATCH_MAJOR)],
-                                           provide_label=[mx.io.DataDesc(name=C.MONO_LABEL_NAME, shape=(1, infer_input_t2s[2]), layout=C.BATCH_MAJOR)])
+        # FIXME: the mono LM may use different vocabulary size?
+        infer_input_t = p_dec.get_inference_input(mid_hyps[0])
+        input_batch_mono = mx.io.DataBatch(data=[infer_input_t[0]], 
+                                           label=[infer_input_t[0]],
+                                           bucket_key=infer_input_t[1],
+                                           provide_data=[mx.io.DataDesc(name=C.MONO_NAME, shape=(1, infer_input_t[1]), layout=C.BATCH_MAJOR)],
+                                           provide_label=[mx.io.DataDesc(name=C.MONO_LABEL_NAME, shape=(1, infer_input_t[1]), layout=C.BATCH_MAJOR)])
         print("Passed!")
 
         print("DEBUG 8e (learning loop) - computing rewards")
         # set the language-model reward for currently-sampled sentence from P(mid_hyp; mod_mlm_t)
         # 1) bind the data {(mid_hyp,mid_hyp)} into the model's module
         # 2) do forward step --> get the r1 = P(mid_hyp; mod_mlm_t)
-        #print("Computing reward_1")
-        #reward_1 = p_dec.compute_nll(input_batch_mono, metric_val)
-        #print("reward_1=", reward_1)
-        reward_1 = 0.0
-  
+        print("Computing reward_1")
+        reward_1 = p_dec.compute_nll(input_batch_mono, metric_val)
+        print("reward_1=", reward_1)
+         
         # set the communication reward for currently-sampled sentence from P(sentA|mid_hype; mod_am_t2s)
         # do forward step --> get the r2 = P(sentA|mid_hyp; mod_am_t2s)
         print("Computing reward_2") 
@@ -258,8 +259,7 @@ def _dual_learn(context: mx.context.Context,
    
         # switch source and target roles
         flag = not flag
-        vocab_source, vocab_target = vocab_target, vocab_source
-                
+                        
         # testing over the development data (all_data[0] and all_data[1]) to check the improvements (after a desired number of rounds)
         if r == lmon[1]:
             # s2t model
@@ -444,13 +444,9 @@ def main():
         # RNNLMs 
         print("DEBUG 6b")
         models.append(sockeye.dual_learning.InferenceLModel(model_folder=model_paths[2],
-                                                            context=context,
-                                                            fused=False,
-                                                            max_input_len=args.max_input_len))
+                                                            context=context))
         models.append(sockeye.dual_learning.InferenceLModel(model_folder=model_paths[3],
-                                                            context=context,
-                                                            fused=False,
-                                                            max_input_len=args.max_input_len))
+                                                            context=context))
         print("Passed!")
 
         # learning rate scheduling

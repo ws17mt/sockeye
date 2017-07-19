@@ -40,28 +40,64 @@ class InferenceLModel(sockeye.training.TrainingModel):
     def __init__(self,
                  model_folder: str,
                  context: mx.context.Context,
-                 fused: bool,
-                 max_input_len: Optional[int],
                  rnn_forget_bias: Optional[float] = None,
                  bucketing: Optional[bool] = True) -> None:
         super(sockeye.training.TrainingModel, self).__init__(sockeye.model.SockeyeModel.load_config(os.path.join(model_folder, C.CONFIG_NAME)))
+
+        self.vocab = sockeye.vocab.vocab_from_json_or_pickle(os.path.join(model_folder, C.VOCAB_SRC_NAME))
         
         self.context = context
         
         self.bucketing = bucketing
+        self.buckets = sockeye.data_io.define_buckets(self.config.max_seq_len)
         
-        self._build_model_components(self.config.max_seq_len, fused, rnn_forget_bias)
-        
-        self.module = self._build_module(train_iter, self.config.max_seq_len)
+        self._build_model_components(rnn_forget_bias)    
+        self.module = self._build_module(self.config.max_seq_len)
         self.module_list = [self.module]
-        
+
+        # pre-bind the module
+        self.module.bind(data_shapes=self._get_module_data_shapes(self.config.max_seq_len), 
+                         label_shapes=self._get_module_label_shapes(self.config.max_seq_len), 
+                         for_training=False,
+                         grad_req="null")
+        self.load_params_from_file(os.path.join(model_folder, C.PARAMS_BEST_NAME))
+        self.module.init_params(arg_params=self.params,
+                                allow_missing=False) # just copy from pre-initialized params
+
         self.lm_source_module = None
         self.lm_target_module = None
         
         self.training_monitor = None
 
+    def _get_module_data_shapes(self, 
+                                max_seq_len: int):
+        return [mx.io.DataDesc(name=C.MONO_NAME, shape=(1, max_seq_len), layout=C.BATCH_MAJOR)]
+
+    def _get_module_label_shapes(self, 
+                                 max_seq_len: int):
+        return [mx.io.DataDesc(name=C.MONO_LABEL_NAME, shape=(1, max_seq_len), layout=C.BATCH_MAJOR)]
+
+    def get_inference_input(self,
+                            tokens: List[str]) -> Tuple[mx.nd.NDArray, Optional[int]]:
+        """
+        Returns NDArray of source ids, NDArray of sentence length, and corresponding bucket_key
+
+        :param tokens: List of input tokens.
+        """
+        _, bucket_key = sockeye.data_io.get_bucket(len(tokens), self.buckets)
+        if bucket_key is None:
+            logger.warning("Input (%d) exceeds max bucket size (%d). Stripping", len(tokens), self.buckets[-1])
+            bucket_key = self.buckets[-1]
+            tokens = tokens[:bucket_key]
+
+        source = mx.nd.zeros((1, bucket_key))
+        ids = sockeye.data_io.tokens2ids(tokens, self.vocab)
+        for i, wid in enumerate(ids):
+            source[0, i] = wid
+               
+        return source, bucket_key 
+
     def _build_model_components(self, 
-                                fused, 
                                 rnn_forget_bias):
         self.lm = sockeye.lm.get_lm_from_options(self.config.num_embed_source,
                                                  self.config.vocab_source_size,
@@ -162,7 +198,7 @@ class TrainableInferenceModel(sockeye.inference.InferenceModel):
         self.bucketing = bucketing
 
         # build module for learnable model(s)  
-        self.module = self._build_module() # learning module
+        self.module = self._build_train_module() # learning module
 
         # init model
         # bind the abstract data
@@ -177,7 +213,7 @@ class TrainableInferenceModel(sockeye.inference.InferenceModel):
 
         initializer = sockeye.initializer.get_initializer(C.RNN_INIT_ORTHOGONAL, lexicon=None) # FIXME: these values are set manually for now!
         self.module.init_params(initializer=initializer, arg_params=self.params, aux_params=None,
-                                allow_missing=False, force_init=False)
+                                allow_missing=False, force_init=False) # just copy from pre-initialized params
 
     def _get_module_data_shapes(self, 
                                 max_seq_len: int):
@@ -191,7 +227,7 @@ class TrainableInferenceModel(sockeye.inference.InferenceModel):
 
     # self.encoder_module and self.decoder_module will be used for translation.
     # this self.module will be used for training/learning the model parameters.
-    def _build_module(self):
+    def _build_train_module(self):
         """
         Initializes model components, creates training symbol and module, and binds it.
         """
@@ -212,17 +248,19 @@ class TrainableInferenceModel(sockeye.inference.InferenceModel):
             """
             source_seq_len, target_seq_len = seq_lens
 
-            source_encoded = self.encoder.encode(source, source_length, seq_len=source_seq_len)
+            (source_encoded,
+             source_encoded_length,
+             source_encoded_seq_len) = self.encoder.encode(source, source_length, seq_len=source_seq_len)
             source_lexicon = self.lexicon.lookup(source) if self.lexicon else None
 
-            logits = self.decoder.decode(source_encoded, source_seq_len, source_length,
+            logits = self.decoder.decode(source_encoded, source_encoded_seq_len, source_encoded_length,
                                          target, target_seq_len, source_lexicon)
 
             outputs = loss.get_loss(logits, labels)
 
             return mx.sym.Group(outputs), data_names, label_names
 
-        if self.bucketing == False: # run-roll
+        if self.bucketing == False: # un-roll
             symbol, _, __ = sym_gen((self.max_input_len, self.max_input_len))
             return mx.mod.Module(symbol=symbol,
                                  data_names=data_names,
