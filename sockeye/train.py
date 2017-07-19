@@ -328,7 +328,9 @@ def main():
                   max_num_not_improved=args.max_num_checkpoint_not_improved,
                   min_num_epochs=args.min_num_epochs,
                   monitor_bleu=args.monitor_bleu,
-                  use_tensorboard=args.use_tensorboard)
+                  use_tensorboard=args.use_tensorboard,
+                  mono_source_iter=mono_source_iter,
+                  mono_target_iter=mono_target_iter)
 
 
 if __name__ == "__main__":

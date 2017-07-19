@@ -104,7 +104,7 @@ class TrainingModel(sockeye.model.SockeyeModel):
                                                             fused=fused,
                                                             rnn_forget_bias=rnn_forget_bias)
             # self.rnn_cells.append(self.lm_source.rnn)  # TODO: Does this need to be here since they will share params?
-            self.lm_source_module = self.build_lm_module(mono_source_iter, self.lm_source, self.config.max_seq_len)
+            self.lm_source_module = self._build_lm_module(mono_source_iter, self.lm_source, self.config.max_seq_len)
             self.module_list.append(self.lm_source_module)
         if lm_pre_layers > 0 and mono_target_iter is not None:
             self.lm_target = sockeye.lm.get_lm_from_decoder(config=self.config,
@@ -112,7 +112,7 @@ class TrainingModel(sockeye.model.SockeyeModel):
                                                             decoder=self.decoder,
                                                             rnn_forget_bias=rnn_forget_bias)
             # self.rnn_cells.append(self.lm_target.rnn)  # TODO: Does this need to be here since they will share params?
-            self.lm_target_module = self.build_lm_module(mono_target_iter, self.lm_target, self.config.max_seq_len)
+            self.lm_target_module = self._build_lm_module(mono_target_iter, self.lm_target, self.config.max_seq_len)
             self.module_list.append(self.lm_target_module)
         self.training_monitor = None
 
@@ -124,7 +124,7 @@ class TrainingModel(sockeye.model.SockeyeModel):
         Build a sister module for training an LM
         """
         mono = mx.sym.Variable(C.MONO_NAME)
-        labels = mx.sym.reshape(data=mx.sym.Variable(C.MONO_LABEL_NAME))
+        labels = mx.sym.reshape(data=mx.sym.Variable(C.MONO_LABEL_NAME), shape=(-1,))
         loss = sockeye.loss.get_loss(self.config)
 
         data_names = [x[0] for x in mono_iter.provide_data]

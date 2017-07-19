@@ -25,18 +25,18 @@ def get_lm_from_encoder(config: sockeye.model.ModelConfig,
     """
     assert lm_pre_layers > 0
     assert encoder.embed.embed_weight is not None
-    assert encoder.lm_pre_rnn.params is not None
+    assert encoder.lm_pre_rnn.rnn.params is not None
     return SharedLanguageModel(
         num_embed=config.num_embed_source,
         vocab_size=config.vocab_source_size,
         dropout=config.dropout,
         rnn_num_layers=lm_pre_layers,
         rnn_num_hidden=config.rnn_num_hidden,
-        rnn_cell_type=config.cell_type,
+        rnn_cell_type=config.rnn_cell_type,
         rnn_residual_connections=config.rnn_residual_connections,
         rnn_forget_bias=rnn_forget_bias,
         embedding_params=encoder.embed.embed_weight,
-        rnn_params=encoder.lm_pre_rnn.params
+        rnn_params=encoder.lm_pre_rnn.rnn.params
         )
 
 

@@ -27,7 +27,7 @@ def get_stacked_rnn(cell_type: str,
                     prefix: str,
                     residual: bool = False,
                     forget_bias: float = 0.0,
-                    params=None) -> mx.rnn.SequentialRNNCell:
+                    params: mx.rnn.RNNParams = None) -> mx.rnn.SequentialRNNCell:
     """
     Returns (stacked) RNN cell given parameters.
 
@@ -42,33 +42,28 @@ def get_stacked_rnn(cell_type: str,
     :return: RNN cell.
     """
 
-    # Check for weight sharing parameters, otherwise initialize each layer with None
-    if params is not None:
-        assert len(params) == num_layers
-    else:
-        params = [None for layer in range(num_layers)]
-
-    rnn = mx.rnn.SequentialRNNCell()
+    rnn = mx.rnn.SequentialRNNCell(params)
     for layer in range(num_layers):
         # fhieber: the 'l' in the prefix does NOT stand for 'layer' but for the direction 'l' as in mx.rnn.rnn_cell::517
         # this ensures parameter name compatibility of training w/ FusedRNN and decoding with 'unfused' RNN.
         cell_prefix = "%sl%d_" % (prefix, layer)
         if cell_type == C.LSTM_TYPE:
-            cell = mx.rnn.LSTMCell(num_hidden=num_hidden, prefix=cell_prefix, forget_bias=forget_bias, params=params[layer])
+            cell = mx.rnn.LSTMCell(num_hidden=num_hidden, prefix=cell_prefix, forget_bias=forget_bias)
         elif cell_type == C.LNLSTM_TYPE:
-            cell = LayerNormLSTMCell(num_hidden=num_hidden, prefix=cell_prefix, forget_bias=forget_bias, params=params[layer])
+            cell = LayerNormLSTMCell(num_hidden=num_hidden, prefix=cell_prefix, forget_bias=forget_bias)
         elif cell_type == C.LNGLSTM_TYPE:
-            cell = LayerNormPerGateLSTMCell(num_hidden=num_hidden, prefix=cell_prefix, forget_bias=forget_bias, params=params[layer])
+            cell = LayerNormPerGateLSTMCell(num_hidden=num_hidden, prefix=cell_prefix, forget_bias=forget_bias)
         elif cell_type == C.GRU_TYPE:
-            cell = mx.rnn.GRUCell(num_hidden=num_hidden, prefix=cell_prefix, params=params[layer])
+            cell = mx.rnn.GRUCell(num_hidden=num_hidden, prefix=cell_prefix)
         elif cell_type == C.LNGRU_TYPE:
-            cell = LayerNormGRUCell(num_hidden=num_hidden, prefix=cell_prefix, params=params[layer])
+            cell = LayerNormGRUCell(num_hidden=num_hidden, prefix=cell_prefix)
         elif cell_type == C.LNGGRU_TYPE:
-            cell = LayerNormPerGateGRUCell(num_hidden=num_hidden, prefix=cell_prefix, params=params[layer])
+            cell = LayerNormPerGateGRUCell(num_hidden=num_hidden, prefix=cell_prefix)
         else:
             raise NotImplementedError()
         if residual and layer > 0:
             cell = mx.rnn.ResidualCell(cell)
+        cell._own_params = True  # TODO: Hack around mxnet bug
         rnn.add(cell)
 
         if dropout > 0.:
