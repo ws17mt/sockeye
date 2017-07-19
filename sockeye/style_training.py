@@ -136,7 +136,7 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
         self._build_discriminators(self.disc_act, self.disc_num_hidden, self.disc_num_layers, self.disc_dropout)
         self.module = self._build_module(e_train_iter, f_train_iter, self.config.max_seq_len, self.config.max_seq_len)
         self.training_monitor = None
-        self.loss_lambda = 1.0 if loss_lambda is None else loss_lambda
+        self.loss_lambda = loss_lambda
 
     def _build_discriminators(self, act: str, num_hidden: int, num_layers: int, dropout: float):
         """

@@ -136,7 +136,8 @@ model = sockeye.style_training.StyleTrainingModel(model_config=model_config,
                                                   disc_act=disc_act,
                                                   disc_num_hidden=disc_num_hidden,
                                                   disc_num_layers=disc_num_layers,
-                                                  disc_dropout=disc_dropout)
+                                                  disc_dropout=disc_dropout,
+                                                  loss_lambda=1.0)
 
 #import sys; sys.exit()
 
