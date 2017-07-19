@@ -14,6 +14,7 @@
 """
 Code for training
 """
+import glob
 import logging
 import os
 import pickle
@@ -49,14 +50,12 @@ class _TrainingState:
                  epoch,
                  checkpoint,
                  updates,
-                 samples,
-                 mono_epoch):
+                 samples):
         self.num_not_improved = num_not_improved
         self.epoch = epoch
         self.checkpoint = checkpoint
         self.updates = updates
         self.samples = samples
-        self.mono_epoch = mono_epoch
 
 
 class TrainingModel(sockeye.model.SockeyeModel):
@@ -86,24 +85,35 @@ class TrainingModel(sockeye.model.SockeyeModel):
                  bucketing: bool,
                  lr_scheduler,
                  rnn_forget_bias: float,
+                 lm_pre_layers: int=0,
                  mono_source_iter: sockeye.data_io.MonoBucketSentenceIter=None,
                  mono_target_iter: sockeye.data_io.MonoBucketSentenceIter=None) -> None:
         super().__init__(model_config)
         self.context = context
         self.lr_scheduler = lr_scheduler
         self.bucketing = bucketing
-        self._build_model_components(self.config.max_seq_len, fused, rnn_forget_bias)
+        self._build_model_components(self.config.max_seq_len, fused, rnn_forget_bias, lm_pre_layers)
         self.module = self._build_module(train_iter, self.config.max_seq_len)
+        self.module_list = [self.module]
         self.lm_source_module = None
         self.lm_target_module = None
-        if mono_source_iter is not None:
-            self.lm_source = sockeye.lm.get_lm_from_encoder(self.encoder)
-            self.rnn_cells.append(self.lm_source.rnn)
+        if lm_pre_layers > 0 and mono_source_iter is not None:
+            self.lm_source = sockeye.lm.get_lm_from_encoder(config=self.config,
+                                                            lm_pre_layers=lm_pre_layers,
+                                                            encoder=self.encoder,
+                                                            fused=fused,
+                                                            rnn_forget_bias=rnn_forget_bias)
+            # self.rnn_cells.append(self.lm_source.rnn)  # TODO: Does this need to be here since they will share params?
             self.lm_source_module = self.build_lm_module(mono_source_iter, self.lm_source, self.config.max_seq_len)
-        if mono_target_iter is not None:
-            self.lm_target = sockeye.lm.get_lm_from_decoder(self.decoder)
-            self.rnn_cells.append(self.lm_target.rnn)
+            self.module_list.append(self.lm_source_module)
+        if lm_pre_layers > 0 and mono_target_iter is not None:
+            self.lm_target = sockeye.lm.get_lm_from_decoder(config=self.config,
+                                                            lm_pre_layers=lm_pre_layers,
+                                                            decoder=self.decoder,
+                                                            rnn_forget_bias=rnn_forget_bias)
+            # self.rnn_cells.append(self.lm_target.rnn)  # TODO: Does this need to be here since they will share params?
             self.lm_target_module = self.build_lm_module(mono_target_iter, self.lm_target, self.config.max_seq_len)
+            self.module_list.append(self.lm_target_module)
         self.training_monitor = None
 
     def _build_lm_module(self,
@@ -167,10 +177,12 @@ class TrainingModel(sockeye.model.SockeyeModel):
             """
             source_seq_len, target_seq_len = seq_lens
 
-            source_encoded = self.encoder.encode(source, source_length, seq_len=source_seq_len)
+            (source_encoded,
+             source_encoded_length,
+             source_encoded_seq_len) = self.encoder.encode(source, source_length, seq_len=source_seq_len)
             source_lexicon = self.lexicon.lookup(source) if self.lexicon else None
 
-            logits = self.decoder.decode(source_encoded, source_seq_len, source_length,
+            logits = self.decoder.decode(source_encoded, source_encoded_seq_len, source_encoded_length,
                                          target, target_seq_len, source_lexicon)
 
             outputs = loss.get_loss(logits, labels)
@@ -193,7 +205,7 @@ class TrainingModel(sockeye.model.SockeyeModel):
                                  context=self.context)
 
     @staticmethod
-    def _create_eval_metric(metric_names: List[AnyStr]) -> mx.metric.CompositeEvalMetric:
+    def _create_eval_metric(metric_names: List[AnyStr], prefix: str=C.TM_PREFIX) -> mx.metric.CompositeEvalMetric:
         """
         Creates a composite EvalMetric given a list of metric names.
         """
@@ -201,19 +213,23 @@ class TrainingModel(sockeye.model.SockeyeModel):
         # output_names refers to the list of outputs this metric should use to update itself, e.g. the softmax output
         for metric_name in metric_names:
             if metric_name == C.ACCURACY:
-                metrics.append(sockeye.utils.Accuracy(ignore_label=C.PAD_ID, output_names=[C.SOFTMAX_OUTPUT_NAME]))
+                metrics.append(sockeye.utils.Accuracy(name=prefix+metric_name,
+                                                      ignore_label=C.PAD_ID,
+                                                      output_names=[C.SOFTMAX_OUTPUT_NAME]))
             elif metric_name == C.PERPLEXITY:
-                metrics.append(mx.metric.Perplexity(ignore_label=C.PAD_ID, output_names=[C.SOFTMAX_OUTPUT_NAME]))
+                metrics.append(mx.metric.Perplexity(name=prefix+metric_name,
+                                                    ignore_label=C.PAD_ID,
+                                                    output_names=[C.SOFTMAX_OUTPUT_NAME]))
             else:
                 raise ValueError("unknown metric name")
         return mx.metric.create(metrics)
 
-    def _prime_module(self, module, train_iter, output_folder, symbol_name, initializer, optimizer, optimizer_params):
+    def _prime_module(self, module, train_iter, output_folder, prefix, initializer, optimizer, optimizer_params):
         if module is not None:
             module.bind(data_shapes=train_iter.provide_data, label_shapes=train_iter.provide_label,
                         for_training=True, force_rebind=True, grad_req='write')
 
-            module.symbol.save(os.path.join(output_folder, symbol_name))
+            module.symbol.save(os.path.join(output_folder, prefix+C.SYMBOL_NAME))
 
             module.init_params(initializer=initializer, arg_params=self.params, aux_params=None,
                                allow_missing=False, force_init=False)
@@ -224,6 +240,7 @@ class TrainingModel(sockeye.model.SockeyeModel):
             train_iter: sockeye.data_io.ParallelBucketSentenceIter,
             val_iter: sockeye.data_io.ParallelBucketSentenceIter,
             output_folder: str,
+            max_params_files_to_keep: int,
             metrics: List[AnyStr],
             initializer: mx.initializer.Initializer,
             max_updates: int,
@@ -244,6 +261,7 @@ class TrainingModel(sockeye.model.SockeyeModel):
         :param train_iter: The training data iterator.
         :param val_iter: The validation data iterator.
         :param output_folder: The folder in which all model artifacts will be stored in (parameters, checkpoints, etc.).
+        :param max_params_files_to_keep: Maximum number of params files to keep in the output folder (last n are kept).
         :param metrics: The metrics that will be evaluated during training.
         :param initializer: The parameter initializer.
         :param max_updates: Maximum number of batches to process.
@@ -262,11 +280,11 @@ class TrainingModel(sockeye.model.SockeyeModel):
         self.save_config(output_folder)
 
         self._prime_module(self.module, train_iter, output_folder,
-                           C.SYMBOL_NAME, initializer, optimizer, optimizer_params)
+                           C.TM_PREFIX, initializer, optimizer, optimizer_params)
         self._prime_module(self.lm_source_module, mono_source_iter, output_folder,
-                           C.L2R_SOURCE_SYMBOL_NAME, initializer, optimizer, optimizer_params)
+                           C.LM_SOURCE_PREFIX, initializer, optimizer, optimizer_params)
         self._prime_module(self.lm_target_module, mono_target_iter, output_folder,
-                           C.TARGET_SYMBOL_NAME, initializer, optimizer, optimizer_params)
+                           C.LM_TARGET_PREFIX, initializer, optimizer, optimizer_params)
 
         checkpoint_decoder = sockeye.checkpoint_decoder.CheckpointDecoder(self.context[-1],
                                                                           self.config.data_info.validation_source,
@@ -281,6 +299,7 @@ class TrainingModel(sockeye.model.SockeyeModel):
                                                                  use_tensorboard=use_tensorboard,
                                                                  checkpoint_decoder=checkpoint_decoder)
         self._fit(train_iter, val_iter, output_folder,
+                  max_params_files_to_keep,
                   metrics=metrics,
                   max_updates=max_updates,
                   checkpoint_frequency=checkpoint_frequency,
@@ -295,29 +314,31 @@ class TrainingModel(sockeye.model.SockeyeModel):
                     self.training_monitor.get_best_validation_score())
         return self.training_monitor.get_best_validation_score()
 
-    def _update_mono(self,
-                     mono_iter,
-                     module,
-                     next_data_batch,
-                     train_state,
-                     metric):
-        if mono_iter is not None:
-            if not mono_iter.iter_next():
-                train_state.epoch[mono_iter.name] += 1
-                mono_iter.reset()
+    def _update(self,
+                train_iter,
+                module,
+                next_data_batch,
+                train_state,
+                metric_train):
+        if module is not None:
+            if not train_iter.iter_next():
+                train_state.epoch += 1
+                train_iter.reset()
 
             # process batch
             batch = next_data_batch
             module.forward_backward(batch)
             module.update()
 
-            if mono_iter.iter_next():
+            if train_iter.iter_next():
                 # pre-fetch next batch
-                next_data_batch = mono_iter.next()
+                next_data_batch = train_iter.next()
                 module.prepare(next_data_batch)
 
-            if metric is not None:
-                module.update_metric(metric, batch.label)
+            module.update_metric(metric_train, batch.label)
+            self.training_monitor.batch_end_callback(train_state.epoch, train_state.updates, metric_train)
+            train_state.updates += 1
+            train_state.samples += train_iter.batch_size
 
             return next_data_batch
 
@@ -325,6 +346,7 @@ class TrainingModel(sockeye.model.SockeyeModel):
              train_iter: sockeye.data_io.ParallelBucketSentenceIter,
              val_iter: sockeye.data_io.ParallelBucketSentenceIter,
              output_folder: str,
+             max_params_files_to_keep: int,
              metrics: List[AnyStr],
              max_updates: int,
              checkpoint_frequency: int,
@@ -338,6 +360,7 @@ class TrainingModel(sockeye.model.SockeyeModel):
         :param train_iter: Training data iterator.
         :param val_iter: Validation data iterator.
         :param output_folder: Model output folder.
+        :params max_params_files_to_keep: Maximum number of params files to keep in the output folder (last n are kept).
         :param metrics: List of metric names to track on training and validation data.
         :param max_updates: Maximum number of batches to process.
         :param checkpoint_frequency: Frequency of checkpointing.
@@ -346,64 +369,55 @@ class TrainingModel(sockeye.model.SockeyeModel):
         """
         metric_train = self._create_eval_metric(metrics)
         metric_val = self._create_eval_metric(metrics)
+        metric_train_source_lm = None
+        metric_train_target_lm = None
         tic = time.time()
 
         training_state_dir = os.path.join(output_folder, C.TRAINING_STATE_DIRNAME)
         if os.path.exists(training_state_dir):
-            train_state = self.load_checkpoint(training_state_dir, train_iter, mono_source_iter, mono_target_iter)
+            states = self.load_checkpoint(training_state_dir, train_iter, mono_source_iter, mono_target_iter)
         else:
-            # TODO: Consider having one _TrainingState per task (remove mono_epoch dict)
-            train_state = _TrainingState(
-                num_not_improved=0,
-                epoch=0,
-                checkpoint=0,
-                updates=0,
-                samples=0,
-                mono_epoch={}
-            )
+            states = []
+            # TODO: Should be checking if the module exists, not the iterator
+            for it in [train_iter, mono_source_iter, mono_target_iter]:
+                if it is not None:
+                    state = _TrainingState(
+                        num_not_improved=0,
+                        epoch=0,
+                        checkpoint=0,
+                        updates=0,
+                        samples=0)
+                else:
+                    state = None
+                states.append(state)
+        train_state, source_train_state, target_train_state = states
 
         next_data_batch = train_iter.next()
         next_source_batch = None
         next_target_batch = None
-        if mono_source_iter is not None:
+        if self.lm_source_module is not None:
             next_source_batch = mono_source_iter.next()
-            train_state.mono_epoch[mono_source_iter.name] = 0
-        if mono_target_iter is not None:
+            metric_train_source_lm = self._create_eval_metric(metrics, C.LM_SOURCE_PREFIX)
+        if self.lm_target_module is not None:
             next_target_batch = mono_target_iter.next()
-            train_state.mono_epoch[mono_target_iter.name] = 0
+            metric_train_target_lm = self._create_eval_metric(metrics, C.LM_TARGET_PREFIX)
 
         while max_updates == -1 or train_state.updates < max_updates:
-            if not train_iter.iter_next():
-                train_state.epoch += 1
-                train_iter.reset()
 
-            # process batch
-            batch = next_data_batch
-            self.module.forward_backward(batch)
-            self.module.update()
+            next_data_batch = self._update(train_iter, self.module,
+                                           next_data_batch, train_state, metric_train)
 
-            if train_iter.iter_next():
-                # pre-fetch next batch
-                next_data_batch = train_iter.next()
-                self.module.prepare(next_data_batch)
+            next_source_batch = self._update(mono_source_iter, self.lm_source_module,
+                                             next_source_batch, source_train_state, metric_train_source_lm)
 
-            self.module.update_metric(metric_train, batch.label)
-
-            # TODO: Add real metrics to the LM objectives
-            next_source_batch = self._update_mono(mono_source_iter, self.lm_source_module,
-                                                  next_source_batch, train_state, None)
-            next_target_batch = self._update_mono(mono_target_iter, self.lm_target_module,
-                                                  next_target_batch, train_state, None)
-
-            # TODO: Move into _update_mono
-            self.training_monitor.batch_end_callback(train_state.epoch, train_state.updates, metric_train)
-            train_state.updates += 1
-            train_state.samples += train_iter.batch_size
-            # End TODO
+            next_target_batch = self._update(mono_target_iter, self.lm_target_module,
+                                             next_target_batch, target_train_state, metric_train_target_lm)
 
             if train_state.updates > 0 and train_state.updates % checkpoint_frequency == 0:
                 train_state.checkpoint += 1
                 self._save_params(output_folder, train_state.checkpoint)
+                cleanup_params_files(output_folder, max_params_files_to_keep,
+                                     train_state.checkpoint, self.training_monitor.get_best_checkpoint())
                 self.training_monitor.checkpoint_callback(train_state.checkpoint, metric_train)
 
                 toc = time.time()
@@ -451,15 +465,19 @@ class TrainingModel(sockeye.model.SockeyeModel):
                             shutil.rmtree(final_training_state_dirname)
                         break
 
-                self._checkpoint(train_state, output_folder, train_iter, mono_source_iter, mono_target_iter)
+                self._checkpoint(states, output_folder, train_iter, mono_source_iter, mono_target_iter)
+        cleanup_params_files(output_folder, max_params_files_to_keep,
+                             train_state.checkpoint, self.training_monitor.get_best_checkpoint())
 
     def _save_params(self, output_folder: str, checkpoint: int):
         """
         Saves the parameters to disk.
         """
-        arg_params, aux_params = self.module.get_params()  # sync aux params across devices
-        self.module.set_params(arg_params, aux_params)
-        self.params = arg_params
+        self.params = dict()
+        for module in self.module_list:
+            arg_params, aux_params = self.module.get_params()  # sync aux params across devices
+            module.set_params(arg_params, aux_params)
+            self.params.update(arg_params)
         params_base_fname = C.PARAMS_NAME % checkpoint
         self.save_params_to_file(os.path.join(output_folder, params_base_fname))
 
@@ -480,11 +498,13 @@ class TrainingModel(sockeye.model.SockeyeModel):
         return self.training_monitor.eval_end_callback(training_state.checkpoint, val_metric)
 
     def _module_checkpoint(self, training_state_dirname,
-                           train_iter, iter_file,
-                           module, module_file):
-        if train_iter is not None:
+                           training_state,
+                           prefix,
+                           train_iter,
+                           module):
+        if module is not None:
             # Optimizer state (from mxnet)
-            opt_state_fname = os.path.join(training_state_dirname, module_file)
+            opt_state_fname = os.path.join(training_state_dirname, prefix+C.MODULE_OPT_STATE_NAME)
             if self.bucketing:
                 # This is a bit hacky, as BucketingModule does not provide a
                 # save_optimizer_states call. We take the current active module and
@@ -496,9 +516,12 @@ class TrainingModel(sockeye.model.SockeyeModel):
                 self.module.save_optimizer_states(opt_state_fname)
 
             # State of the bucket iterator
-            train_iter.save_state(os.path.join(training_state_dirname, iter_file))
+            train_iter.save_state(os.path.join(training_state_dirname, prefix+C.BUCKET_ITER_STATE_NAME))
 
-    def _checkpoint(self, training_state: _TrainingState, output_folder: str,
+            # Our own state
+            self.save_state(training_state, os.path.join(training_state_dirname, prefix+C.TRAINING_STATE_NAME))
+
+    def _checkpoint(self, states: List[_TrainingState], output_folder: str,
                     train_iter: sockeye.data_io.ParallelBucketSentenceIter,
                     mono_source_iter: sockeye.data_io.MonoBucketSentenceIter,
                     mono_target_iter: sockeye.data_io.MonoBucketSentenceIter):
@@ -510,21 +533,19 @@ class TrainingModel(sockeye.model.SockeyeModel):
         if not os.path.exists(training_state_dirname):
             os.mkdir(training_state_dirname)
         # Link current parameter file
+        training_state, source_training_state, target_training_state = states
         params_base_fname = C.PARAMS_NAME % training_state.checkpoint
         os.symlink(os.path.join("..", params_base_fname),
                    os.path.join(training_state_dirname, C.TRAINING_STATE_PARAMS_NAME))
 
-        self._module_checkpoint(training_state_dirname,
-                                train_iter, C.BUCKET_ITER_STATE_NAME,
-                                self.module, C.MODULE_OPT_STATE_NAME)
+        self._module_checkpoint(training_state_dirname, training_state, C.TM_PREFIX,
+                                train_iter, self.module)
 
-        self._module_checkpoint(training_state_dirname,
-                                mono_source_iter, C.SOURCE_BUCKET_ITER_STATE_NAME,
-                                self.lm_source_module, C.SOURCE_MODULE_OPT_STATE_NAME)
+        self._module_checkpoint(training_state_dirname, source_training_state, C.LM_SOURCE_PREFIX,
+                                mono_source_iter, self.lm_source_module)
 
-        self._module_checkpoint(training_state_dirname,
-                                mono_target_iter, C.TARGET_BUCKET_ITER_STATE_NAME,
-                                self.lm_target_module, C.TARGET_MODULE_OPT_STATE_NAME)
+        self._module_checkpoint(training_state_dirname, target_training_state, C.LM_TARGET_PREFIX,
+                                mono_target_iter, self.lm_target_module)
 
         # RNG states: python's random and np.random provide functions for
         # storing the state, mxnet does not, but inside our code mxnet's RNG is
@@ -535,9 +556,6 @@ class TrainingModel(sockeye.model.SockeyeModel):
 
         # Monitor state, in order to get the full information about the metrics
         self.training_monitor.save_state(os.path.join(training_state_dirname, C.MONITOR_STATE_NAME))
-
-        # Our own state
-        self.save_state(training_state, os.path.join(training_state_dirname, C.TRAINING_STATE_NAME))
 
         # The lr scheduler
         with open(os.path.join(training_state_dirname, C.SCHEDULER_STATE_NAME), "wb") as fp:
@@ -580,12 +598,11 @@ class TrainingModel(sockeye.model.SockeyeModel):
     def _load_checkpoint(self,
                          directory: str,
                          train_iter,
-                         iter_file: str,
-                         module: mx.mod.Module,
-                         module_file: str):
-        if train_iter is not None:
+                         prefix: str,
+                         module: mx.mod.Module):
+        if module is not None:
             # Source optimzer state (from mxnet)
-            opt_state_fname = os.path.join(directory, module_file)
+            opt_state_fname = os.path.join(directory, prefix+C.MODULE_OPT_STATE_NAME)
             if self.bucketing:
                 # Same hacky solution as for saving the state
                 module._curr_module.load_optimizer_states(opt_state_fname)
@@ -593,7 +610,13 @@ class TrainingModel(sockeye.model.SockeyeModel):
                 module.load_optimizer_states(opt_state_fname)
 
             # State of the bucket iterator
-            train_iter.load_state(os.path.join(directory, iter_file))
+            train_iter.load_state(os.path.join(directory, prefix+C.BUCKET_ITER_STATE_NAME))
+
+            # And our own state
+            return self.load_state(os.path.join(directory, prefix+C.TRAINING_STATE_NAME))
+
+        else:
+            return None
 
     def load_checkpoint(self, directory: str,
                         train_iter: sockeye.data_io.ParallelBucketSentenceIter,
@@ -607,15 +630,16 @@ class TrainingModel(sockeye.model.SockeyeModel):
         :param directory: directory where the state has been saved.
         :param train_iter: training data iterator.
         """
-        self._load_checkpoint(directory,
-                              train_iter, C.BUCKET_ITER_STATE_NAME,
-                              self.module, C.MODULE_OPT_STATE_NAME)
-        self._load_checkpoint(directory,
-                              mono_source_iter, C.SOURCE_BUCKET_ITER_STATE_NAME,
-                              self.lm_source_module, C.SOURCE_MODULE_OPT_STATE_NAME)
-        self._load_checkpoint(directory,
-                              mono_target_iter, C.TARGET_BUCKET_ITER_STATE_NAME,
-                              self.lm_target_module, C.TARGET_MODULE_OPT_STATE_NAME)
+        states = []
+        states.append(
+            self._load_checkpoint(directory, train_iter,
+                                  C.TM_PREFIX, self.module))
+        states.append(
+            self._load_checkpoint(directory, mono_source_iter,
+                                  C.LM_SOURCE_PREFIX, self.lm_source_module))
+        states.append(
+            self._load_checkpoint(directory, mono_target_iter,
+                                  C.LM_TARGET_PREFIX, self.lm_target_module))
 
         # RNG states: python's random and np.random provide functions for
         # storing the state, mxnet does not, but inside our code mxnet's RNG is
@@ -627,5 +651,24 @@ class TrainingModel(sockeye.model.SockeyeModel):
         # Monitor state, in order to get the full information about the metrics
         self.training_monitor.load_state(os.path.join(directory, C.MONITOR_STATE_NAME))
 
-        # And our own state
-        return self.load_state(os.path.join(directory, C.TRAINING_STATE_NAME))
+        return states
+
+
+def cleanup_params_files(output_folder: str, max_to_keep: int, checkpoint: int, best_checkpoint: int):
+    """
+    Cleanup the params files in the output folder.
+
+    :param output_folder: folder where param files are created.
+    :param max_to_keep: maximum number of files to keep, negative to keep all.
+    :param checkpoint: current checkpoint (i.e. index of last params file created).
+    :param best_checkpoint: best checkpoint, we will not delete its params.
+    """
+    if max_to_keep <= 0:  # We assume we do not want to delete all params
+        return
+    existing_files = glob.glob(os.path.join(output_folder, C.PARAMS_PREFIX + "*"))
+    params_name_with_dir = os.path.join(output_folder, C.PARAMS_NAME)
+    for n in range(1, max(1, checkpoint - max_to_keep + 1)):
+        if n != best_checkpoint:
+            param_fname_n = params_name_with_dir % n
+            if param_fname_n in existing_files:
+                os.remove(param_fname_n)

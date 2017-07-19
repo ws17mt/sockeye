@@ -443,7 +443,6 @@ def main():
         
         # RNNLMs 
         print("DEBUG 6b")
-        '''
         models.append(sockeye.dual_learning.InferenceLModel(model_folder=model_paths[2],
                                                             context=context,
                                                             fused=False,
@@ -452,7 +451,6 @@ def main():
                                                             context=context,
                                                             fused=False,
                                                             max_input_len=args.max_input_len))
-        '''
         print("Passed!")
 
         # learning rate scheduling

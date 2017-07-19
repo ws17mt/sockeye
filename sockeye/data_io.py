@@ -311,7 +311,10 @@ DataInfo = NamedTuple('DataInfo', [
     ('validation_target', str),
     ('vocab_source', str),
     ('vocab_target', str),
+    ('mono_source', str),
+    ('mono_target', str)
 ])
+DataInfo.__new__.__defaults__ = (None, None)
 """
 Tuple to collect data information for training.
 
@@ -407,6 +410,7 @@ def read_sentences(path: str, vocab: Dict[str, int], add_bos=False, limit=None) 
         sentences.append(sentence)
     logger.info("%d sentences loaded from '%s'", len(sentences), path)
     return sentences
+
 
 def get_default_bucket_key(buckets: List[Tuple[int, int]]) -> Tuple[int, int]:
     """

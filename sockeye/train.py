@@ -162,10 +162,12 @@ def main():
             vocab_source = sockeye.vocab.vocab_from_json_or_pickle(os.path.join(output_folder, C.VOCAB_SRC_NAME))
             vocab_target = sockeye.vocab.vocab_from_json_or_pickle(os.path.join(output_folder, C.VOCAB_TRG_NAME))
         else:
-            vocab_source = _build_or_load_vocab(args.source_vocab, args.source, args.num_words, args.word_min_count)
+            num_words_source = args.num_words if args.num_words_source is None else args.num_words_source
+            vocab_source = _build_or_load_vocab(args.source_vocab, args.source, num_words_source, args.word_min_count)
             sockeye.vocab.vocab_to_json(vocab_source, os.path.join(output_folder, C.VOCAB_SRC_NAME) + C.JSON_SUFFIX)
 
-            vocab_target = _build_or_load_vocab(args.target_vocab, args.target, args.num_words, args.word_min_count)
+            num_words_target = args.num_words if args.num_words_target is None else args.num_words_target
+            vocab_target = _build_or_load_vocab(args.target_vocab, args.target, num_words_target, args.word_min_count)
             sockeye.vocab.vocab_to_json(vocab_target, os.path.join(output_folder, C.VOCAB_TRG_NAME) + C.JSON_SUFFIX)
 
         vocab_source_size = len(vocab_source)
@@ -177,7 +179,11 @@ def main():
                                              os.path.abspath(args.validation_source),
                                              os.path.abspath(args.validation_target),
                                              args.source_vocab,
-                                             args.target_vocab)
+                                             args.target_vocab,
+                                             (os.path.abspath(args.mono_source)
+                                              if args.mono_source is not None else None),
+                                             (os.path.abspath(args.mono_target)
+                                              if args.mono_target is not None else None))
 
         # create data iterators
         max_seq_len_source = args.max_seq_len if args.max_seq_len_source is None else args.max_seq_len_source
@@ -195,6 +201,27 @@ def main():
                                                                         max_seq_len_target=max_seq_len_target,
                                                                         bucketing=not args.no_bucketing,
                                                                         bucket_width=args.bucket_width)
+
+        mono_source_iter = None
+        if data_info.mono_source is not None:
+            mono_source_iter = sockeye.data_io.get_mono_data_iter(name="mono_source",
+                                                                  data=data_info.mono_source,
+                                                                  vocab=vocab_source,
+                                                                  batch_size=args.batch_size,
+                                                                  fill_up=args.fill_up,
+                                                                  max_seq_len=args.max_seq_len,
+                                                                  bucketing=not args.no_bucketing,
+                                                                  bucket_width=args.bucket_width)
+        mono_target_iter = None
+        if data_info.mono_target is not None:
+            mono_target_iter = sockeye.data_io.get_mono_data_iter(name="mono_target",
+                                                                  data=data_info.mono_target,
+                                                                  vocab=vocab_target,
+                                                                  batch_size=args.batch_size,
+                                                                  fill_up=args.fill_up,
+                                                                  max_seq_len=args.max_seq_len,
+                                                                  bucketing=not args.no_bucketing,
+                                                                  bucket_width=args.bucket_width)
 
         # learning rate scheduling
         learning_rate_half_life = none_if_negative(args.learning_rate_half_life)
@@ -224,6 +251,11 @@ def main():
                                                  attention_coverage_num_hidden=args.attention_coverage_num_hidden,
                                                  attention_use_prev_word=args.attention_use_prev_word,
                                                  dropout=args.dropout,
+                                                 encoder=args.encoder,
+                                                 conv_embed_max_filter_width=args.conv_embed_max_filter_width,
+                                                 conv_embed_num_filters=args.conv_embed_num_filters,
+                                                 conv_embed_pool_stride=args.conv_embed_pool_stride,
+                                                 conv_embed_num_highway_layers=args.conv_embed_num_highway_layers,
                                                  rnn_cell_type=args.rnn_cell_type,
                                                  rnn_num_layers=args.rnn_num_layers,
                                                  rnn_num_hidden=args.rnn_num_hidden,
@@ -245,7 +277,10 @@ def main():
                                                fused=args.use_fused_rnn,
                                                bucketing=not args.no_bucketing,
                                                lr_scheduler=lr_scheduler,
-                                               rnn_forget_bias=args.rnn_forget_bias)
+                                               rnn_forget_bias=args.rnn_forget_bias,
+                                               lm_pre_layers=args.lm_pretrain_layers,
+                                               mono_source_iter=mono_source_iter,
+                                               mono_target_iter=mono_target_iter)
 
         # We may consider loading the params in TrainingModule, for consistency
         # with the training state saving
@@ -283,6 +318,7 @@ def main():
 
         model.fit(train_iter, eval_iter,
                   output_folder=output_folder,
+                  max_params_files_to_keep=args.keep_last_params,
                   metrics=args.metrics,
                   initializer=initializer,
                   max_updates=args.max_updates,
