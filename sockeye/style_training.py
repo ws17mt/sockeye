@@ -53,13 +53,16 @@ def mask_labels_after_EOS(logits: mx.sym.Symbol,
     best_tokens = mx.sym.argmax(logits, axis=1)
     # NOTE rows are word1,sent1 - word1,sent2, -... and not word1,sent1 - word2,sent1, ...
     # TODO: check that this is actually the case
-    best_tokens = best_tokens.reshape((target_seq_len, batch_size)).T
-    eos_index = [C.VOCAB_SYMBOLS.index(C.EOS_SYMBOL)]
-    eos_indices = mx.sym.broadcast_equal(best_tokens, eos_index)
+    best_tokens = mx.sym.transpose(data=best_tokens.reshape((target_seq_len, batch_size))) 
+    eos_index = C.VOCAB_SYMBOLS.index(C.EOS_SYMBOL)
+    eos_indices = mx.sym.broadcast_equal(lhs=best_tokens, rhs=eos_index)
     eos_position = mx.sym.argmax(eos_indices, axis=1)
     # if we got a zero, we will not mask anything -- use target_seq_len as sentence length
     zero_condition = mx.sym.broadcast_greater(eos_position, mx.sym.zeros(1,))
-    eos_position = mx.sym.where(zero_condition, eos_position, target_seq_len-1)
+    max_pos = target_seq_len-1
+    max_pos_sym = mx.sym.ones((1,))
+    max_pos_sym = max_pos_sym * max_pos
+    eos_position = mx.sym.where(zero_condition, eos_position, max_pos_sym)
     # in fact, we want length, not position)
     sentence_length = mx.sym.broadcast_plus(eos_position, mx.sym.ones(1,))
     return sentence_length
@@ -132,11 +135,11 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
         self.disc_num_hidden = disc_num_hidden
         self.disc_num_layers = disc_num_layers
         self.disc_dropout = disc_dropout
+        self.loss_lambda = loss_lambda
         self._build_model_components(self.config.max_seq_len, fused, rnn_forget_bias, initialize_embedding=False)
         self._build_discriminators(self.disc_act, self.disc_num_hidden, self.disc_num_layers, self.disc_dropout)
         self.module = self._build_module(e_train_iter, f_train_iter, self.config.max_seq_len, self.config.max_seq_len)
         self.training_monitor = None
-        self.loss_lambda = loss_lambda
 
     def _build_discriminators(self, act: str, num_hidden: int, num_layers: int, dropout: float):
         """
@@ -196,8 +199,9 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
 
             ##### AUTOENCODER FOR E #####
             # Process e->e and e->f
-            # Add the f embedding "encoder" to the list of encoders.
+            # Add the e embedding "encoder" to the list of encoders.
             self.encoder.encoders = [self.e_embedding] + self.encoder.encoders
+            # TODO what about f_embedding?
             e_encoded = self.encoder.encode(source_encoder, source_encoder_length, seq_len=e_seq_len)
             f_encoded = self.encoder.encode(source_encoder, source_encoder_length, seq_len=f_seq_len)
             # For lexical bias; we don't really use this (yet).
@@ -252,9 +256,9 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
 
             # logits_ae_e and logits_tr_f are originally in e
             e_outputs_D = loss.get_loss_D(e_D_autoencoder, e_D_transfer, e_labels_autoencoder, e_labels_transfer,
-                                         C.DISC_LOSS + '_e')
+                                         C.GAN_LOSS + '_e')
             f_outputs_D = loss.get_loss_D(f_D_autoencoder, f_D_transfer, f_labels_autoencoder, f_labels_transfer,
-                                         C.DISC_LOSS + '_f')
+                                         C.GAN_LOSS + '_f')
 
             outputs_G = loss.get_loss_G(e_logits_autoencoder, f_logits_autoencoder,
                                         e_labels, f_labels, e_outputs_D, f_outputs_D,
@@ -267,7 +271,9 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
         # TODO: Add bucketing later
 
         logger.info("No bucketing. Unrolled to max_seq_len=%s or %s :(", e_max_seq_len, f_max_seq_len)
-        symbol, _, __ = sym_gen(e_train_iter.buckets[0], f_train_iter.buckets[0])
+        # TODO don't know why the e_train_iter.buckets[0] didn't work..
+        symbol, _, _ = sym_gen(e_max_seq_len, f_max_seq_len)
+        #symbol, _, __ = sym_gen(e_train_iter.buckets[0], f_train_iter.buckets[0])
         return mx.mod.Module(symbol=symbol,
                              data_names=data_names,
                              label_names=label_names,
@@ -290,6 +296,7 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
                 raise ValueError("unknown metric name")
         return mx.metric.create(metrics)
 
+    # TODO this is all wrong.. need two training iters!
     def fit(self,
             train_iter: sockeye.data_io.ParallelBucketSentenceIter,
             #val_iter: sockeye.data_io.ParallelBucketSentenceIter,
