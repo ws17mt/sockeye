@@ -124,6 +124,8 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
         self.bucketing = bucketing
         self.f_embedding = f_embedding
         self.e_embedding = e_embedding
+        self.vocab_source = vocab_source
+        self.vocab_target = vocab_target
         self.disc_act = disc_act
         self.disc_num_hidden = disc_num_hidden
         self.disc_num_layers = disc_num_layers
@@ -132,8 +134,6 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
         self._build_discriminators(self.disc_act, self.disc_num_hidden, self.disc_num_layers, self.disc_dropout)
         self.module = self._build_module(train_iter, self.config.max_seq_len)
         self.training_monitor = None
-        self.vocab_source = vocab_source
-        self.vocab_target = vocab_target
 
     def _build_discriminators(self, act: str, num_hidden: int, num_layers: int, dropout: float):
         """
@@ -174,6 +174,8 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
             Also returns data and label names for the BucketingModule.
             """
             source_seq_len, target_seq_len = seq_lens
+            vocab_source_size = len(self.vocab_source)
+            vocab_target_size = len(self.vocab_target)
 
             # Process f->f and f->e
             # Add the f embedding "encoder" to the list of encoders.
@@ -199,12 +201,14 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
             #                                      target, target_seq_len, source_lexicon)
             
             # feed these into the discriminator
+            # TODO target_lexicon?
+            # TODO target_length instead of source_length?
             logits_ae_f = self.discriminator_f.discriminate(logits_autoencoder, target_seq_len,
-                                                            target_lexicon, target_length)
+                                                            vocab_target_size, source_length)
 
             target_tr_length = mask_labels_after_EOS(logits_transfer, train_iter.batch_size, target_seq_len)
             logits_tr_e = self.discriminator_e.discriminate(logits_transfer, target_seq_len,
-                                                            target_lexicon, target_tr_length)
+                                                            vocab_target_size, target_tr_length)
             # TODO not sure about using target_seq_len for both..
             # TODO maybe get the labels from here?
             

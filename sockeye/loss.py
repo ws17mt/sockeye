@@ -183,6 +183,7 @@ class GANLoss(Loss):
                                    normalization=normalization) - lambd * (loss_De + loss_Df)
         # TODO name
         # TODO is the shape of this right for adding them? 
+        # TODO maybe recalculate loss_d instead of passing it in? so we can block the gradients?
     
     def get_loss_D(self, logits_ae: mx.sym.Symbol, logits_trans: mx.sym.Symbol,
                    labels_ae: mx.sym.Symbol, labels_trans: mx.sym.Symbol, name: str) -> mx.sym.Symbol:
