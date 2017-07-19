@@ -61,7 +61,7 @@ def mask_labels_after_EOS(logits: mx.sym.Symbol,
     zero_condition = mx.sym.broadcast_greater(eos_position, mx.sym.zeros(1,))
     eos_position = mx.sym.where(zero_condition, eos_position, target_seq_len-1)
     # in fact, we want length, not position)
-    sentence_length = broadcast_plus(eos_position, mx.sym.ones(1,))
+    sentence_length = mx.sym.broadcast_plus(eos_position, mx.sym.ones(1,))
     return sentence_length
 
 class _StyleTrainingState:
@@ -105,35 +105,38 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
     def __init__(self,
                  model_config: sockeye.model.ModelConfig,
                  context: List[mx.context.Context],
-                 train_iter: sockeye.data_io.ParallelBucketSentenceIter,
+                 e_train_iter: sockeye.data_io.ParallelBucketSentenceIter,
+                 f_train_iter: sockeye.data_io.ParallelBucketSentenceIter,
                  fused: bool,
                  bucketing: bool,
                  lr_scheduler,
                  rnn_forget_bias: float,
-                 vocab_source,
-                 vocab_target,
+                 vocab_e,
+                 vocab_f,
                  e_embedding,
                  f_embedding,
                  disc_act: str,
                  disc_num_hidden: int,
                  disc_num_layers: int,
-                 disc_dropout: float) -> None:
+                 disc_dropout: float,
+                 loss_lambda: float) -> None:
         super().__init__(model_config)
         self.context = context
         self.lr_scheduler = lr_scheduler
         self.bucketing = bucketing
         self.f_embedding = f_embedding
         self.e_embedding = e_embedding
-        self.vocab_source = vocab_source
-        self.vocab_target = vocab_target
+        self.vocab_e = vocab_e
+        self.vocab_f = vocab_f
         self.disc_act = disc_act
         self.disc_num_hidden = disc_num_hidden
         self.disc_num_layers = disc_num_layers
         self.disc_dropout = disc_dropout
         self._build_model_components(self.config.max_seq_len, fused, rnn_forget_bias, initialize_embedding=False)
         self._build_discriminators(self.disc_act, self.disc_num_hidden, self.disc_num_layers, self.disc_dropout)
-        self.module = self._build_module(train_iter, self.config.max_seq_len)
+        self.module = self._build_module(e_train_iter, f_train_iter, self.config.max_seq_len, self.config.max_seq_len)
         self.training_monitor = None
+        self.loss_lambda = 1.0 if loss_lambda is None else loss_lambda
 
     def _build_discriminators(self, act: str, num_hidden: int, num_layers: int, dropout: float):
         """
@@ -152,98 +155,124 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
                                                                        prefix=C.DISCRIMINATOR_F_PREFIX)
 
     def _build_module(self,
-                      train_iter: sockeye.data_io.ParallelBucketSentenceIter,
-                      max_seq_len: int):
+                      e_train_iter: sockeye.data_io.ParallelBucketSentenceIter,
+                      f_train_iter: sockeye.data_io.ParallelBucketSentenceIter,
+                      e_max_seq_len: int,
+                      f_max_seq_len: int):
         """
         Initializes model components, creates training symbol and module, and binds it.
         """
-        source = mx.sym.Variable(C.SOURCE_NAME)
-        source_length = mx.sym.Variable(C.SOURCE_LENGTH_NAME)
-        target = mx.sym.Variable(C.TARGET_NAME)
-        labels = mx.sym.reshape(data=mx.sym.Variable(C.TARGET_LABEL_NAME), shape=(-1,))
+        # Build e->e and e->f model
+        # source_encoder is the input to the encoder; can be e or f
+        source_encoder = mx.sym.Variable(C.SOURCE_NAME)
+        source_encoder_length = mx.sym.Variable(C.SOURCE_LENGTH_NAME)
+
+        e_target = mx.sym.Variable(C.TARGET_NAME)
+        e_labels = mx.sym.reshape(data=mx.sym.Variable(C.TARGET_LABEL_NAME), shape=(-1,))
+
+        f_target = mx.sym.Variable(C.TARGET_NAME)
+        f_labels = mx.sym.reshape(data=mx.sym.Variable(C.TARGET_LABEL_NAME), shape=(-1,))
 
         loss = sockeye.loss.get_loss(self.config)
 
-        data_names = [x[0] for x in train_iter.provide_data]
-        label_names = [x[0] for x in train_iter.provide_label]
+        e_data_names = [x[0] for x in e_train_iter.provide_data]
+        # e_label_names corresponds to the possible outcome of the autoencoder where e is the input
+        e_label_names = [x[0] for x in e_train_iter.provide_label]
 
+        f_data_names = [x[0] for x in f_train_iter.provide_data]
+        # source_label_names corresponds to the possible outcome of the autoencoder
+        f_label_names = [x[0] for x in f_train_iter.provide_label]
 
-        def sym_gen(seq_lens):
+        data_names = e_data_names + f_data_names
+        label_names = e_label_names + f_label_names
+
+        def sym_gen(e_seq_len, f_seq_len):
             """
             Returns a (grouped) loss symbol given source & target input lengths.
             Also returns data and label names for the BucketingModule.
             """
-            source_seq_len, target_seq_len = seq_lens
-            vocab_source_size = len(self.vocab_source)
-            vocab_target_size = len(self.vocab_target)
+            e_vocab_size = len(self.vocab_e)
+            f_vocab_size = len(self.vocab_f)
 
-            # Process f->f and f->e
+            ##### AUTOENCODER FOR E #####
+            # Process e->e and e->f
             # Add the f embedding "encoder" to the list of encoders.
-            self.encoder.encoders = [self.f_embedding] + self.encoder.encoders
-            source_encoded = self.encoder.encode(source, source_length, seq_len=source_seq_len)
-            source_lexicon = self.lexicon.lookup(source) if self.lexicon else None
+            self.encoder.encoders = [self.e_embedding] + self.encoder.encoders
+            e_encoded = self.encoder.encode(source_encoder, source_encoder_length, seq_len=e_seq_len)
+            f_encoded = self.encoder.encode(source_encoder, source_encoder_length, seq_len=f_seq_len)
+            # For lexical bias; we don't really use this (yet).
+            source_lexicon = None
 
             # This is the autoencoder. It will use the f_embedding matrix
-            logits_autoencoder = self.decoder.decode(source_encoded, source_seq_len, source_length,
-                                                     target, target_seq_len, source_lexicon,
-                                                     self.f_embedding)
+            e_logits_autoencoder = self.decoder.decode(e_encoded, e_seq_len, source_encoder_length,
+                                                     e_target, e_seq_len, source_lexicon,
+                                                     self.e_embedding)
 
-            #logits_transfer = self.decoder.decode(source_encoded, source_seq_len, source_length,
-            #                                        target=None, target_seq_len, source_lexicon)
+            f_logits_autoencoder = self.decoder.decode(f_encoded, f_seq_len, source_encoder_length,
+                                                       f_target, f_seq_len, source_lexicon,
+                                                       self.f_embedding)
 
-            #transfer_generator = sockeye.inference.Translator(context=self.context,
-            #                                                  ensemble_mode='linear',
-            #                                                  models=[self.model_inference],
-            #                                                  vocab_source=self.vocab_source,
-            #                                                  vocab_target=self.vocab_target)
+            # TODO: Merge transfer stuff here.
+            f_logits_transfer = f_logits_autoencoder
+            e_logits_transfer = e_logits_autoencoder
 
-            #logits_transfer = self.decoder.decode(source_encoded, source_seq_len, source_length,
-            #                                      target, target_seq_len, source_lexicon)
-            
             # feed these into the discriminator
             # TODO target_lexicon?
             # TODO target_length instead of source_length?
-            logits_ae_f = self.discriminator_f.discriminate(logits_autoencoder, target_seq_len,
-                                                            vocab_target_size, source_length)
+            # TODO fix source_encoder_length; Is this the correct thing to use?
+            f_D_autoencoder = self.discriminator_f.discriminate(f_logits_autoencoder, f_seq_len,
+                                                                f_vocab_size, source_encoder_length)
 
-            target_tr_length = mask_labels_after_EOS(logits_transfer, train_iter.batch_size, target_seq_len)
-            logits_tr_e = self.discriminator_e.discriminate(logits_transfer, target_seq_len,
-                                                            vocab_target_size, target_tr_length)
+            e_D_autoencoder = self.discriminator_e.discriminate(e_logits_autoencoder, e_seq_len,
+                                                                e_vocab_size, source_encoder_length)
+
+            # Logits_transfer keeps generating to max_seq_len since there's no stopping condition
+            # We post-process to determine EOS and pad the output after an EOS appears
+            # This happens for the entire batch
+            # The following operation will determine where the EOS occurs (greedy) and pad
+            # (Deepak's work)
+            # Note that the batch sizes are switched because we care about the input batch size.
+            f_transfer_length = mask_labels_after_EOS(f_logits_transfer, e_train_iter.batch_size, e_seq_len)
+            e_transfer_length = mask_labels_after_EOS(e_logits_transfer, f_train_iter.batch_size, f_seq_len)
+
+            e_D_transfer = self.discriminator_e.discriminate(e_logits_transfer, e_seq_len,
+                                                             e_vocab_size, e_transfer_length)
+            f_D_transfer = self.discriminator_f.discriminate(f_logits_transfer, f_seq_len,
+                                                             f_vocab_size, f_transfer_length)
+
             # TODO not sure about using target_seq_len for both..
             # TODO maybe get the labels from here?
-            
-            # TODO need to do the same for e->e and e->F 
 
             # get labels for autoencoders (all ones) and translators (all zeros)
             # TODO not sure about shape
-            labels_ae_e = mx.symbol.ones(shape=(train_iter.batch_size,))
-            labels_ae_f = mx.symbol.ones(shape=(train_iter.batch_size,))
-            labels_tr_e = mx.symbol.zeros(shape=(train_iter.batch_size,))
-            labels_tr_f = mx.symbol.zeros(shape=(train_iter.batch_size,))
+            e_labels_autoencoder = mx.symbol.ones(shape=(e_train_iter.batch_size,))
+            f_labels_autoencoder = mx.symbol.ones(shape=(f_train_iter.batch_size,)) # Note the switch in batch size.
+            e_labels_transfer = mx.symbol.zeros(shape=(f_train_iter.batch_size,))
+            f_labels_transfer = mx.symbol.zeros(shape=(e_train_iter.batch_size,))
 
             # logits_ae_e and logits_tr_f are originally in e
-            outputs_De = loss.get_loss_D(logits_ae_e, logits_tr_e, labels_ae_e, labels_tr_e, C.DISC_LOSS + '_e')
-            outputs_Df = loss.get_loss_D(logits_ae_f, logits_tr_f, labels_ae_f, labels_tr_f, C.DISC_LOSS + '_f')
-            outputs_G = loss.get_loss_G(logits_e, logits_f, labels_e, labels_f, outputs_De, outputs_Df, self.lambd)
+            e_outputs_D = loss.get_loss_D(e_D_autoencoder, e_D_transfer, e_labels_autoencoder, e_labels_transfer,
+                                         C.DISC_LOSS + '_e')
+            f_outputs_D = loss.get_loss_D(f_D_autoencoder, f_D_transfer, f_labels_autoencoder, f_labels_transfer,
+                                         C.DISC_LOSS + '_f')
+
+            outputs_G = loss.get_loss_G(e_logits_autoencoder, f_logits_autoencoder,
+                                        e_labels, f_labels, e_outputs_D, f_outputs_D,
+                                        self.loss_lambda)
             
             # TODO not sure if should group like this..
             # TODO need to add lambd to input params..
-            return mx.sym.Group(outputs_De, outputs_Df, outputs_G), data_names, label_names
+            return mx.sym.Group(outputs_G), data_names, label_names
 
-        if self.bucketing:
-            logger.info("Using bucketing. Default max_seq_len=%s", train_iter.default_bucket_key)
-            return mx.mod.BucketingModule(sym_gen=sym_gen,
-                                          logger=logger,
-                                          default_bucket_key=train_iter.default_bucket_key,
-                                          context=self.context)
-        else:
-            logger.info("No bucketing. Unrolled to max_seq_len=%s", max_seq_len)
-            symbol, _, __ = sym_gen(train_iter.buckets[0])
-            return mx.mod.Module(symbol=symbol,
-                                 data_names=data_names,
-                                 label_names=label_names,
-                                 logger=logger,
-                                 context=self.context)
+        # TODO: Add bucketing later
+
+        logger.info("No bucketing. Unrolled to max_seq_len=%s or %s :(", e_max_seq_len, f_max_seq_len)
+        symbol, _, __ = sym_gen(e_train_iter.buckets[0], f_train_iter.buckets[0])
+        return mx.mod.Module(symbol=symbol,
+                             data_names=data_names,
+                             label_names=label_names,
+                             logger=logger,
+                             context=self.context)
 
     @staticmethod
     def _create_eval_metric(metric_names: List[AnyStr]) -> mx.metric.CompositeEvalMetric:

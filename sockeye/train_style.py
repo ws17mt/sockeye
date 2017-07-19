@@ -15,8 +15,9 @@ logger = setup_main_logger(__name__, file_logging=False, console=True)
 
 #source = "/home/acurrey/labs/nmt/JSALT17-NMT-Lab/data/multi30k/train-toy.de.atok"
 #target = "/home/acurrey/labs/nmt/JSALT17-NMT-Lab/data/multi30k/train-toy.en.atok"
-source = "/Users/gaurav/Dropbox/Projects/JSALT17-NMT-Lab/data/multi30k/train-toy.de.atok"
-target = "/Users/gaurav/Dropbox/Projects/JSALT17-NMT-Lab/data/multi30k/train-toy.en.atok"
+# Convention: Source (e), Target (f)
+e_corpus = "/Users/gaurav/Dropbox/Projects/JSALT17-NMT-Lab/data/multi30k/train-toy.de.atok"
+f_corpus = "/Users/gaurav/Dropbox/Projects/JSALT17-NMT-Lab/data/multi30k/train-toy.en.atok"
 
 output_folder="tmp"
 
@@ -45,11 +46,11 @@ context = [mx.cpu()]
 # Build vocab
 # These vocabs are built on the training data.
 # TODO: Is there a way to reload vocab from somewhere? (E.g., BPE dict)
-vocab_source = _build_or_load_vocab(None, source, num_words, word_min_count)
-vocab_target = _build_or_load_vocab(None, target, num_words, word_min_count)
+vocab_e = _build_or_load_vocab(None, e_corpus, num_words, word_min_count)
+vocab_f = _build_or_load_vocab(None, f_corpus, num_words, word_min_count)
 
-vocab_source_size = len(vocab_source)
-vocab_target_size = len(vocab_target)
+vocab_source_size = len(vocab_e) # TODO(gaurav): Merge these at some point
+vocab_target_size = len(vocab_f)
 logger.info("Vocabulary sizes: source=%d target=%d", vocab_source_size, vocab_target_size)
 
 e_embedding = sockeye.encoder.Embedding(num_embed=num_embed_target,
@@ -63,16 +64,16 @@ f_embedding = sockeye.encoder.Embedding(num_embed=num_embed_target,
                                          dropout=dropout)
 
 # NamedTuple which will keep track of stuff
-data_info = sockeye.data_io.StyleDataInfo(os.path.abspath(source),
-                                          os.path.abspath(target),
-                                          vocab_source,
-                                          vocab_target)
+data_info = sockeye.data_io.StyleDataInfo(os.path.abspath(e_corpus),
+                                          os.path.abspath(f_corpus),
+                                          vocab_e,
+                                          vocab_f)
 
 # This will return a ParallelBucketIterator with source=target
 # This is for the source autenc processing
-source_train_iter = sockeye.data_io.get_style_training_data_iters(
+e_train_iter = sockeye.data_io.get_style_training_data_iters(
                         source=data_info.source,
-                        vocab=vocab_source,
+                        vocab=vocab_e,
                         batch_size=batch_size,
                         fill_up=True,
                         max_seq_len=max_seq_len,
@@ -83,9 +84,9 @@ source_train_iter = sockeye.data_io.get_style_training_data_iters(
 
 # This is the actual target side processing which will return iterators
 # similar to the previous one.
-target_train_iter = sockeye.data_io.get_style_training_data_iters(
+f_train_iter = sockeye.data_io.get_style_training_data_iters(
                         source=data_info.target,
-                        vocab=vocab_target,
+                        vocab=vocab_f,
                         batch_size=batch_size,
                         fill_up=True,
                         max_seq_len=max_seq_len,
@@ -122,13 +123,14 @@ model_config = sockeye.model.ModelConfig(max_seq_len=max_seq_len,
 
 model = sockeye.style_training.StyleTrainingModel(model_config=model_config,
                                                   context=context,
-                                                  train_iter=source_train_iter,
+                                                  e_train_iter=e_train_iter,
+                                                  f_train_iter=f_train_iter,
                                                   fused=False,
                                                   bucketing=False,
                                                   lr_scheduler=lr_scheduler,
                                                   rnn_forget_bias=0.0,
-                                                  vocab_source=vocab_source,
-                                                  vocab_target=vocab_target,
+                                                  vocab_e=vocab_e,
+                                                  vocab_f=vocab_f,
                                                   e_embedding=e_embedding,
                                                   f_embedding=f_embedding,
                                                   disc_act=disc_act,
