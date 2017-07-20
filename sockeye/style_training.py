@@ -38,7 +38,6 @@ import sockeye.utils
 
 logger = logging.getLogger(__name__)
 
-# TODO not sure where to put this
 def mask_labels_after_EOS(logits: mx.sym.Symbol,
                           batch_size: int,
                           target_seq_len: int) -> mx.sym.Symbol:
@@ -60,10 +59,10 @@ def mask_labels_after_EOS(logits: mx.sym.Symbol,
     # if we got a zero, we will not mask anything -- use target_seq_len as sentence length
     zero_condition = mx.sym.broadcast_greater(eos_position, mx.sym.zeros(1,))
     max_pos = target_seq_len-1
-    max_pos_sym = mx.sym.ones((1,))
+    max_pos_sym = mx.sym.ones((batch_size,))
     max_pos_sym = max_pos_sym * max_pos
     eos_position = mx.sym.where(zero_condition, eos_position, max_pos_sym)
-    # in fact, we want length, not position)
+    # in fact, we want length, not position
     sentence_length = mx.sym.broadcast_plus(eos_position, mx.sym.ones(1,))
     return sentence_length
 
@@ -167,14 +166,19 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
         """
         # Build e->e and e->f model
         # source_encoder is the input to the encoder; can be e or f
-        source_encoder = mx.sym.Variable(C.SOURCE_NAME)
-        source_encoder_length = mx.sym.Variable(C.SOURCE_LENGTH_NAME)
+        # TODO should have separate ones since we may need separate lengths for each language?
+        e_source_encoder = mx.sym.Variable(C.SOURCE_NAME + '_e')
+        e_source_encoder_length = mx.sym.Variable(C.SOURCE_LENGTH_NAME + '_e')
 
-        e_target = mx.sym.Variable(C.TARGET_NAME)
-        e_labels = mx.sym.reshape(data=mx.sym.Variable(C.TARGET_LABEL_NAME), shape=(-1,))
+        e_target = mx.sym.Variable(C.TARGET_NAME + '_e')
+        e_labels = mx.sym.reshape(data=mx.sym.Variable(C.TARGET_LABEL_NAME + '_e'), shape=(-1,))
 
-        f_target = mx.sym.Variable(C.TARGET_NAME)
-        f_labels = mx.sym.reshape(data=mx.sym.Variable(C.TARGET_LABEL_NAME), shape=(-1,))
+        # TODO different names?
+        f_source_encoder = mx.sym.Variable(C.SOURCE_NAME + '_f')
+        f_source_encoder_length = mx.sym.Variable(C.SOURCE_LENGTH_NAME + '_f')
+
+        f_target = mx.sym.Variable(C.TARGET_NAME + '_f')
+        f_labels = mx.sym.reshape(data=mx.sym.Variable(C.TARGET_LABEL_NAME + '_f'), shape=(-1,))
 
         loss = sockeye.loss.get_loss(self.config)
 
@@ -202,33 +206,35 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
             # Add the e embedding "encoder" to the list of encoders.
             self.encoder.encoders = [self.e_embedding] + self.encoder.encoders
             # TODO what about f_embedding?
-            e_encoded = self.encoder.encode(source_encoder, source_encoder_length, seq_len=e_seq_len)
-            f_encoded = self.encoder.encode(source_encoder, source_encoder_length, seq_len=f_seq_len)
+            e_encoded = self.encoder.encode(e_source_encoder, e_source_encoder_length, seq_len=e_seq_len)
+            f_encoded = self.encoder.encode(f_source_encoder, f_source_encoder_length, seq_len=f_seq_len)
             # For lexical bias; we don't really use this (yet).
             source_lexicon = None
 
             # This is the autoencoder. It will use the f_embedding matrix
-            e_logits_autoencoder = self.decoder.decode(e_encoded, e_seq_len, source_encoder_length,
+            e_logits_autoencoder = self.decoder.decode(e_encoded, e_seq_len, e_source_encoder_length,
                                                      e_target, e_seq_len, source_lexicon,
                                                      self.e_embedding)
 
-            f_logits_autoencoder = self.decoder.decode(f_encoded, f_seq_len, source_encoder_length,
+            f_logits_autoencoder = self.decoder.decode(f_encoded, f_seq_len, f_source_encoder_length,
                                                        f_target, f_seq_len, source_lexicon,
                                                        self.f_embedding)
 
             # TODO: Merge transfer stuff here.
-            f_logits_transfer = f_logits_autoencoder
-            e_logits_transfer = e_logits_autoencoder
+            e_logits_transfer = f_logits_autoencoder
+            f_logits_transfer = e_logits_autoencoder
 
             # feed these into the discriminator
             # TODO target_lexicon?
             # TODO target_length instead of source_length?
             # TODO fix source_encoder_length; Is this the correct thing to use?
+            # TODO need to use f_vocab_size for both e and f -- not sure why but the output is that shape..
+            # TODO ... so need to check the decoder to make sure this is the desired shape..
             f_D_autoencoder = self.discriminator_f.discriminate(f_logits_autoencoder, f_seq_len,
-                                                                f_vocab_size, source_encoder_length)
+                                                                f_vocab_size, f_source_encoder_length)
 
             e_D_autoencoder = self.discriminator_e.discriminate(e_logits_autoencoder, e_seq_len,
-                                                                e_vocab_size, source_encoder_length)
+                                                                f_vocab_size, e_source_encoder_length)
 
             # Logits_transfer keeps generating to max_seq_len since there's no stopping condition
             # We post-process to determine EOS and pad the output after an EOS appears
@@ -239,9 +245,11 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
             f_transfer_length = mask_labels_after_EOS(f_logits_transfer, e_train_iter.batch_size, e_seq_len)
             e_transfer_length = mask_labels_after_EOS(e_logits_transfer, f_train_iter.batch_size, f_seq_len)
 
-            e_D_transfer = self.discriminator_e.discriminate(e_logits_transfer, e_seq_len,
-                                                             e_vocab_size, e_transfer_length)
-            f_D_transfer = self.discriminator_f.discriminate(f_logits_transfer, f_seq_len,
+            # e_logits_transfer come from f->e, so we use f_batch_size, etc. for e_D_transfer
+            # TODO need f_vocab_size for both e and f for some reason (see above); need to check decoder
+            e_D_transfer = self.discriminator_e.discriminate(e_logits_transfer, f_seq_len,
+                                                             f_vocab_size, e_transfer_length)
+            f_D_transfer = self.discriminator_f.discriminate(f_logits_transfer, e_seq_len,
                                                              f_vocab_size, f_transfer_length)
 
             # TODO not sure about using target_seq_len for both..
@@ -266,6 +274,7 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
             
             # TODO not sure if should group like this..
             # TODO need to add lambd to input params..
+            # TODO what about D_e and D_f loss?
             return mx.sym.Group(outputs_G), data_names, label_names
 
         # TODO: Add bucketing later
@@ -298,7 +307,8 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
 
     # TODO this is all wrong.. need two training iters!
     def fit(self,
-            train_iter: sockeye.data_io.ParallelBucketSentenceIter,
+            e_train_iter: sockeye.data_io.ParallelBucketSentenceIter,
+            f_train_iter: sockeye.data_io.ParallelBucketSentenceIter,
             #val_iter: sockeye.data_io.ParallelBucketSentenceIter,
             output_folder: str,
             metrics: List[AnyStr],
@@ -316,7 +326,8 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
         Fits model to data given by train_iter using early-stopping w.r.t data given by val_iter.
         Saves all intermediate and final output to output_folder
 
-        :param train_iter: The training data iterator.
+        :param e_train_iter: The training data iterator for language e.
+        :param f_train_iter: The training data iterator for lanugage f.
         :param val_iter: The validation data iterator.
         :param output_folder: The folder in which all model artifacts will be stored in (parameters, checkpoints, etc.).
         :param metrics: The metrics that will be evaluated during training.
@@ -336,8 +347,13 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
         """
         self.save_config(output_folder)
 
-        self.module.bind(data_shapes=train_iter.provide_data, label_shapes=train_iter.provide_label,
-                         for_training=True, force_rebind=True, grad_req='write')
+        # TODO this needs to be fixed..
+        data_shapes_e = e_train_iter.provide_data
+        data_shapes_f = f_train_iter.provide_data
+        data_shapes = data_shapes_e + data_shapes_f
+        label_shapes = e_train_iter.provide_label + f_train_iter.provide_label
+        self.module.bind(data_shapes=data_shapes, label_shapes=label_shapes, for_training=True,
+                         force_rebind=True, grad_req='write')
         self.module.symbol.save(os.path.join(output_folder, C.SYMBOL_NAME))
 
         self.module.init_params(initializer=initializer, arg_params=self.params, aux_params=None,

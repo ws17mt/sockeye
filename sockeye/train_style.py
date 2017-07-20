@@ -79,7 +79,8 @@ e_train_iter = sockeye.data_io.get_style_training_data_iters(
                         max_seq_len=max_seq_len,
                         bucketing=False,
                         bucket_width=100,
-                        target_bos_symbol=C.F_BOS_SYMBOL
+                        target_bos_symbol=C.F_BOS_SYMBOL,
+                        suffix='_e'
                     )
 
 # This is the actual target side processing which will return iterators
@@ -92,7 +93,8 @@ f_train_iter = sockeye.data_io.get_style_training_data_iters(
                         max_seq_len=max_seq_len,
                         bucketing=False,
                         bucket_width=100,
-                        target_bos_symbol=C.E_BOS_SYMBOL
+                        target_bos_symbol=C.E_BOS_SYMBOL,
+                        suffix='_f'
                     )
 
 # TODO: Look at the model config in train.py
@@ -160,6 +162,7 @@ logger.info("Optimizer Parameters: %s", optimizer_params)
 
 
 model.fit(e_train_iter,
+          f_train_iter,
           output_folder=output_folder,
           metrics=[C.PERPLEXITY],
           initializer=initializer,

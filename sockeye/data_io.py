@@ -176,7 +176,8 @@ def get_style_training_data_iters(source: str,
                                   max_seq_len: int,
                                   bucketing: bool,
                                   bucket_width: int,
-                                  target_bos_symbol) -> 'ParallelBucketSentenceIter':
+                                  target_bos_symbol,
+                                  suffix: str) -> 'ParallelBucketSentenceIter':
     """
     Returns data iterators for training and validation data.
 
@@ -187,6 +188,7 @@ def get_style_training_data_iters(source: str,
     :param max_seq_len: Maximum sequence length.
     :param bucketing: Whether to use bucketing.
     :param bucket_width: Size of buckets.
+    :param suffix: Suffix for the data names.
     :return: Tuple of (training data iterator, validation data iterator).
     """
     logger.info("Creating train data iterator")
@@ -208,7 +210,11 @@ def get_style_training_data_iters(source: str,
                                             vocab[C.EOS_SYMBOL],
                                             C.PAD_ID,
                                             vocab[C.UNK_SYMBOL],
-                                            fill_up=fill_up)
+                                            fill_up=fill_up,
+                                            source_data_name=C.SOURCE_NAME + suffix,
+                                            source_data_length_name=C.SOURCE_LENGTH_NAME + suffix,
+                                            target_data_name=C.TARGET_NAME + suffix,
+                                            label_name=C.TARGET_LABEL_NAME + suffix)
 
     return train_iter
 

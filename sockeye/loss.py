@@ -177,10 +177,12 @@ class GANLoss(Loss):
             normalization = "valid"
         else:
             normalization = "null"
+        # TODO need to subtract lambda * (loss_De + loss_Df)
         return mx.sym.SoftmaxOutput(data=mx.sym.concat(logits_e, logits_f, dim=0),
                                    label=mx.sym.concat(labels_e, labels_f, dim=0),
                                    ignore_label=C.PAD_ID, use_ignore=True,
-                                   normalization=normalization) - lambd * (loss_De + loss_Df)
+                                   normalization=normalization)
+        # - lambd * (loss_De + loss_Df)
         # TODO name
         # TODO is the shape of this right for adding them? 
         # TODO maybe recalculate loss_d instead of passing it in? so we can block the gradients?

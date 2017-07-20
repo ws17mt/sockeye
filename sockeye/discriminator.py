@@ -97,11 +97,11 @@ class MLPDiscriminator(Discriminator):
         target = mx.sym.reshape(data=data, shape=(target_seq_len, -1, target_vocab_size))
         # don't want the gradient to propogate to encoder / generator
         # TODO check this.. especially that the loss_G still updates generator with d parts
-        target = mx.sym.BlockGrad(target)
+        #target = mx.sym.BlockGrad(target)
         decoder_last_state = mx.sym.SequenceLast(data=target, sequence_length=target_length,
                                                  use_sequence_length=True)
         # input layer
-        logits = mx.sym.FullyConnected(data=data, num_hidden=self.num_hidden)
+        logits = mx.sym.FullyConnected(data=decoder_last_state, num_hidden=self.num_hidden)
         logits = mx.sym.Activation(data=logits, act_type=self.act)
         # hidden layers
         for layer in range(self.num_layers):
