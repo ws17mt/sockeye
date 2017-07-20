@@ -35,6 +35,8 @@ def get_lm_from_encoder(config: sockeye.model.ModelConfig,
         rnn_cell_type=config.rnn_cell_type,
         rnn_residual_connections=config.rnn_residual_connections,
         rnn_forget_bias=rnn_forget_bias,
+        embedding_prefix=C.SOURCE_EMBEDDING_PREFIX,
+        rnn_prefix=C.STACKEDRNN_PREFIX+C.LM_SOURCE_PREFIX,
         embedding_params=encoder.embed.embed_weight,
         rnn_params=encoder.lm_pre_rnn.rnn.params
         )
@@ -50,7 +52,7 @@ def get_lm_from_decoder(config,
     assert lm_pre_layers > 0
     assert decoder.embedding.embed_weight is not None
     assert decoder.lm_pre_rnn is not None
-    return SharedLanguageModel(
+    lmodel = SharedLanguageModel(
         num_embed=config.num_embed_target,
         vocab_size=config.vocab_target_size,
         dropout=config.dropout,
@@ -60,11 +62,14 @@ def get_lm_from_decoder(config,
         rnn_residual_connections=config.rnn_residual_connections,
         rnn_forget_bias=rnn_forget_bias,
         # Weight sharing happens here
+        embedding_prefix=C.TARGET_EMBEDDING_PREFIX,
+        rnn_prefix=C.DECODER_PREFIX+C.LM_TARGET_PREFIX,
         embedding_params=decoder.embedding.embed_weight,
         rnn_params=decoder.lm_pre_rnn.params,
         cls_w_params=decoder.cls_w,
         cls_b_params=decoder.cls_b
         )
+    return lmodel
 
 
 def get_lm_from_options(
@@ -105,6 +110,8 @@ class SharedLanguageModel:
                  rnn_cell_type,
                  rnn_residual_connections,
                  rnn_forget_bias,
+                 embedding_prefix=C.SOURCE_EMBEDDING_PREFIX,
+                 rnn_prefix=C.STACKEDRNN_PREFIX,
                  embedding_params=None,
                  rnn_params=None,
                  cls_w_params=None,
@@ -123,7 +130,7 @@ class SharedLanguageModel:
         self.embedding = sockeye.encoder.Embedding(
             num_embed=self.num_embed,
             vocab_size=self.vocab_size,
-            prefix=C.SOURCE_EMBEDDING_PREFIX,  # TODO: revisit these prefix decisions
+            prefix=embedding_prefix,
             dropout=self.dropout,
             params=embedding_params
         )
@@ -134,7 +141,7 @@ class SharedLanguageModel:
             num_hidden=self.rnn_num_hidden,
             num_layers=self.rnn_num_layers,
             dropout=self.dropout,
-            prefix=C.STACKEDRNN_PREFIX,  # TODO: revisit these prefix decisions
+            prefix=rnn_prefix,
             residual=self.rnn_residual_connections,
             forget_bias=self.rnn_forget_bias,
             params=rnn_params

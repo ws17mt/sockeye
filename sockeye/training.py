@@ -111,6 +111,7 @@ class TrainingModel(sockeye.model.SockeyeModel):
                                                             lm_pre_layers=lm_pre_layers,
                                                             decoder=self.decoder,
                                                             rnn_forget_bias=rnn_forget_bias)
+
             # self.rnn_cells.append(self.lm_target.rnn)  # TODO: Does this need to be here since they will share params?
             self.lm_target_module = self._build_lm_module(mono_target_iter, self.lm_target, self.config.max_seq_len)
             self.module_list.append(self.lm_target_module)
@@ -475,7 +476,7 @@ class TrainingModel(sockeye.model.SockeyeModel):
         """
         self.params = dict()
         for module in self.module_list:
-            arg_params, aux_params = self.module.get_params()  # sync aux params across devices
+            arg_params, aux_params = module.get_params()  # sync aux params across devices
             module.set_params(arg_params, aux_params)
             self.params.update(arg_params)
         params_base_fname = C.PARAMS_NAME % checkpoint
