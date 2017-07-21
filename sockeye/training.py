@@ -331,6 +331,18 @@ class TrainingModel(sockeye.model.SockeyeModel):
             module.forward_backward(batch)
             module.update()
 
+            # manually sync params across batches
+            arg_params, aux_params = module.get_params()
+            for m2 in self.module_list:
+                if m2 is not module:
+                    m2_params, _ = m2.get_params()
+                    # intersect the dictionaries
+                    inter = {k: arg_params[k] for k in arg_params if k in m2_params}
+                    m2.set_params(arg_params=inter,
+                                  aux_params=aux_params,
+                                  allow_missing=True,
+                                  force_init=True)
+
             if train_iter.iter_next():
                 # pre-fetch next batch
                 next_data_batch = train_iter.next()
