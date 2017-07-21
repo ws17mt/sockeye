@@ -158,55 +158,52 @@ class GANLoss(Loss):
     
     def __init__(self, normalize: bool = False):
         self._normalize = normalize
-    
-    def get_loss_G(self, logits_e: mx.sym.Symbol, logits_f: mx.sym.Symbol,
-                   labels_e: mx.sym.Symbol, labels_f: mx.sym.Symbol,
-                   loss_De: mx.sym.Symbol, loss_Df: mx.sym.Symbol, lambd: float) -> mx.sym.Symbol:
+
+    def get_loss(self, e_logits_autoencoder: mx.sym.Symbol, f_logits_autoencoder: mx.sym.Symbol,
+                 e_labels: mx.sym.Symbol, f_labels: mx.sym.Symbol,
+                 e_D_autoencoder: mx.sym.Symbol, e_D_transfer: mx.sym.Symbol,
+                 e_labels_autoencoder: mx.sym.Symbol, e_labels_transfer: mx.sym.Symbol,
+                 f_D_autoencoder: mx.sym.Symbol, f_D_transfer: mx.sym.Symbol,
+                 f_labels_autoencoder: mx.sym.Symbol, f_labels_transfer: mx.sym.Symbol) -> mx.sym.Symbol:
         """
-        Returns generator loss for GAN given logits and discriminator loss.
-        
-        :param logits_e: Logits from e autoencode minibatch. Shape: (batch_size * e_sequence_len, e_vocab_size).
-        :param logits_f: Logits from f autoencode minibatch. Shape: (batch_size * f_sequence_len, f_vocab_size).
-        :param labels_e: Labels from e autoencode minibatch. Shape: (batch_size * e_sequence_len, ).
-        :param labels_f: Labels from f autoencode minibatch. Shape: (batch_size * f_sequence_len, ).
-        :param loss_De: Loss symbol for e discriminator.
-        :param loss_Df: Loss symbol for f discriminator.
-        :param lambd: Weight for the discriminator losses.
-        """
-        if self._normalize:
-            normalization = "valid"
-        else:
-            normalization = "null"
-        # TODO need to subtract lambda * (loss_De + loss_Df)
-        return mx.sym.SoftmaxOutput(data=mx.sym.concat(logits_e, logits_f, dim=0),
-                                   label=mx.sym.concat(labels_e, labels_f, dim=0),
-                                   ignore_label=C.PAD_ID, use_ignore=True,
-                                   normalization=normalization)
-        # - lambd * (loss_De + loss_Df)
-        # TODO name
-        # TODO is the shape of this right for adding them? 
-        # TODO maybe recalculate loss_d instead of passing it in? so we can block the gradients?
-    
-    def get_loss_D(self, logits_ae: mx.sym.Symbol, logits_trans: mx.sym.Symbol,
-                   labels_ae: mx.sym.Symbol, labels_trans: mx.sym.Symbol, name: str) -> mx.sym.Symbol:
-        """
-        Returns discriminator loss and softmax output symbols for GAN given logits.
-        
-        :param logits_ae: Logits from autoencoding minibatch. Shape: (batch_size, 2).
-        :param logits_trans: Logits from translation minibatch. Shape: (batch_size, 2).
-        :param labels_ae: Labels from autoencoding minibatch. Shape: (batch_size,).
-        :param labels_trans: Labels from translation minibatch. Shape: (batch_size,).
-        :param name: Desired name for softmax symbol (since this is used for both discriminators).
-        :return: Loss and softmax output symbols.
+        Returns generator and discriminator loss for GAN assuming gradient reversal layer.
+
+        :param e_logits_autoencoder: Logits from e autoencode step. Shape: (e_batch_size * e_seq_len, e_vocab_size).
+        :param f_logits_autonecoder: Logits from f autoencoder step. Shape: (f_batch_size * f_seq_len, f_vocab_size).
+        :param e_labels: Labels from e autoencode step. Shape: (batch_size * e_seq_len).
+        :param f_labels: Labels from f autoencode step. Shape: (batch_size * f_seq_len).
+        :param e_D_autoencoder: Logits from discriminating autoencoded e. Shape: (e_batch_size, 2).
+        :param e_D_transfer: Logits from discriminating transferred e (from f). Shape: (f_batch_size, 2).
+        :param e_labels_autoencoder: Labels from discriminating autoencoded e. Shape: (e_batch_size, ).
+        :param e_labels_transfer: Labels from discriminating transferred e. Shape(f_batch_size, ).
+        :param f_D_autoencoder: Logits from discriminating autoencoded f. Shape: (f_batch_size, 2).
+        :param f_D_transfer: Logits from discriminating transferred f (from e). Shape: (e_batch_size, 2).
+        :param f_labels_autoencoder: Labels from discriminating autoencoded f. Shape: (f_batch_size, ).
+        :param f_labels_transfer: Labels from discriminating transferred f. Shape(e_batch_size, ).
         """
         if self._normalize:
-            normalization = "valid"
+            normalization = 'valid'
         else:
-            normalization = "null"
-        # TODO this is not quite right since we need to feed the autoencoder logits into the discriminator..
-        return mx.sym.SoftmaxOutput(data=mx.sym.concat(logits_ae, logits_trans, dim=0),
-                                    label=mx.sym.concat(labels_ae, labels_trans, dim=0),
-                                    ignore_label=C.PAD_ID,
-                                    use_ignore=True,
-                                    normalization=normalization,
-                                    name=name)
+            normalization = 'null'
+
+        # get reconstruction and discriminator losses
+        loss_G = mx.sym.SoftmaxOutput(data=mx.sym.concat(e_logits_autoencoder, f_logits_autoencoder, dim=0),
+                                      label=mx.sym.concat(e_labels, f_labels, dim=0),
+                                      ignore_label=C.PAD_ID, use_ignore=True, normalization=normalization)
+        e_loss_D = mx.sym.SoftmaxOutput(data=mx.sym.concat(e_D_autoencoder, e_D_transfer, dim=0),
+                                        label=mx.sym.concat(e_labels_autoencoder, e_labels_transfer, dim=0),
+                                        ignore_label=C.PAD_ID, use_ignore=True, normalization=normalization)
+        f_loss_D = mx.sym.SoftmaxOutput(data=mx.sym.concat(f_D_autoencoder, f_D_transfer, dim=0),
+                                        label=mx.sym.concat(f_labels_autoencoder, f_labels_transfer, dim=0),
+                                        ignore_label=C.PAD_ID, use_ignore=True, normalization=normalization)
+
+        # ...
+        # TODO now combine them -- name?? broadcast_add or add?? TODO or should line up e with e and f with f?
+        # NOTE: the GRL reverses the gradients and adds the lambda
+
+        # TODO this is not quite right..
+        #return loss_G + e_loss_D + f_loss_D
+
+        # TODO can we group the losses together?
+        # TODO if so may need to provide labels for all three in data iterator
+        return mx.sym.Group([loss_G, e_loss_D, f_loss_D])

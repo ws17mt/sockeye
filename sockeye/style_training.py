@@ -230,11 +230,11 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
             # TODO fix source_encoder_length; Is this the correct thing to use?
             # TODO need to use f_vocab_size for both e and f -- not sure why but the output is that shape..
             # TODO ... so need to check the decoder to make sure this is the desired shape..
-            f_D_autoencoder = self.discriminator_f.discriminate(f_logits_autoencoder, f_seq_len,
-                                                                f_vocab_size, f_source_encoder_length)
+            f_D_autoencoder = self.discriminator_f.discriminate(f_logits_autoencoder, f_seq_len, f_vocab_size,
+                                                                f_source_encoder_length, self.loss_lambda)
 
-            e_D_autoencoder = self.discriminator_e.discriminate(e_logits_autoencoder, e_seq_len,
-                                                                f_vocab_size, e_source_encoder_length)
+            e_D_autoencoder = self.discriminator_e.discriminate(e_logits_autoencoder, e_seq_len, f_vocab_size,
+                                                                e_source_encoder_length, self.loss_lambda)
 
             # Logits_transfer keeps generating to max_seq_len since there's no stopping condition
             # We post-process to determine EOS and pad the output after an EOS appears
@@ -247,35 +247,25 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
 
             # e_logits_transfer come from f->e, so we use f_batch_size, etc. for e_D_transfer
             # TODO need f_vocab_size for both e and f for some reason (see above); need to check decoder
-            e_D_transfer = self.discriminator_e.discriminate(e_logits_transfer, f_seq_len,
-                                                             f_vocab_size, e_transfer_length)
-            f_D_transfer = self.discriminator_f.discriminate(f_logits_transfer, e_seq_len,
-                                                             f_vocab_size, f_transfer_length)
-
-            # TODO not sure about using target_seq_len for both..
+            e_D_transfer = self.discriminator_e.discriminate(e_logits_transfer, f_seq_len, f_vocab_size,
+                                                             e_transfer_length, self.loss_lambda)
+            f_D_transfer = self.discriminator_f.discriminate(f_logits_transfer, e_seq_len, f_vocab_size,
+                                                             f_transfer_length, self.loss_lambda)
             # TODO maybe get the labels from here?
 
             # get labels for autoencoders (all ones) and translators (all zeros)
-            # TODO not sure about shape
             e_labels_autoencoder = mx.symbol.ones(shape=(e_train_iter.batch_size,))
             f_labels_autoencoder = mx.symbol.ones(shape=(f_train_iter.batch_size,)) # Note the switch in batch size.
             e_labels_transfer = mx.symbol.zeros(shape=(f_train_iter.batch_size,))
             f_labels_transfer = mx.symbol.zeros(shape=(e_train_iter.batch_size,))
 
             # logits_ae_e and logits_tr_f are originally in e
-            e_outputs_D = loss.get_loss_D(e_D_autoencoder, e_D_transfer, e_labels_autoencoder, e_labels_transfer,
-                                         C.GAN_LOSS + '_e')
-            f_outputs_D = loss.get_loss_D(f_D_autoencoder, f_D_transfer, f_labels_autoencoder, f_labels_transfer,
-                                         C.GAN_LOSS + '_f')
+            # TODO make sure args are in the right order..
+            outputs = loss.get_loss(e_logits_autoencoder, f_logits_autoencoder, e_labels, f_labels,
+                                    e_D_autoencoder, e_D_transfer, e_labels_autoencoder, e_labels_transfer,
+                                    f_D_autoencoder, f_D_transfer, f_labels_autoencoder, f_labels_transfer)
 
-            outputs_G = loss.get_loss_G(e_logits_autoencoder, f_logits_autoencoder,
-                                        e_labels, f_labels, e_outputs_D, f_outputs_D,
-                                        self.loss_lambda)
-            
-            # TODO not sure if should group like this..
-            # TODO need to add lambd to input params..
-            # TODO what about D_e and D_f loss?
-            return mx.sym.Group(outputs_G), data_names, label_names
+            return mx.sym.Group(outputs), data_names, label_names
 
         # TODO: Add bucketing later
 
@@ -305,7 +295,6 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
                 raise ValueError("unknown metric name")
         return mx.metric.create(metrics)
 
-    # TODO this is all wrong.. need two training iters!
     def fit(self,
             e_train_iter: sockeye.data_io.ParallelBucketSentenceIter,
             f_train_iter: sockeye.data_io.ParallelBucketSentenceIter,
@@ -369,12 +358,13 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
             if monitor_bleu else None
 
         logger.info("Training started.")
-        self.training_monitor = sockeye.callback.TrainingMonitor(train_iter.batch_size, output_folder,
+        # TODO: update this so it's not just e_train_iter..
+        self.training_monitor = sockeye.callback.TrainingMonitor(e_train_iter.batch_size, output_folder,
                                                                  optimized_metric=optimized_metric,
                                                                  use_tensorboard=use_tensorboard,
                                                                  checkpoint_decoder=checkpoint_decoder)
         val_iter = None
-        self._fit(train_iter, val_iter, output_folder,
+        self._fit(e_train_iter, f_train_iter, output_folder,
                   metrics=metrics,
                   max_updates=max_updates,
                   checkpoint_frequency=checkpoint_frequency,
@@ -388,8 +378,9 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
         return self.training_monitor.get_best_validation_score()
 
     def _fit(self,
-             train_iter: sockeye.data_io.ParallelBucketSentenceIter,
-             val_iter: sockeye.data_io.ParallelBucketSentenceIter,
+             e_train_iter: sockeye.data_io.ParallelBucketSentenceIter,
+             f_train_iter: sockeye.data_io.ParallelBucketSentenceIter,
+             #val_iter: sockeye.data_io.ParallelBucketSentenceIter,
              output_folder: str,
              metrics: List[AnyStr],
              max_updates: int,
@@ -399,7 +390,8 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
         """
         Internal fit method. Runtime determined by early stopping.
 
-        :param train_iter: Training data iterator.
+        :param e_train_iter: Training data iterator for language e.
+        :param f_train_iter: Training data iterator for language f.
         :param val_iter: Validation data iterator.
         :param output_folder: Model output folder.
         :param metrics: List of metric names to track on training and validation data.
@@ -425,14 +417,19 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
                 samples=0
             )
 
-        next_data_batch = train_iter.next()
+        e_next_data_batch = e_train_iter.next()
+        f_next_data_batch = f_train_iter.next()
 
         while max_updates == -1 or train_state.updates < max_updates:
             if not train_iter.iter_next():
                 train_state.epoch += 1
-                train_iter.reset()
+                e_train_iter.reset()
+                f_train_iter.reset()
+                # TODO not sure if these should be separate
 
             # process batch
+            # TODO how to pass in two batches?? I guess this will be fixed when we have two modules..
+            # TODO can we just call forward_backward onces for each batch / iterator?
             batch = next_data_batch
             self.module.forward_backward(batch)
             self.module.update()

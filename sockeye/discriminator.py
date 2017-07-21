@@ -20,6 +20,7 @@ from typing import Optional
 import mxnet as mx
 
 import sockeye.constants as C
+from sockeye.grl import *
 import sockeye.utils
 
 
@@ -79,11 +80,12 @@ class MLPDiscriminator(Discriminator):
         self.num_layers = num_layers
         self.dropout = dropout # TODO add dropout (currently don't use this at all)
 
-    def discriminate(self, 
+    def discriminate(self,
                      data: mx.sym.Symbol,
                      target_seq_len: int,
                      target_vocab_size: int,
-                     target_length: mx.sym.Symbol) -> mx.sym.Symbol:
+                     target_length: mx.sym.Symbol,
+                     loss_lambda: float) -> mx.sym.Symbol:
         """
         Given a sequence of decoder hidden states, decide whether they are from the real or generated data.
         
@@ -91,17 +93,17 @@ class MLPDiscriminator(Discriminator):
         :param target_seq_len: Maximum length of target sequences.
         :param target_vocab_size: Target vocabulary size.
         :param target_length: Lengths of target sequences. Shape: (batch_size,).
+        :param loss_lambda: Weight parameter for discriminators.
         :return: Logits of discriminator decision for target sequence. Shape: (batch_size, 2).
         """
         # reshape the data so it's max len x batch size x vocab size
         target = mx.sym.reshape(data=data, shape=(target_seq_len, -1, target_vocab_size))
-        # don't want the gradient to propogate to encoder / generator
-        # TODO check this.. especially that the loss_G still updates generator with d parts
-        #target = mx.sym.BlockGrad(target)
         decoder_last_state = mx.sym.SequenceLast(data=target, sequence_length=target_length,
                                                  use_sequence_length=True)
+        # add a gradient reversal layer before the discriminators
+        reverse_grad = mx.symbol.Custom(data=decoder_last_state, op_type='gradientreversallayer', loss_lambda=loss_lambda)
         # input layer
-        logits = mx.sym.FullyConnected(data=decoder_last_state, num_hidden=self.num_hidden)
+        logits = mx.sym.FullyConnected(data=reverse_grad, num_hidden=self.num_hidden)
         logits = mx.sym.Activation(data=logits, act_type=self.act)
         # hidden layers
         for layer in range(self.num_layers):
