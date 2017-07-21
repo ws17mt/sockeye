@@ -26,6 +26,10 @@ def get_lm_from_encoder(config: sockeye.model.ModelConfig,
     assert lm_pre_layers > 0
     assert encoder.embed.embed_weight is not None
     assert encoder.lm_pre_rnn.rnn.params is not None
+    # Also tie source LM output weights if we are doing tying
+    cls_w = None
+    if config.weight_tying:
+        cls_w = encoder.embed.embed_weight
     return SharedLanguageModel(
         num_embed=config.num_embed_source,
         vocab_size=config.vocab_source_size,
@@ -38,7 +42,8 @@ def get_lm_from_encoder(config: sockeye.model.ModelConfig,
         embedding_prefix=C.SOURCE_EMBEDDING_PREFIX,
         rnn_prefix=C.STACKEDRNN_PREFIX+C.LM_SOURCE_PREFIX,
         embedding_params=encoder.embed.embed_weight,
-        rnn_params=encoder.lm_pre_rnn.rnn.params
+        rnn_params=encoder.lm_pre_rnn.rnn.params,
+        cls_w_params=cls_w
         )
 
 
@@ -151,11 +156,11 @@ class SharedLanguageModel:
         if cls_w_params is not None:
             self.cls_w = cls_w_params
         else:
-            self.cls_w = mx.sym.Variable("cls_weight")  # TODO: revisit prefix
+            self.cls_w = mx.sym.Variable("lm_cls_weight")  # TODO: revisit prefix
         if cls_b_params is not None:
             self.cls_b = cls_b_params
         else:
-            self.cls_b = mx.sym.Variable("cls_bias")  # TODO: revisit prefix
+            self.cls_b = mx.sym.Variable("lm_cls_bias")  # TODO: revisit prefix
 
     def encode(self, data, seq_len):
 

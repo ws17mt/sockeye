@@ -335,6 +335,8 @@ class TrainingModel(sockeye.model.SockeyeModel):
             arg_params, aux_params = module.get_params()
             for m2 in self.module_list:
                 if m2 is not module:
+                    # TODO - should get this key list somewhere and cache it to save
+                    #        on calls to m2.get_params()
                     m2_params, _ = m2.get_params()
                     # intersect the dictionaries
                     inter = {k: arg_params[k] for k in arg_params if k in m2_params}
