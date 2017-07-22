@@ -17,15 +17,16 @@ import os
 import pickle
 from collections import Counter
 from itertools import chain, islice
-from typing import Dict, Iterable, Mapping
+from typing import Dict, Iterable, Mapping, List
 
 import sockeye.constants as C
 from sockeye.data_io import get_tokens, smart_open
 
+
 logger = logging.getLogger(__name__)
 
 
-def build_from_path(path: str, num_words: int = 50000, min_count: int = 1) -> Dict[str, int]:
+def build_from_path(paths: List[str], num_words: int = 50000, min_count: int = 1) -> Dict[str, int]:
     """
     Creates vocabulary from path to a file in sentence-per-line format. A sentence is just a whitespace delimited
     list of tokens. Note that special symbols like the beginning of sentence (BOS) symbol will be added to the
@@ -36,12 +37,16 @@ def build_from_path(path: str, num_words: int = 50000, min_count: int = 1) -> Di
     :param min_count: Minimum occurrences of words to be included in the vocabulary.
     :return: Word-to-id mapping.
     """
-    with smart_open(path) as data:
-        logger.info("Building vocabulary from dataset: %s", path)
-        return build_vocab(data, num_words, min_count)
+    data = smart_open(paths)
+    logger.info("Building vocabulary from datasets: %s", paths)
+    vocab = build_vocab(data, num_words, min_count)
+    for d in data:
+        d.close()
+    return vocab
 
 
-def build_vocab(data: Iterable[str], num_words: int = 50000, min_count: int = 1) -> Dict[str, int]:
+
+def build_vocab(data: List[Iterable[str]], num_words: int = 50000, min_count: int = 1) -> Dict[str, int]:
     """
     Creates a vocabulary mapping from words to ids. Increasing integer ids are assigned by word frequency,
     using lexical sorting as a tie breaker. The only exception to this are special symbols such as the padding symbol
@@ -53,8 +58,16 @@ def build_vocab(data: Iterable[str], num_words: int = 50000, min_count: int = 1)
     :return: Word-to-id mapping.
     """
     vocab_symbols_set = set(C.VOCAB_SYMBOLS)
-    raw_vocab = Counter(token for line in data for token in get_tokens(line)
-                        if token not in vocab_symbols_set)
+
+    tokens = []
+    for d in data:
+        tokens_d = [token for line in d for token in get_tokens(line)
+                    if token not in vocab_symbols_set]
+        tokens += tokens_d
+    raw_vocab = Counter(tokens)
+
+    # raw_vocab = Counter(token for line in data for token in get_tokens(line)
+    #                     if token not in vocab_symbols_set)
     logger.info("Initial vocabulary: %d types" % len(raw_vocab))
 
     # For words with the same count, they will be ordered reverse alphabetically.

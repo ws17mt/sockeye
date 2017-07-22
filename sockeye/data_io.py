@@ -254,7 +254,7 @@ Tuple to collect data information for training for style transfer.
 """
 
 
-def smart_open(filename: str, mode="rt", ftype="auto", errors='replace'):
+def smart_open(filenames: List[str], mode="rt", ftype="auto", errors='replace'):
     """
     Returns a file descriptor for filename with UTF-8 encoding.
     If mode is "rt", file is opened read-only.
@@ -263,16 +263,19 @@ def smart_open(filename: str, mode="rt", ftype="auto", errors='replace'):
 
     Note: encoding error handling defaults to "replace"
 
-    :param filename: The filename to open.
+    :param filenames: The filenames to open.
     :param mode: Reader mode.
     :param ftype: File type. If 'auto' checks filename suffix for gz to try gzip.open
     :param errors: Encoding error handling during reading. Defaults to 'replace'
-    :return: File descriptor
+    :return: File descriptor(s)
     """
-    if ftype == 'gzip' or ftype == 'gz' or (ftype == 'auto' and filename.endswith(".gz")):
-        return gzip.open(filename, mode=mode, encoding='utf-8', errors=errors)
-    else:
-        return open(filename, mode=mode, encoding='utf-8', errors=errors)
+    fhs = []
+    for filename in filenames:
+        if ftype == 'gzip' or ftype == 'gz' or (ftype == 'auto' and filename.endswith(".gz")):
+            fhs.append(gzip.open(filename, mode=mode, encoding='utf-8', errors=errors))
+        else:
+            fhs.append(open(filename, mode=mode, encoding='utf-8', errors=errors))
+    return fhs
 
 
 def read_content(path: str, limit=None) -> Iterator[List[str]]:
