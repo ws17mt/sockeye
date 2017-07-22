@@ -107,16 +107,13 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
     def __init__(self,
                  model_config: sockeye.model.ModelConfig,
                  context: List[mx.context.Context],
-                 e_train_iter: sockeye.data_io.ParallelBucketSentenceIter,
-                 f_train_iter: sockeye.data_io.ParallelBucketSentenceIter,
+                 train_iter: sockeye.data_io.ParallelBucketSentenceIter,
                  fused: bool,
                  bucketing: bool,
                  lr_scheduler,
                  rnn_forget_bias: float,
-                 vocab_e,
-                 vocab_f,
-                 e_embedding,
-                 f_embedding,
+                 vocab,
+                 embedding,
                  disc_act: str,
                  disc_num_hidden: int,
                  disc_num_layers: int,
@@ -126,10 +123,8 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
         self.context = context
         self.lr_scheduler = lr_scheduler
         self.bucketing = bucketing
-        self.f_embedding = f_embedding
-        self.e_embedding = e_embedding
-        self.vocab_e = vocab_e
-        self.vocab_f = vocab_f
+        self.embedding = embedding
+        self.vocab = vocab
         self.disc_act = disc_act
         self.disc_num_hidden = disc_num_hidden
         self.disc_num_layers = disc_num_layers
@@ -137,7 +132,7 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
         self.loss_lambda = loss_lambda
         self._build_model_components(self.config.max_seq_len, fused, rnn_forget_bias, initialize_embedding=False)
         self._build_discriminators(self.disc_act, self.disc_num_hidden, self.disc_num_layers, self.disc_dropout)
-        self.module = self._build_module(e_train_iter, f_train_iter, self.config.max_seq_len, self.config.max_seq_len)
+        self.module = self._build_module(train_iter, self.config.max_seq_len, self.config.max_seq_len)
         self.training_monitor = None
 
     def _build_discriminators(self, act: str, num_hidden: int, num_layers: int, dropout: float):
@@ -157,8 +152,7 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
                                                                        prefix=C.DISCRIMINATOR_F_PREFIX)
 
     def _build_module(self,
-                      e_train_iter: sockeye.data_io.ParallelBucketSentenceIter,
-                      f_train_iter: sockeye.data_io.ParallelBucketSentenceIter,
+                      train_iter: sockeye.data_io.ParallelBucketSentenceIter,
                       e_max_seq_len: int,
                       f_max_seq_len: int):
         """
@@ -182,30 +176,23 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
 
         loss = sockeye.loss.get_loss(self.config)
 
-        e_data_names = [x[0] for x in e_train_iter.provide_data]
-        # e_label_names corresponds to the possible outcome of the autoencoder where e is the input
-        e_label_names = [x[0] for x in e_train_iter.provide_label]
+        data_names = [x[0] for x in train_iter.provide_data]
+        label_names = [x[0] for x in train_iter.provide_label]
 
-        f_data_names = [x[0] for x in f_train_iter.provide_data]
-        # source_label_names corresponds to the possible outcome of the autoencoder
-        f_label_names = [x[0] for x in f_train_iter.provide_label]
-
-        data_names = e_data_names + f_data_names
-        label_names = e_label_names + f_label_names
+        print(data_names, label_names)
 
         def sym_gen(e_seq_len, f_seq_len):
             """
             Returns a (grouped) loss symbol given source & target input lengths.
             Also returns data and label names for the BucketingModule.
             """
-            e_vocab_size = len(self.vocab_e)
-            f_vocab_size = len(self.vocab_f)
+            vocab_size = len(self.vocab)
 
             ##### AUTOENCODER FOR E #####
             # Process e->e and e->f
             # Add the e embedding "encoder" to the list of encoders.
-            self.encoder.encoders = [self.e_embedding] + self.encoder.encoders
-            # TODO what about f_embedding?
+            self.encoder.encoders = [self.embedding] + self.encoder.encoders
+            # Symbols for encoding e and f input respectively.
             e_encoded = self.encoder.encode(e_source_encoder, e_source_encoder_length, seq_len=e_seq_len)
             f_encoded = self.encoder.encode(f_source_encoder, f_source_encoder_length, seq_len=f_seq_len)
             # For lexical bias; we don't really use this (yet).
@@ -214,13 +201,13 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
             # This is the autoencoder. It will use the f_embedding matrix
             e_logits_autoencoder = self.decoder.decode(e_encoded, e_seq_len, e_source_encoder_length,
                                                      e_target, e_seq_len, source_lexicon,
-                                                     self.e_embedding)
+                                                     self.embedding)
 
             f_logits_autoencoder = self.decoder.decode(f_encoded, f_seq_len, f_source_encoder_length,
                                                        f_target, f_seq_len, source_lexicon,
-                                                       self.f_embedding)
+                                                       self.embedding)
 
-            # TODO: Merge transfer stuff here.
+            # TODO (gaurav): Merge transfer stuff here.
             e_logits_transfer = f_logits_autoencoder
             f_logits_transfer = e_logits_autoencoder
 
@@ -230,10 +217,10 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
             # TODO fix source_encoder_length; Is this the correct thing to use?
             # TODO need to use f_vocab_size for both e and f -- not sure why but the output is that shape..
             # TODO ... so need to check the decoder to make sure this is the desired shape..
-            f_D_autoencoder = self.discriminator_f.discriminate(f_logits_autoencoder, f_seq_len, f_vocab_size,
+            f_D_autoencoder = self.discriminator_f.discriminate(f_logits_autoencoder, f_seq_len, vocab_size,
                                                                 f_source_encoder_length, self.loss_lambda)
 
-            e_D_autoencoder = self.discriminator_e.discriminate(e_logits_autoencoder, e_seq_len, f_vocab_size,
+            e_D_autoencoder = self.discriminator_e.discriminate(e_logits_autoencoder, e_seq_len, vocab_size,
                                                                 e_source_encoder_length, self.loss_lambda)
 
             # Logits_transfer keeps generating to max_seq_len since there's no stopping condition
@@ -242,22 +229,22 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
             # The following operation will determine where the EOS occurs (greedy) and pad
             # (Deepak's work)
             # Note that the batch sizes are switched because we care about the input batch size.
-            f_transfer_length = mask_labels_after_EOS(f_logits_transfer, e_train_iter.batch_size, e_seq_len)
-            e_transfer_length = mask_labels_after_EOS(e_logits_transfer, f_train_iter.batch_size, f_seq_len)
+            f_transfer_length = mask_labels_after_EOS(f_logits_transfer, train_iter.batch_size, e_seq_len)
+            e_transfer_length = mask_labels_after_EOS(e_logits_transfer, train_iter.batch_size, f_seq_len)
 
             # e_logits_transfer come from f->e, so we use f_batch_size, etc. for e_D_transfer
             # TODO need f_vocab_size for both e and f for some reason (see above); need to check decoder
-            e_D_transfer = self.discriminator_e.discriminate(e_logits_transfer, f_seq_len, f_vocab_size,
+            e_D_transfer = self.discriminator_e.discriminate(e_logits_transfer, f_seq_len, vocab_size,
                                                              e_transfer_length, self.loss_lambda)
-            f_D_transfer = self.discriminator_f.discriminate(f_logits_transfer, e_seq_len, f_vocab_size,
+            f_D_transfer = self.discriminator_f.discriminate(f_logits_transfer, e_seq_len, vocab_size,
                                                              f_transfer_length, self.loss_lambda)
             # TODO maybe get the labels from here?
 
             # get labels for autoencoders (all ones) and translators (all zeros)
-            e_labels_autoencoder = mx.symbol.ones(shape=(e_train_iter.batch_size,))
-            f_labels_autoencoder = mx.symbol.ones(shape=(f_train_iter.batch_size,)) # Note the switch in batch size.
-            e_labels_transfer = mx.symbol.zeros(shape=(f_train_iter.batch_size,))
-            f_labels_transfer = mx.symbol.zeros(shape=(e_train_iter.batch_size,))
+            e_labels_autoencoder = mx.symbol.ones(shape=(train_iter.batch_size,))
+            f_labels_autoencoder = mx.symbol.ones(shape=(train_iter.batch_size,)) # Note the switch in batch size.
+            e_labels_transfer = mx.symbol.zeros(shape=(train_iter.batch_size,))
+            f_labels_transfer = mx.symbol.zeros(shape=(train_iter.batch_size,))
 
             # logits_ae_e and logits_tr_f are originally in e
             # TODO make sure args are in the right order..
@@ -296,8 +283,7 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
         return mx.metric.create(metrics)
 
     def fit(self,
-            e_train_iter: sockeye.data_io.ParallelBucketSentenceIter,
-            f_train_iter: sockeye.data_io.ParallelBucketSentenceIter,
+            train_iter: sockeye.data_io.ParallelBucketSentenceIter,
             #val_iter: sockeye.data_io.ParallelBucketSentenceIter,
             output_folder: str,
             metrics: List[AnyStr],
@@ -315,8 +301,7 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
         Fits model to data given by train_iter using early-stopping w.r.t data given by val_iter.
         Saves all intermediate and final output to output_folder
 
-        :param e_train_iter: The training data iterator for language e.
-        :param f_train_iter: The training data iterator for lanugage f.
+        :param train_iter: The training data iterator for language e and f.
         :param val_iter: The validation data iterator.
         :param output_folder: The folder in which all model artifacts will be stored in (parameters, checkpoints, etc.).
         :param metrics: The metrics that will be evaluated during training.
@@ -337,10 +322,9 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
         self.save_config(output_folder)
 
         # TODO this needs to be fixed..
-        data_shapes_e = e_train_iter.provide_data
-        data_shapes_f = f_train_iter.provide_data
-        data_shapes = data_shapes_e + data_shapes_f
-        label_shapes = e_train_iter.provide_label + f_train_iter.provide_label
+        data_shapes = train_iter.provide_data
+        label_shapes = train_iter.provide_label
+
         self.module.bind(data_shapes=data_shapes, label_shapes=label_shapes, for_training=True,
                          force_rebind=True, grad_req='write')
         self.module.symbol.save(os.path.join(output_folder, C.SYMBOL_NAME))
@@ -358,13 +342,12 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
             if monitor_bleu else None
 
         logger.info("Training started.")
-        # TODO: update this so it's not just e_train_iter..
-        self.training_monitor = sockeye.callback.TrainingMonitor(e_train_iter.batch_size, output_folder,
+        self.training_monitor = sockeye.callback.TrainingMonitor(train_iter.batch_size, output_folder,
                                                                  optimized_metric=optimized_metric,
                                                                  use_tensorboard=use_tensorboard,
                                                                  checkpoint_decoder=checkpoint_decoder)
         val_iter = None
-        self._fit(e_train_iter, f_train_iter, output_folder,
+        self._fit(train_iter, output_folder,
                   metrics=metrics,
                   max_updates=max_updates,
                   checkpoint_frequency=checkpoint_frequency,
@@ -377,10 +360,9 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
                     self.training_monitor.get_best_validation_score())
         return self.training_monitor.get_best_validation_score()
 
+    # TODO: There's no val iter here.
     def _fit(self,
-             e_train_iter: sockeye.data_io.ParallelBucketSentenceIter,
-             f_train_iter: sockeye.data_io.ParallelBucketSentenceIter,
-             #val_iter: sockeye.data_io.ParallelBucketSentenceIter,
+             train_iter: sockeye.data_io.ParallelBucketSentenceIter,
              output_folder: str,
              metrics: List[AnyStr],
              max_updates: int,
@@ -402,7 +384,6 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
         """
         print(metrics)
         metric_train = self._create_eval_metric(metrics)
-        #metric_val = self._create_eval_metric(metrics)
         tic = time.time()
 
         training_state_dir = os.path.join(output_folder, C.TRAINING_STATE_DIRNAME)
@@ -417,27 +398,20 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
                 samples=0
             )
 
-        e_next_data_batch = e_train_iter.next()
-        f_next_data_batch = f_train_iter.next()
+        next_data_batch = train_iter.next()
 
         while max_updates == -1 or train_state.updates < max_updates:
+            # If any of these iterators runs out of things to produce
+            # we call it an event and reset both iterators
             if not train_iter.iter_next():
                 train_state.epoch += 1
-                e_train_iter.reset()
-                f_train_iter.reset()
-                # TODO not sure if these should be separate
+                train_iter.reset()
 
             # process batch
-            # TODO how to pass in two batches?? I guess this will be fixed when we have two modules..
-            # TODO can we just call forward_backward onces for each batch / iterator?
+            # This is a batch with the training data for e and f
             batch = next_data_batch
             self.module.forward_backward(batch)
             self.module.update()
-
-            if train_iter.iter_next():
-                # pre-fetch next batch
-                next_data_batch = train_iter.next()
-                self.module.prepare(next_data_batch)
 
             self.module.update_metric(metric_train, batch.label)
             self.training_monitor.batch_end_callback(train_state.epoch, train_state.updates, metric_train)
@@ -459,7 +433,7 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
                     logger.info('Checkpoint [%d]\tTrain-%s=%f', train_state.checkpoint, name, val)
                 metric_train.reset()
 
-                # evaluation on validation set
+                # TODO:evaluation on validation set
                 has_improved = True
                 best_checkpoint = True
                 # has_improved, best_checkpoint = self._evaluate(train_state, val_iter, metric_val)
@@ -524,7 +498,10 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
 
         return self.training_monitor.eval_end_callback(training_state.checkpoint, val_metric)
 
-    def _checkpoint(self, training_state: _StyleTrainingState, output_folder: str, train_iter: sockeye.data_io.ParallelBucketSentenceIter):
+    def _checkpoint(self, training_state: _StyleTrainingState,
+                    output_folder: str,
+                    e_train_iter: sockeye.data_io.ParallelBucketSentenceIter,
+                    f_train_iter: sockeye.data_io.ParallelBucketSentenceIter):
         """
         Saves checkpoint. Note that the parameters are saved in _save_params.
         """
@@ -549,7 +526,8 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
             self.module.save_optimizer_states(opt_state_fname)
 
         # State of the bucket iterator
-        train_iter.save_state(os.path.join(training_state_dirname, C.BUCKET_ITER_STATE_NAME))
+        e_train_iter.save_state(os.path.join(training_state_dirname, C.E_BUCKET_ITER_STATE_NAME))
+        f_train_iter.save_state(os.path.join(training_state_dirname, C.F_BUCKET_ITER_STATE_NAME))
 
         # RNG states: python's random and np.random provide functions for
         # storing the state, mxnet does not, but inside our code mxnet's RNG is
@@ -602,7 +580,8 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
             training_state = pickle.load(fp)
         return training_state
 
-    def load_checkpoint(self, directory: str, train_iter: sockeye.data_io.ParallelBucketSentenceIter) -> _StyleTrainingState:
+    def load_checkpoint(self, directory: str,
+                        train_iter: sockeye.data_io.ParallelBucketSentenceIter) -> _StyleTrainingState:
         """
         Loads the full training state from disk. This includes optimizer,
         random number generators and everything needed.  Note that params

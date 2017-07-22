@@ -189,13 +189,16 @@ class GANLoss(Loss):
         # get reconstruction and discriminator losses
         loss_G = mx.sym.SoftmaxOutput(data=mx.sym.concat(e_logits_autoencoder, f_logits_autoencoder, dim=0),
                                       label=mx.sym.concat(e_labels, f_labels, dim=0),
-                                      ignore_label=C.PAD_ID, use_ignore=True, normalization=normalization)
+                                      ignore_label=C.PAD_ID, use_ignore=True, normalization=normalization,
+                                      name=C.CROSS_ENTROPY)
         e_loss_D = mx.sym.SoftmaxOutput(data=mx.sym.concat(e_D_autoencoder, e_D_transfer, dim=0),
                                         label=mx.sym.concat(e_labels_autoencoder, e_labels_transfer, dim=0),
-                                        ignore_label=C.PAD_ID, use_ignore=True, normalization=normalization)
+                                        ignore_label=C.PAD_ID, use_ignore=True, normalization=normalization,
+                                        name=C.GAN_LOSS + '_e')
         f_loss_D = mx.sym.SoftmaxOutput(data=mx.sym.concat(f_D_autoencoder, f_D_transfer, dim=0),
                                         label=mx.sym.concat(f_labels_autoencoder, f_labels_transfer, dim=0),
-                                        ignore_label=C.PAD_ID, use_ignore=True, normalization=normalization)
+                                        ignore_label=C.PAD_ID, use_ignore=True, normalization=normalization,
+                                        name=C.GAN_LOSS + '_f')
 
         # ...
         # TODO now combine them -- name?? broadcast_add or add?? TODO or should line up e with e and f with f?
@@ -203,6 +206,7 @@ class GANLoss(Loss):
 
         # TODO this is not quite right..
         #return loss_G + e_loss_D + f_loss_D
+        return loss_G
 
         # TODO can we group the losses together?
         # TODO if so may need to provide labels for all three in data iterator

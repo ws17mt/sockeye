@@ -27,8 +27,6 @@ VOCAB_SYMBOLS = [PAD_SYMBOL, UNK_SYMBOL, E_BOS_SYMBOL, F_BOS_SYMBOL, BOS_SYMBOL,
 
 # default encoder prefixes
 ENCODER_PREFIX = "encoder_"
-SOURCE_EMBEDDING_PREFIX = "embed_source"
-TARGET_EMBEDDING_PREFIX = "embed_target"
 BIDIRECTIONALRNN_PREFIX = ENCODER_PREFIX + "birnn_"
 STACKEDRNN_PREFIX = ENCODER_PREFIX + "rnn_"
 FORWARD_PREFIX = "forward_"
@@ -36,8 +34,8 @@ REVERSE_PREFIX = "reverse_"
 
 # embedding prefixes
 SOURCE_EMBEDDING_PREFIX = "source_embed_"
-E_TARGET_EMBEDDING_PREFIX = "e_target_embed_"
-F_TARGET_EMBEDDING_PREFIX = "f_target_embed_"
+TARGET_EMBEDDING_PREFIX = "target_embed_"
+EMBEDDING_PREFIX = "embed_"
 
 # rnn types
 LSTM_TYPE = 'lstm'

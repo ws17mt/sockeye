@@ -44,15 +44,17 @@ import sockeye.vocab
 from sockeye.log import setup_main_logger
 from sockeye.utils import acquire_gpus, get_num_gpus, expand_requested_device_ids
 
+from typing import List
+
 
 def none_if_negative(val):
     return None if val < 0 else val
 
 
-def _build_or_load_vocab(existing_vocab_path: Optional[str], data_path: str, num_words: int,
+def _build_or_load_vocab(existing_vocab_path: Optional[str], data_paths: List[str], num_words: int,
                          word_min_count: int) -> Dict:
     if existing_vocab_path is None:
-        vocabulary = sockeye.vocab.build_from_path(data_path,
+        vocabulary = sockeye.vocab.build_from_path(data_paths,
                                                    num_words=num_words,
                                                    min_count=word_min_count)
     else:
