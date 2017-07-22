@@ -239,10 +239,9 @@ Tuple to collect data information for training.
 """
 
 StyleDataInfo = NamedTuple('StyleDataInfo', [
-    ('source', str),
-    ('target', str),
-    ('vocab_source', str),
-    ('vocab_target', str),
+    ('e', str),
+    ('f', str),
+    ('vocab', str),
 ])
 """
 Tuple to collect data information for training for style transfer.
@@ -286,7 +285,7 @@ def read_content(path: str, limit=None) -> Iterator[List[str]]:
     :param limit: How many lines to read from path.
     :return: Iterator over lists of words.
     """
-    with smart_open(path) as indata:
+    with smart_open([path])[0] as indata:
         for i, line in enumerate(indata):
             if limit is not None and i == limit:
                 break
