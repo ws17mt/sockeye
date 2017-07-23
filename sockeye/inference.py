@@ -482,25 +482,6 @@ class Translator:
         
         return [self._make_result(trans_input, trans[0][i], trans[1][i], trans[2][i]) for i in range(k)]
 
-    def translate_kbest(self, trans_input: TranslatorInput, k: int) -> List[TranslatorOutput]:
-        """
-        Translates a TranslatorInput and returns a list of TranslatorOutput
-        
-        :param trans_input: TranslatorInput as returned by make_input().
-        :k: k best translations
-        :return: translation result.
-        """
-        if not trans_input.tokens:
-            return [TranslatorOutput(id=trans_input.id,
-                                    translation="",
-                                    tokens=[""],
-                                    attention_matrix=np.asarray([[0]]),
-                                    score=-np.inf)]
-            
-        trans = self.translate_nd_k(*self._get_inference_input(trans_input.tokens), k)
-        
-        return [self._make_result(trans_input, trans[0][i], trans[1][i], trans[2][i]) for i in range(k)]
-
     def _get_inference_input(self, tokens: List[str]) -> Tuple[mx.nd.NDArray, mx.nd.NDArray, Optional[int]]:
         """
         Returns NDArray of source ids, NDArray of sentence length, and corresponding bucket_key

@@ -68,7 +68,7 @@ def _check_path(opath, logger, overwrite):
     else:
         os.makedirs(opath)
 
-def read_lines(path: str, limit=None) -> Iterator[List[str]]:
+def _read_lines(path: str, limit=None) -> Iterator[List[str]]:
     """
     Returns a list of lines in path up to a limit.
 
@@ -81,6 +81,37 @@ def read_lines(path: str, limit=None) -> Iterator[List[str]]:
             if limit is not None and i == limit:
                 break
             yield line.strip()
+
+def _get_inputs(tokens: List[str],
+                vocab: Dict[str, int],
+                buckets: List[int]) -> Tuple[mx.nd.NDArray, mx.nd.NDArray, mx.nd.NDArray, Optional[int]]:
+        """
+        Returns NDArray of source ids, NDArray of sentence length, and corresponding bucket_key
+
+        :param tokens: List of input tokens.
+        """
+        _, bucket_key = sockeye.data_io.get_bucket(len(tokens), buckets)
+        if bucket_key is None:
+            bucket_key = buckets[-1]
+            tokens = tokens[:bucket_key]
+
+        source = mx.nd.zeros((1, bucket_key))
+        ids = sockeye.data_io.tokens2ids(tokens, vocab)
+        for i, wid in enumerate(ids):
+            source[0, i] = wid
+        length = mx.nd.array([len(ids)])
+
+        source_label = mx.nd.zeros((1, bucket_key)) # use batch_size=1
+        for i in range(len(ids) - 1):
+            source_label[0, i] = ids[i + 1]
+        source_label[0, len(ids) - 1] = vocab[C.EOS_SYMBOL]
+
+        #print(source.asnumpy())
+        #print(source_label.asnumpy())
+        #print(length.asnumpy())
+        #print(bucket_key)
+        
+        return source, source_label, length, bucket_key
 
 def _soft_dual_learn(context: mx.context.Context, 
                      vocab_source: Dict[str, int],
@@ -140,7 +171,7 @@ def _dual_learn(context: mx.context.Context,
 
     # pointers for switching between the models 
     # including: p_dec_s2t, p_dec_t2s, p_dec (dynamically changed within the loop)
- 
+
     # start the dual learning algorithm
     print("DEBUG 8d (learning loop)")
     best_dev_loss_s2t = 9e+99
@@ -201,29 +232,27 @@ def _dual_learn(context: mx.context.Context,
         # create an input batch as input_iter
         # FIXME: just apply for one best translation (thinking about gradient updates)
         print("DEBUG 8d (learning loop) - create data batches")
-        infer_input_s2t = p_dec_s2t._get_inference_input(trans_input[2])
-        infer_input_t2s = p_dec_t2s._get_inference_input(mid_hyps[0]) 
-        input_batch_s2t = mx.io.DataBatch(data=[infer_input_s2t[0], infer_input_s2t[1]], 
-                                         label=[infer_input_t2s[0]],
-                                         bucket_key=(infer_input_s2t[2],infer_input_t2s[2]),
-                                         provide_data=[mx.io.DataDesc(name=C.SOURCE_NAME, shape=(1, infer_input_s2t[2]), layout=C.BATCH_MAJOR),
-                                                       mx.io.DataDesc(name=C.SOURCE_LENGTH_NAME, shape=(1,), layout=C.BATCH_MAJOR),
-                                                       mx.io.DataDesc(name=C.TARGET_NAME, shape=(1, infer_input_t2s[2]), layout=C.BATCH_MAJOR)],
-                                         provide_label=[mx.io.DataDesc(name=C.TARGET_LABEL_NAME, shape=(1, infer_input_t2s[2]), layout=C.BATCH_MAJOR)])
-        input_batch_t2s = mx.io.DataBatch(data=[infer_input_t2s[0], infer_input_t2s[1]], 
-                                         label=[infer_input_s2t[0]],
-                                         bucket_key=(infer_input_t2s[2],infer_input_s2t[2]),
-                                         provide_data=[mx.io.DataDesc(name=C.SOURCE_NAME, shape=(1, infer_input_t2s[2]), layout=C.BATCH_MAJOR),
-                                                       mx.io.DataDesc(name=C.SOURCE_LENGTH_NAME, shape=(1,), layout=C.BATCH_MAJOR),
-                                                       mx.io.DataDesc(name=C.TARGET_NAME, shape=(1, infer_input_s2t[2]), layout=C.BATCH_MAJOR)],
-                                         provide_label=[mx.io.DataDesc(name=C.TARGET_LABEL_NAME, shape=(1, infer_input_s2t[2]), layout=C.BATCH_MAJOR)])
-        # FIXME: the mono LM may use different vocabulary size?
-        infer_input_t = p_dec.get_inference_input(mid_hyps[0])
-        input_batch_mono = mx.io.DataBatch(data=[infer_input_t[0]], 
-                                           label=[infer_input_t[0]],
-                                           bucket_key=infer_input_t[1],
-                                           provide_data=[mx.io.DataDesc(name=C.MONO_NAME, shape=(1, infer_input_t[1]), layout=C.BATCH_MAJOR)],
-                                           provide_label=[mx.io.DataDesc(name=C.MONO_LABEL_NAME, shape=(1, infer_input_t[1]), layout=C.BATCH_MAJOR)])
+        infer_input_s2t = _get_inputs(trans_input[2], p_dec_s2t.vocab_source, p_dec_s2t.buckets)
+        infer_input_t2s = _get_inputs(mid_hyps[0], p_dec_t2s.vocab_source, p_dec_t2s.buckets) 
+        input_batch_s2t = mx.io.DataBatch(data=[infer_input_s2t[0], infer_input_s2t[2], infer_input_t2s[0]], 
+                                          label=[infer_input_t2s[1]], # slice one position for label seq
+                                          bucket_key=(infer_input_s2t[3],infer_input_t2s[3]),
+                                          provide_data=[mx.io.DataDesc(name=C.SOURCE_NAME, shape=(1, infer_input_s2t[3]), layout=C.BATCH_MAJOR),
+                                                        mx.io.DataDesc(name=C.SOURCE_LENGTH_NAME, shape=(1,), layout=C.BATCH_MAJOR),
+                                                        mx.io.DataDesc(name=C.TARGET_NAME, shape=(1, infer_input_t2s[3]), layout=C.BATCH_MAJOR)],
+                                          provide_label=[mx.io.DataDesc(name=C.TARGET_LABEL_NAME, shape=(1, infer_input_t2s[3]), layout=C.BATCH_MAJOR)])
+        input_batch_t2s = mx.io.DataBatch(data=[infer_input_t2s[0], infer_input_t2s[2], infer_input_s2t[0]], 
+                                          label=[infer_input_s2t[1]], #  slice one position for label seq
+                                          bucket_key=(infer_input_t2s[3],infer_input_s2t[3]),
+                                          provide_data=[mx.io.DataDesc(name=C.SOURCE_NAME, shape=(1, infer_input_t2s[3]), layout=C.BATCH_MAJOR),
+                                                        mx.io.DataDesc(name=C.SOURCE_LENGTH_NAME, shape=(1,), layout=C.BATCH_MAJOR),
+                                                        mx.io.DataDesc(name=C.TARGET_NAME, shape=(1, infer_input_s2t[3]), layout=C.BATCH_MAJOR)],
+                                          provide_label=[mx.io.DataDesc(name=C.TARGET_LABEL_NAME, shape=(1, infer_input_s2t[3]), layout=C.BATCH_MAJOR)])
+        input_batch_mono = mx.io.DataBatch(data=[infer_input_t2s[0]], 
+                                           label=[infer_input_t2s[1]], #  slice one position for label seq
+                                           bucket_key=infer_input_t2s[3],
+                                           provide_data=[mx.io.DataDesc(name=C.MONO_NAME, shape=(1, infer_input_t2s[3]), layout=C.BATCH_MAJOR)],
+                                           provide_label=[mx.io.DataDesc(name=C.MONO_LABEL_NAME, shape=(1, infer_input_t2s[3]), layout=C.BATCH_MAJOR)])
         print("Passed!")
 
         print("DEBUG 8e (learning loop) - computing rewards")
@@ -242,6 +271,7 @@ def _dual_learn(context: mx.context.Context,
 
         # reward interpolation: r = alpha * r1 + (1 - alpha) * r2
         reward = grad_alphas[0] * reward_1 + (1.0 - grad_alphas[0]) * reward_2
+        print("total_reward=", reward)
         print("Passed!")
         
         # do backward steps and update model parameters
@@ -249,6 +279,9 @@ def _dual_learn(context: mx.context.Context,
         p_dec_s2t.models[0].forward(input_batch_s2t)
         p_dec_s2t.models[0].update_params(reward) # for gradient ascent
         p_dec_t2s.models[0].update_params(1.0 - grad_alphas[0])
+        # re-set the params for inference modules after each update of model parameters
+        p_dec_s2t.models[0].set_params_inference_modules()
+        p_dec_t2s.models[0].set_params_inference_modules()
         print("Passed!")
 
         if flag == False: 
@@ -259,7 +292,7 @@ def _dual_learn(context: mx.context.Context,
    
         # switch source and target roles
         flag = not flag
-                        
+                                
         # testing over the development data (all_data[0] and all_data[1]) to check the improvements (after a desired number of rounds)
         if r == lmon[1]:
             # s2t model
@@ -409,8 +442,8 @@ def main():
         # Note that monolingual source and target data may be different in sizes.
         # Assume that these monolingual corpora use the same vocabularies with parallel corpus,
         # otherwise, unknown words will be used in place of new words.
-        src_mono_data = list(read_lines(os.path.abspath(args.mono_source))) # FIXME: how to do create a batch of these data?
-        trg_mono_data = list(read_lines(os.path.abspath(args.mono_target)))
+        src_mono_data = list(_read_lines(os.path.abspath(args.mono_source))) # FIXME: how to do create a batch of these data?
+        trg_mono_data = list(_read_lines(os.path.abspath(args.mono_target)))
         print("Passed!")
 
         # group all data
@@ -477,3 +510,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

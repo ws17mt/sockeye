@@ -158,12 +158,12 @@ class InferenceLModel(sockeye.training.TrainingModel):
         self.module.forward(data_batch=batch, is_train=False)  
         self.module.update_metric(val_metric, batch.label)
         
-        total_loss = 0
-        for name, val in val_metric.get_name_value():
-            total_loss += val
+        total_val = 0
+        for _, val in val_metric.get_name_value():
+            total_val += val
         
-        return -np.log(total_loss) # FIXME: conversion from perplexity to normalized log-likelihood, -logLL = log(perplexity). Smarter way?
-
+        return -np.log(total_val) # FIXME: conversion from perplexity to normalized log-likelihood, -logLL = log(perplexity). Smarter way?
+    
 class TrainableInferenceModel(sockeye.inference.InferenceModel):
     """
     TrainableInferenceModel is a SockeyeModel that supports both training and inference functionalities for attention-based encoder-decoder model.
@@ -273,6 +273,14 @@ class TrainableInferenceModel(sockeye.inference.InferenceModel):
                                           default_bucket_key=(self.max_input_len, self.max_input_len),
                                           context=self.context)
 
+    def set_params_inference_modules(self):
+        # get params from train module
+        arg_params, aux_params = self.module.get_params()
+        
+        # set params for inference module
+        self.encoder_module.set_params(arg_params=arg_params, aux_params=aux_params)
+        self.decoder_module.set_params(arg_params=arg_params, aux_params=aux_params)
+
     def setup_optimizer(self, initial_learning_rate: float, 
                         opt_configs: Tuple[str, float, float, float, 'sockeye.lr_scheduler.LearningRateScheduler']):
         optimizer = opt_configs[0]
@@ -303,7 +311,7 @@ class TrainableInferenceModel(sockeye.inference.InferenceModel):
             total_val += val
         
         return -np.log(total_val) # FIXME: conversion from perplexity to normalized log-likelihood, -logLL = log(perplexity). Smarter way?
-
+    
     def forward(self, 
                 batch: mx.io.DataBatch):         
         self.module.forward(data_batch=batch, is_train=True)  
@@ -315,7 +323,7 @@ class TrainableInferenceModel(sockeye.inference.InferenceModel):
         val_iter.reset()
         val_metric.reset()
 
-        for nbatch, eval_batch in enumerate(val_iter):
+        for _, eval_batch in enumerate(val_iter):
             self.module.forward(eval_batch, is_train=False)
             self.module.update_metric(val_metric, eval_batch.label)
 
@@ -329,7 +337,7 @@ class TrainableInferenceModel(sockeye.inference.InferenceModel):
                       reward_scale: float):
         self.module.backward() # backward step
 
-        self.module._curr_module._optimizer.rescale_grad = reward_scale # FIXME: this is hacky, thinking another way?
+        #self.module._curr_module._optimizer.rescale_grad = reward_scale # FIXME: this is hacky, thinking another way?
         self.module.update() # update the parameters
 
     def save_params(self, output_folder: str, 
