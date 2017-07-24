@@ -163,6 +163,15 @@ def main():
         vocab_target = _build_or_load_vocab(args.target_vocab, args.target, args.num_words, args.word_min_count)
         sockeye.vocab.vocab_to_json(vocab_target, os.path.join(output_folder, C.VOCAB_TRG_NAME) + C.JSON_SUFFIX)
 
+        ###########
+        # GCN
+        # For now we assume graph vocab is built externally
+        assert args.metadata_vocab is not None, "You need to provide graph edges vocab as a JSON file"
+        vocab_metadata = _build_or_load_vocab(args.metadata_vocab, args.source_metadata, args.num_words, args.word_min_count)
+        sockeye.vocab.vocab_to_json(vocab_metadata, os.path.join(output_folder, C.VOCAB_MD_NAME) + C.JSON_SUFFIX)
+        vocab_metadata_size = len(vocab_metadata)
+        ###########
+        
         vocab_source_size = len(vocab_source)
         vocab_target_size = len(vocab_target)
         logger.info("Vocabulary sizes: source=%d target=%d", vocab_source_size, vocab_target_size)

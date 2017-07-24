@@ -1,0 +1,15 @@
+{
+	"ccomp": 0,
+	"punct": 1,
+	"compound": 2,
+	"nsubj": 3,
+	"cop": 4,
+	"advmod": 5,
+	"case": 6,
+	"amod": 7,
+	"nmod": 8,
+	"aux": 9,
+	"det": 10,
+	"dobj": 11,
+	"acl": 12
+}
