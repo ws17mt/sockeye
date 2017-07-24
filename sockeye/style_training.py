@@ -35,6 +35,7 @@ import sockeye.loss
 import sockeye.lr_scheduler
 import sockeye.model
 import sockeye.utils
+import sockeye.decoder
 
 logger = logging.getLogger(__name__)
 
@@ -214,9 +215,38 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
                                                        f_target, f_seq_len, source_lexicon,
                                                        self.embedding)
 
-            # TODO (gaurav): Merge transfer stuff here.
-            e_logits_transfer = f_logits_autoencoder
-            f_logits_transfer = e_logits_autoencoder
+
+
+            #####################
+            def sym_gen_transfer(source_encoded, source_length, seq_len, word_id_initial):
+                attention_func = self.attention.on(source_encoded, source_length, seq_len)
+                attention_state = self.attention.get_initial_state(source_length, seq_len)
+                word_id_prev = mx.sym.Variable(word_id_initial)
+                hidden_prev = mx.sym.Variable(C.HIDDEN_PREVIOUS_NAME)
+                layer_states, layer_shapes, layer_names = self.decoder.create_layer_input_variables(1)
+                decoder_state = sockeye.decoder.DecoderState(hidden_prev, layer_states)
+                # Force first softmax to be the one hot vector
+                softmax_out = word_id_prev
+
+                transfer_logits_list = []
+
+                for seq_idx in range(seq_len):
+                    (softmax_out, decoder_state, attention_state, local_logits) \
+                        = self.decoder.predict(
+                                                word_id_prev=softmax_out,
+                                                state_prev=decoder_state,
+                                                attention_func=attention_func,
+                                                attention_state_prev=attention_state,
+                                                embedding=self.embedding,
+                                              )
+                    transfer_logits_list.append(local_logits)
+
+                transfer_logits = mx.sym.concat(*transfer_logits_list, dim=0)
+                return mx.sym.flatten(transfer_logits)
+
+            f_logits_transfer = sym_gen_transfer(e_encoded, e_source_length, e_seq_len, C.F_BOS_SYMBOL)
+            e_logits_transfer = sym_gen_transfer(f_encoded, f_source_length, f_seq_len, C.E_BOS_SYMBOL)
+            ########
 
             # feed these into the discriminator
             # TODO target_lexicon?

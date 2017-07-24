@@ -465,4 +465,4 @@ class StackedRNNDecoder(Decoder):
             logits /= softmax_temperature
 
         softmax_out = mx.sym.softmax(data=logits, name=C.SOFTMAX_NAME)
-        return softmax_out, state, attention_state
+        return softmax_out, state, attention_state, logits
