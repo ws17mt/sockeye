@@ -247,6 +247,11 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
                                                              f_transfer_length, self.loss_lambda)
             # TODO maybe get the labels from here?
 
+            print(f_D_autoencoder.list_arguments())
+            print(e_D_autoencoder.list_arguments())
+            print(e_D_transfer.list_arguments())
+            print(f_D_transfer.list_arguments())
+
             # get labels for autoencoders (all ones) and translators (all zeros)
             # TODO move this to data_io..
             e_labels_autoencoder = mx.symbol.ones(shape=(train_iter.batch_size,))
@@ -285,7 +290,9 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
             if metric_name == C.ACCURACY:
                 metrics.append(sockeye.utils.Accuracy(ignore_label=C.PAD_ID, output_names=[C.SOFTMAX_OUTPUT_NAME]))
             elif metric_name == C.PERPLEXITY:
-                metrics.append(mx.metric.Perplexity(ignore_label=C.PAD_ID, output_names=[C.SOFTMAX_OUTPUT_NAME]))
+                # TODO for now we will just use the autoencoder loss for style transfer..
+                # TODO change this because it makes no sense -- want equilibrium
+                metrics.append(mx.metric.Perplexity(ignore_label=C.PAD_ID, output_names=[C.GAN_LOSS + '_g_output']))
             else:
                 raise ValueError("unknown metric name")
         return mx.metric.create(metrics)
