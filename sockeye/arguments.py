@@ -92,6 +92,10 @@ def add_io_args(params):
                              default=None,
                              help='Source side metadata (validation)')
     
+    data_params.add_argument('--metadata-vocab',
+                             required=False,
+                             default=None,
+                             help='Existing target vocabulary for graph edges (JSON)')
     #########
     
     return params
