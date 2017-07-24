@@ -162,8 +162,8 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
         """
         # Build e->e and e->f model
         # source_encoder is the input to the encoder; can be e or f
-        e_source_encoder = mx.sym.Variable(C.SOURCE_NAME + '_e')
-        e_source_encoder_length = mx.sym.Variable(C.SOURCE_LENGTH_NAME + '_e')
+        e_source = mx.sym.Variable(C.SOURCE_NAME + '_e')
+        e_source_length = mx.sym.Variable(C.SOURCE_LENGTH_NAME + '_e')
 
         e_target = mx.sym.Variable(C.TARGET_NAME + '_e')
         e_labels = mx.sym.reshape(data=mx.sym.Variable(C.TARGET_LABEL_NAME + '_e'), shape=(-1,))
@@ -172,8 +172,8 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
         e_labels_autoencoder = mx.sym.reshape(data=mx.sym.Variable(C.AUTOENCODER_LABEL_NAME + '_e'), shape=(-1,))
 
         # build f->f and f->e model
-        f_source_encoder = mx.sym.Variable(C.SOURCE_NAME + '_f')
-        f_source_encoder_length = mx.sym.Variable(C.SOURCE_LENGTH_NAME + '_f')
+        f_source = mx.sym.Variable(C.SOURCE_NAME + '_f')
+        f_source_length = mx.sym.Variable(C.SOURCE_LENGTH_NAME + '_f')
 
         f_target = mx.sym.Variable(C.TARGET_NAME + '_f')
         f_labels = mx.sym.reshape(data=mx.sym.Variable(C.TARGET_LABEL_NAME + '_f'), shape=(-1,))
@@ -200,17 +200,17 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
             # Add the e embedding "encoder" to the list of encoders.
             self.encoder.encoders = [self.embedding] + self.encoder.encoders
             # Symbols for encoding e and f input respectively.
-            e_encoded = self.encoder.encode(e_source_encoder, e_source_encoder_length, seq_len=e_seq_len)
-            f_encoded = self.encoder.encode(f_source_encoder, f_source_encoder_length, seq_len=f_seq_len)
+            e_encoded = self.encoder.encode(e_source, e_source_length, seq_len=e_seq_len)
+            f_encoded = self.encoder.encode(f_source, f_source_length, seq_len=f_seq_len)
             # For lexical bias; we don't really use this (yet).
             source_lexicon = None
 
             # This is the autoencoder. It will use the f_embedding matrix
-            e_logits_autoencoder = self.decoder.decode(e_encoded, e_seq_len, e_source_encoder_length,
+            e_logits_autoencoder = self.decoder.decode(e_encoded, e_seq_len, e_source_length,
                                                      e_target, e_seq_len, source_lexicon,
                                                      self.embedding)
 
-            f_logits_autoencoder = self.decoder.decode(f_encoded, f_seq_len, f_source_encoder_length,
+            f_logits_autoencoder = self.decoder.decode(f_encoded, f_seq_len, f_source_length,
                                                        f_target, f_seq_len, source_lexicon,
                                                        self.embedding)
 
@@ -225,10 +225,10 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
             # TODO need to use f_vocab_size for both e and f -- not sure why but the output is that shape..
             # TODO ... so need to check the decoder to make sure this is the desired shape..
             f_D_autoencoder = self.discriminator_f.discriminate(f_logits_autoencoder, f_seq_len, vocab_size,
-                                                                f_source_encoder_length, self.loss_lambda)
+                                                                f_source_length, self.loss_lambda)
 
             e_D_autoencoder = self.discriminator_e.discriminate(e_logits_autoencoder, e_seq_len, vocab_size,
-                                                                e_source_encoder_length, self.loss_lambda)
+                                                                e_source_length, self.loss_lambda)
 
             # Logits_transfer keeps generating to max_seq_len since there's no stopping condition
             # We post-process to determine EOS and pad the output after an EOS appears
@@ -428,7 +428,8 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
             self.module.forward_backward(batch)
             self.module.update()
 
-            self.module.update_metric(metric_train, batch.label)
+            #TODO: Update update_metric to be compaitble with our loss.
+            # self.module.update_metric(metric_train, batch.label)
             self.training_monitor.batch_end_callback(train_state.epoch, train_state.updates, metric_train)
             train_state.updates += 1
             train_state.samples += train_iter.batch_size

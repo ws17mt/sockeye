@@ -1,1 +1,4 @@
 out
+dcgan.py
+tmp
+*.bak
