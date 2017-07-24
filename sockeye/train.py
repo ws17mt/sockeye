@@ -194,6 +194,7 @@ def main():
                                                                         val_source_metadata=data_info.val_source_metadata,
                                                                         vocab_source=vocab_source,
                                                                         vocab_target=vocab_target,
+                                                                        vocab_metadata=vocab_metadata,
                                                                         batch_size=args.batch_size,
                                                                         fill_up=args.fill_up,
                                                                         max_seq_len=args.max_seq_len,
