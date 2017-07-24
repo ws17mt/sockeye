@@ -447,7 +447,7 @@ class GraphConvEncoder(Encoder):
         with mx.AttrScope(__layout__=C.BATCH_MAJOR):
             data = mx.sym.swapaxes(data=data, dim1=0, dim2=1)
         #outputs = mx.sym.batch_dot(adj, data)
-        outputs = self.gcn.convolve(adj, data)
+        outputs = self.gcn.convolve(adj, data, seq_len)
         #print(adj)
         #logger.info("I am here!")
         #logger.info(str(adj))

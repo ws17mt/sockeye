@@ -61,19 +61,21 @@ class GCNCell(object):
         self._W = self._params.get('weight')
         self._b = self._params.get('bias')
 
-    def convolve(self, adj, inputs):
+    def convolve(self, adj, inputs, seq_len):
         # inputs go through linear transformation
         #print(inputs.debug_str())
-        reshaped = mx.symbol.reshape(inputs, (200, 32))
+        #input_shape = inputs.infer_shape_partial()
+        #print(input_shape)
+        reshaped = mx.symbol.reshape(inputs, (-3, -1))
         outputs = mx.symbol.FullyConnected(data=reshaped, weight=self._W,
                                            bias=self._b, num_hidden=self._num_hidden,
                                            name='%sFC'%self._prefix)
-        outputs = mx.symbol.reshape(outputs, (-4, 2, 100, 10))
+        outputs = mx.symbol.reshape(outputs, (-1, seq_len, self._num_hidden))
         #print(outputs.debug_str())
         # now they are convolved according to the adj matrix
         #with mx.AttrScope(__layout__=C.BATCH_MAJOR):
         #    outputs = mx.sym.swapaxes(data=outputs, dim1=0, dim2=1)                                   
-        outputs = mx.sym.batch_dot(adj, outputs)
+        outputs = mx.symbol.batch_dot(adj, outputs)
         #with mx.AttrScope(__layout__=C.TIME_MAJOR):
         #    outputs = mx.sym.swapaxes(data=outputs, dim1=0, dim2=1)
         # finally, we apply a non-linear transformation
