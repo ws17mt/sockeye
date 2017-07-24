@@ -86,6 +86,10 @@ SYMBOL_NAME = "symbol" + JSON_SUFFIX
 METRICS_NAME = "metrics"
 TENSORBOARD_NAME = "tensorboard"
 
+# names for GAN training
+TRANSFER_LABEL_NAME = "transfer_label"
+AUTOENCODER_LABEL_NAME = "autoencoder_label"
+
 # training resumption constants
 TRAINING_STATE_DIRNAME= "training_state"
 TRAINING_STATE_TEMP_DIRNAME = "tmp.training_state"

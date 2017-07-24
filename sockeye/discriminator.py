@@ -97,6 +97,7 @@ class MLPDiscriminator(Discriminator):
         :return: Logits of discriminator decision for target sequence. Shape: (batch_size, 2).
         """
         # reshape the data so it's max len x batch size x vocab size
+        # TODO the problem is somewhere in here.. (reshape or SequenceLast, or maybe the inputs)
         target = mx.sym.reshape(data=data, shape=(target_seq_len, -1, target_vocab_size))
         decoder_last_state = mx.sym.SequenceLast(data=target, sequence_length=target_length,
                                                  use_sequence_length=True)

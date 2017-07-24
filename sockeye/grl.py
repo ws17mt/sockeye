@@ -68,21 +68,20 @@ class GradientReversalLayer(mx.operator.CustomOp):
 @mx.operator.register("gradientreversallayer")
 class GradientReversalLayerProp(mx.operator.CustomOpProp):
     def __init__(self, loss_lambda: float):
-        super(GradientReversalLayerProp, self).__init__()
         self.loss_lambda = loss_lambda
+        super(GradientReversalLayerProp, self).__init__()
 
     def list_arguments(self):
-        return ['data', 'loss_lambda']
+        return ['data']
 
     def list_outputs(self):
         return ['output']
 
     def infer_shape(self, in_shape):
         data_shape = in_shape[0]
-        lambda_shape = in_shape[1]
         #label_shape = (in_shape[0][0],)
         output_shape = in_shape[0]
-        return [data_shape, lambda_shape], [output_shape], []
+        return [data_shape], [output_shape], []
 
     def create_operator(self, ctx, shapes, dtypes):
-        return GradientReversalLayer(loss_lambda=self.loss_lambda)
+        return GradientReversalLayer(self.loss_lambda)

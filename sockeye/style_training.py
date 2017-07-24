@@ -54,7 +54,9 @@ def mask_labels_after_EOS(logits: mx.sym.Symbol,
     # TODO: check that this is actually the case
     best_tokens = mx.sym.transpose(data=best_tokens.reshape((target_seq_len, batch_size))) 
     eos_index = C.VOCAB_SYMBOLS.index(C.EOS_SYMBOL)
-    eos_indices = mx.sym.broadcast_equal(lhs=best_tokens, rhs=eos_index)
+    eos_sym = mx.sym.ones((1,))
+    eos_sym = eos_sym * eos_index
+    eos_indices = mx.sym.broadcast_equal(lhs=best_tokens, rhs=eos_sym)
     eos_position = mx.sym.argmax(eos_indices, axis=1)
     # if we got a zero, we will not mask anything -- use target_seq_len as sentence length
     zero_condition = mx.sym.broadcast_greater(eos_position, mx.sym.zeros(1,))
@@ -160,19 +162,24 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
         """
         # Build e->e and e->f model
         # source_encoder is the input to the encoder; can be e or f
-        # TODO should have separate ones since we may need separate lengths for each language?
         e_source_encoder = mx.sym.Variable(C.SOURCE_NAME + '_e')
         e_source_encoder_length = mx.sym.Variable(C.SOURCE_LENGTH_NAME + '_e')
 
         e_target = mx.sym.Variable(C.TARGET_NAME + '_e')
         e_labels = mx.sym.reshape(data=mx.sym.Variable(C.TARGET_LABEL_NAME + '_e'), shape=(-1,))
+        # also need labels for autoencoder and transfer discriminators
+        e_labels_transfer = mx.sym.reshape(data=mx.sym.Variable(C.TRANSFER_LABEL_NAME + '_e'), shape=(-1,))
+        e_labels_autoencoder = mx.sym.reshape(data=mx.sym.Variable(C.AUTOENCODER_LABEL_NAME + '_e'), shape=(-1,))
 
-        # TODO different names?
+        # build f->f and f->e model
         f_source_encoder = mx.sym.Variable(C.SOURCE_NAME + '_f')
         f_source_encoder_length = mx.sym.Variable(C.SOURCE_LENGTH_NAME + '_f')
 
         f_target = mx.sym.Variable(C.TARGET_NAME + '_f')
         f_labels = mx.sym.reshape(data=mx.sym.Variable(C.TARGET_LABEL_NAME + '_f'), shape=(-1,))
+        # also need labels for autoencoder and transfer discriminators
+        f_labels_transfer = mx.sym.reshape(data=mx.sym.Variable(C.TRANSFER_LABEL_NAME + '_f'), shape=(-1,))
+        f_labels_autoencoder = mx.sym.reshape(data=mx.sym.Variable(C.AUTOENCODER_LABEL_NAME + '_f'), shape=(-1,))
 
         loss = sockeye.loss.get_loss(self.config)
 
@@ -241,6 +248,7 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
             # TODO maybe get the labels from here?
 
             # get labels for autoencoders (all ones) and translators (all zeros)
+            # TODO move this to data_io..
             e_labels_autoencoder = mx.symbol.ones(shape=(train_iter.batch_size,))
             f_labels_autoencoder = mx.symbol.ones(shape=(train_iter.batch_size,)) # Note the switch in batch size.
             e_labels_transfer = mx.symbol.zeros(shape=(train_iter.batch_size,))
@@ -248,11 +256,11 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
 
             # logits_ae_e and logits_tr_f are originally in e
             # TODO make sure args are in the right order..
-            outputs = loss.get_loss(e_logits_autoencoder, f_logits_autoencoder, e_labels, f_labels,
+            loss_G, loss_D = loss.get_loss(e_logits_autoencoder, f_logits_autoencoder, e_labels, f_labels,
                                     e_D_autoencoder, e_D_transfer, e_labels_autoencoder, e_labels_transfer,
                                     f_D_autoencoder, f_D_transfer, f_labels_autoencoder, f_labels_transfer)
 
-            return mx.sym.Group(outputs), data_names, label_names
+            return mx.sym.Group([loss_G, loss_D]), data_names, label_names
 
         # TODO: Add bucketing later
 

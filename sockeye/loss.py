@@ -187,27 +187,22 @@ class GANLoss(Loss):
             normalization = 'null'
 
         # get reconstruction and discriminator losses
+        # TODO why does loss_G have the wrong name??
         loss_G = mx.sym.SoftmaxOutput(data=mx.sym.concat(e_logits_autoencoder, f_logits_autoencoder, dim=0),
                                       label=mx.sym.concat(e_labels, f_labels, dim=0),
                                       ignore_label=C.PAD_ID, use_ignore=True, normalization=normalization,
-                                      name=C.CROSS_ENTROPY)
+                                      name=C.GAN_LOSS + '_g')
+        # TODO should e_loss_D and f_loss_D have ignore_label?
         e_loss_D = mx.sym.SoftmaxOutput(data=mx.sym.concat(e_D_autoencoder, e_D_transfer, dim=0),
                                         label=mx.sym.concat(e_labels_autoencoder, e_labels_transfer, dim=0),
-                                        ignore_label=C.PAD_ID, use_ignore=True, normalization=normalization,
-                                        name=C.GAN_LOSS + '_e')
+                                        normalization=normalization, name=C.GAN_LOSS + '_e')
         f_loss_D = mx.sym.SoftmaxOutput(data=mx.sym.concat(f_D_autoencoder, f_D_transfer, dim=0),
                                         label=mx.sym.concat(f_labels_autoencoder, f_labels_transfer, dim=0),
-                                        ignore_label=C.PAD_ID, use_ignore=True, normalization=normalization,
-                                        name=C.GAN_LOSS + '_f')
+                                        normalization=normalization, name=C.GAN_LOSS + '_f')
 
-        # ...
-        # TODO now combine them -- name?? broadcast_add or add?? TODO or should line up e with e and f with f?
-        # NOTE: the GRL reverses the gradients and adds the lambda
-
-        # TODO this is not quite right..
-        #return loss_G + e_loss_D + f_loss_D
-        return loss_G
-
-        # TODO can we group the losses together?
-        # TODO if so may need to provide labels for all three in data iterator
-        return mx.sym.Group([loss_G, e_loss_D, f_loss_D])
+        # now combine them
+        #loss_D = mx.sym.concat(e_loss_D, loss_G, dim=0)
+        loss_D = mx.sym.concat(e_loss_D, f_loss_D, dim=0)
+        # NOTE: the GRL reverses the gradients and adds the lambda, so we add the three losses here
+        return loss_G, loss_D
+        #return loss_G
