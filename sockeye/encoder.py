@@ -426,16 +426,17 @@ class BiDirectionalRNNEncoder(Encoder):
 
 class GraphConvEncoder(Encoder):
     """
-    A Graph Convolutional Network encoder. See Bastings et al. (NMT,2017)
+    A Graph Convolutional Network encoder. See Bastings et al. (EMNLP,2017)
     """
 
     def __init__(self,
+                 num_hidden: int=10,
                  prefix: str = C.GCN_PREFIX,
                  layout: str = C.TIME_MAJOR,
                  fused: bool = False):
         self.layout = layout
         self.fused = fused
-        self.gcn = sockeye.gcn.get_gcn(prefix)
+        self.gcn = sockeye.gcn.get_gcn(num_hidden, prefix)
 
     def encode(self, data: mx.sym.Symbol, 
                data_length: mx.sym.Symbol, seq_len: int, metadata=None):
@@ -460,7 +461,7 @@ class GraphConvEncoder(Encoder):
         """
         Return the representation size of this encoder.
         """
-        return 0
+        return self._num_hidden
 
     def get_rnn_cells(self) -> List[mx.rnn.BaseRNNCell]:
         """

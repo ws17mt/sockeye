@@ -4,9 +4,10 @@ Trying to follow the structure of rnn_cell.py in the mxnet code.
 """
 
 import mxnet as mx
+import sockeye.constants as C
 
-def get_gcn(prefix: str):
-    gcn = GCNCell()
+def get_gcn(num_hidden, prefix: str):
+    gcn = GCNCell(num_hidden, prefix=prefix)
     return gcn
    
 
@@ -44,22 +45,39 @@ class GCNParams(object):
 class GCNCell(object):
     """GCN cell
     """
-    def __init__(self, prefix='gcn_', params=None, activation='tanh'):
+    def __init__(self, num_hidden, prefix='gcn_', params=None, 
+                 activation='tanh'):
         if params is None:
             params = GCNParams(prefix)
             self._own_params = True
         else:
             self._own_params = False
+        self._num_hidden = num_hidden
         self._prefix = prefix
         self._params = params
         self._modified = False
         self.reset()
         self._activation = activation
-        self._W = self._params.get('W_matrix')
+        self._W = self._params.get('weight')
         self._b = self._params.get('bias')
 
     def convolve(self, adj, inputs):
-        outputs = mx.sym.batch_dot(adj, inputs)
+        # inputs go through linear transformation
+        #print(inputs.debug_str())
+        reshaped = mx.symbol.reshape(inputs, (200, 32))
+        outputs = mx.symbol.FullyConnected(data=reshaped, weight=self._W,
+                                           bias=self._b, num_hidden=self._num_hidden,
+                                           name='%sFC'%self._prefix)
+        outputs = mx.symbol.reshape(outputs, (-4, 2, 100, 10))
+        #print(outputs.debug_str())
+        # now they are convolved according to the adj matrix
+        #with mx.AttrScope(__layout__=C.BATCH_MAJOR):
+        #    outputs = mx.sym.swapaxes(data=outputs, dim1=0, dim2=1)                                   
+        outputs = mx.sym.batch_dot(adj, outputs)
+        #with mx.AttrScope(__layout__=C.TIME_MAJOR):
+        #    outputs = mx.sym.swapaxes(data=outputs, dim1=0, dim2=1)
+        # finally, we apply a non-linear transformation
+        outputs = mx.symbol.Activation(outputs, act_type=self._activation)
         return outputs
 
     def reset(self):
