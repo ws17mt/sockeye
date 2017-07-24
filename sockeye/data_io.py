@@ -499,7 +499,7 @@ class ParallelBucketSentenceIter(mx.io.DataIter):
         """
         batch_size = len(data_src_metadata)
         #new_src_metadata = np.zeroes((batch_size, bucket_size, bucket_size))
-        new_src_metadata = np.array([np.eye(bucket_size) for sent in range(batch_size)])
+        new_src_metadata = np.array([np.zeros((bucket_size, bucket_size)) for sent in range(batch_size)])
         logger.info(new_src_metadata.shape)
         for i, graph in enumerate(data_src_metadata):
             for tup in graph:
