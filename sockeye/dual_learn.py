@@ -231,55 +231,75 @@ def _dual_learn(context: mx.context.Context,
 
         # create an input batch as input_iter
         # FIXME: just apply for one best translation (thinking about gradient updates)
-        print("DEBUG 8d (learning loop) - create data batches")
-        infer_input_s2t = _get_inputs(trans_input[2], p_dec_s2t.vocab_source, p_dec_s2t.buckets)
-        infer_input_t2s = _get_inputs(mid_hyps[0], p_dec_t2s.vocab_source, p_dec_t2s.buckets) 
-        input_batch_s2t = mx.io.DataBatch(data=[infer_input_s2t[0], infer_input_s2t[2], infer_input_t2s[0]], 
-                                          label=[infer_input_t2s[1]], # slice one position for label seq
-                                          bucket_key=(infer_input_s2t[3],infer_input_t2s[3]),
-                                          provide_data=[mx.io.DataDesc(name=C.SOURCE_NAME, shape=(1, infer_input_s2t[3]), layout=C.BATCH_MAJOR),
-                                                        mx.io.DataDesc(name=C.SOURCE_LENGTH_NAME, shape=(1,), layout=C.BATCH_MAJOR),
-                                                        mx.io.DataDesc(name=C.TARGET_NAME, shape=(1, infer_input_t2s[3]), layout=C.BATCH_MAJOR)],
-                                          provide_label=[mx.io.DataDesc(name=C.TARGET_LABEL_NAME, shape=(1, infer_input_t2s[3]), layout=C.BATCH_MAJOR)])
-        input_batch_t2s = mx.io.DataBatch(data=[infer_input_t2s[0], infer_input_t2s[2], infer_input_s2t[0]], 
-                                          label=[infer_input_s2t[1]], #  slice one position for label seq
-                                          bucket_key=(infer_input_t2s[3],infer_input_s2t[3]),
-                                          provide_data=[mx.io.DataDesc(name=C.SOURCE_NAME, shape=(1, infer_input_t2s[3]), layout=C.BATCH_MAJOR),
-                                                        mx.io.DataDesc(name=C.SOURCE_LENGTH_NAME, shape=(1,), layout=C.BATCH_MAJOR),
-                                                        mx.io.DataDesc(name=C.TARGET_NAME, shape=(1, infer_input_s2t[3]), layout=C.BATCH_MAJOR)],
-                                          provide_label=[mx.io.DataDesc(name=C.TARGET_LABEL_NAME, shape=(1, infer_input_s2t[3]), layout=C.BATCH_MAJOR)])
-        input_batch_mono = mx.io.DataBatch(data=[infer_input_t2s[0]], 
-                                           label=[infer_input_t2s[1]], #  slice one position for label seq
-                                           bucket_key=infer_input_t2s[3],
-                                           provide_data=[mx.io.DataDesc(name=C.MONO_NAME, shape=(1, infer_input_t2s[3]), layout=C.BATCH_MAJOR)],
-                                           provide_label=[mx.io.DataDesc(name=C.MONO_LABEL_NAME, shape=(1, infer_input_t2s[3]), layout=C.BATCH_MAJOR)])
-        print("Passed!")
+        agg_grads_s2t = None
+        agg_grads_t2s = None
+        for mid_hyp in mid_hyps:
+            print("DEBUG 8d (learning loop) - create data batches")
+            infer_input_s2t = _get_inputs(trans_input[2], p_dec_s2t.vocab_source, p_dec_s2t.buckets)
+            infer_input_t2s = _get_inputs(mid_hyp, p_dec_t2s.vocab_source, p_dec_t2s.buckets) 
+            input_batch_s2t = mx.io.DataBatch(data=[infer_input_s2t[0], infer_input_s2t[2], infer_input_t2s[0]], 
+                                              label=[infer_input_t2s[1]], # slice one position for label seq
+                                              bucket_key=(infer_input_s2t[3],infer_input_t2s[3]),
+                                              provide_data=[mx.io.DataDesc(name=C.SOURCE_NAME, shape=(1, infer_input_s2t[3]), layout=C.BATCH_MAJOR),
+                                                            mx.io.DataDesc(name=C.SOURCE_LENGTH_NAME, shape=(1,), layout=C.BATCH_MAJOR),
+                                                            mx.io.DataDesc(name=C.TARGET_NAME, shape=(1, infer_input_t2s[3]), layout=C.BATCH_MAJOR)],
+                                              provide_label=[mx.io.DataDesc(name=C.TARGET_LABEL_NAME, shape=(1, infer_input_t2s[3]), layout=C.BATCH_MAJOR)])
+            input_batch_t2s = mx.io.DataBatch(data=[infer_input_t2s[0], infer_input_t2s[2], infer_input_s2t[0]], 
+                                              label=[infer_input_s2t[1]], #  slice one position for label seq
+                                              bucket_key=(infer_input_t2s[3],infer_input_s2t[3]),
+                                              provide_data=[mx.io.DataDesc(name=C.SOURCE_NAME, shape=(1, infer_input_t2s[3]), layout=C.BATCH_MAJOR),
+                                                            mx.io.DataDesc(name=C.SOURCE_LENGTH_NAME, shape=(1,), layout=C.BATCH_MAJOR),
+                                                            mx.io.DataDesc(name=C.TARGET_NAME, shape=(1, infer_input_s2t[3]), layout=C.BATCH_MAJOR)],
+                                              provide_label=[mx.io.DataDesc(name=C.TARGET_LABEL_NAME, shape=(1, infer_input_s2t[3]), layout=C.BATCH_MAJOR)])
+            input_batch_mono = mx.io.DataBatch(data=[infer_input_t2s[0]], 
+                                               label=[infer_input_t2s[1]], #  slice one position for label seq
+                                               bucket_key=infer_input_t2s[3],
+                                               provide_data=[mx.io.DataDesc(name=C.MONO_NAME, shape=(1, infer_input_t2s[3]), layout=C.BATCH_MAJOR)],
+                                               provide_label=[mx.io.DataDesc(name=C.MONO_LABEL_NAME, shape=(1, infer_input_t2s[3]), layout=C.BATCH_MAJOR)])
+            print("Passed!")
 
-        print("DEBUG 8e (learning loop) - computing rewards")
-        # set the language-model reward for currently-sampled sentence from P(mid_hyp; mod_mlm_t)
-        # 1) bind the data {(mid_hyp,mid_hyp)} into the model's module
-        # 2) do forward step --> get the r1 = P(mid_hyp; mod_mlm_t)
-        print("Computing reward_1")
-        reward_1 = p_dec.compute_nll(input_batch_mono, metric_val)
-        print("reward_1=", reward_1)
+            print("DEBUG 8e (learning loop) - computing rewards")
+            # set the language-model reward for currently-sampled sentence from P(mid_hyp; mod_mlm_t)
+            # 1) bind the data {(mid_hyp,mid_hyp)} into the model's module
+            # 2) do forward step --> get the r1 = P(mid_hyp; mod_mlm_t)
+            print("Computing reward_1")
+            reward_1 = p_dec.compute_ll(input_batch_mono, metric_val)
+            print("reward_1=", reward_1)
          
-        # set the communication reward for currently-sampled sentence from P(sentA|mid_hype; mod_am_t2s)
-        # do forward step --> get the r2 = P(sentA|mid_hyp; mod_am_t2s)
-        print("Computing reward_2") 
-        reward_2 = p_dec_t2s.models[0].compute_nll(input_batch_t2s, metric_val)
-        print("reward_2=", reward_2)
+            # set the communication reward for currently-sampled sentence from P(sentA|mid_hype; mod_am_t2s)
+            # do forward step --> get the r2 = P(sentA|mid_hyp; mod_am_t2s)
+            print("Computing reward_2") 
+            reward_2 = p_dec_t2s.models[0].compute_ll(input_batch_t2s, metric_val) # also includes forward step
+            print("reward_2=", reward_2)
 
-        # reward interpolation: r = alpha * r1 + (1 - alpha) * r2
-        reward = grad_alphas[0] * reward_1 + (1.0 - grad_alphas[0]) * reward_2
-        print("total_reward=", reward)
-        print("Passed!")
+            # reward interpolation: r = alpha * r1 + (1 - alpha) * r2
+            reward = grad_alphas[0] * reward_1 + (1.0 - grad_alphas[0]) * reward_2
+            print("total_reward=", reward)
+            print("Passed!")
         
-        # do backward steps and update model parameters
-        print("DEBUG 8f (learning loop) - re-update model parameters")
-        p_dec_s2t.models[0].forward(input_batch_s2t)
-        p_dec_s2t.models[0].update_params(reward) # for gradient ascent
-        p_dec_t2s.models[0].update_params(1.0 - grad_alphas[0])
+            # do forward step for s2t model - FIXME: this step is done twice (one for inference and one for computing loss). Better way? 
+            print("DEBUG 8f (learning loop) - re-update model parameters")
+            p_dec_s2t.models[0].forward(input_batch_s2t)
+            print("Passed!")
+
+            # do backward steps & collect gradients 
+            print("DEBUG 8g (learning loop) - backward and collect gradients")
+            agg_grads_s2t = p_dec_s2t.models[0].backward_and_collect_gradients(reward=reward, 
+                                                                               agg_grads=agg_grads_s2t)
+            agg_grads_t2s = p_dec_t2s.models[0].backward_and_collect_gradients(reward=1.0 - grad_alphas[0], 
+                                                                               agg_grads=agg_grads_t2s)
+            print("Passed!")
+        
+        # update model parameters
+        print("DEBUG 8h (learning loop) - update params for learning module")
+        p_dec_s2t.models[0].update_params(k=k, 
+                                          agg_grads=agg_grads_s2t)
+        p_dec_t2s.models[0].update_params(k=k, 
+                                          agg_grads=agg_grads_t2s)
+        print("Passed!")
+            
         # re-set the params for inference modules after each update of model parameters
+        print("DEBUG 8i (learning loop) - update params for inference modules")
         p_dec_s2t.models[0].set_params_inference_modules()
         p_dec_t2s.models[0].set_params_inference_modules()
         print("Passed!")

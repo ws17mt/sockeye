@@ -7,7 +7,7 @@
 # ---------------------------------------------------------------------------------
 
 """
-Code for dual learning framework
+Code for dual learning (aka round tripping) framework
 """
 import logging
 import os
@@ -150,7 +150,7 @@ class InferenceLModel(sockeye.training.TrainingModel):
                                  context=self.context)
 
     # get the negative log-likelihood given a batch of data
-    def compute_nll(self, 
+    def compute_ll(self, 
                    batch: mx.io.DataBatch, 
                    val_metric: mx.metric.CompositeEvalMetric):
         val_metric.reset()
@@ -162,7 +162,7 @@ class InferenceLModel(sockeye.training.TrainingModel):
         for _, val in val_metric.get_name_value():
             total_val += val
         
-        return -np.log(total_val) # FIXME: conversion from perplexity to normalized log-likelihood, -logLL = log(perplexity). Smarter way?
+        return -np.log(total_val) # FIXME: conversion from perplexity to normalized log-likelihood, logLL = -log(perplexity). Smarter way?
     
 class TrainableInferenceModel(sockeye.inference.InferenceModel):
     """
@@ -206,6 +206,7 @@ class TrainableInferenceModel(sockeye.inference.InferenceModel):
         max_label_shapes = self._get_module_label_shapes(self.max_input_len)
         self.module.bind(data_shapes=max_data_shapes, 
                          label_shapes=max_label_shapes, 
+                         force_rebind=True,
                          for_training=True, 
                          grad_req='write')
         
@@ -298,7 +299,7 @@ class TrainableInferenceModel(sockeye.inference.InferenceModel):
         self.module.init_optimizer(kvstore='device', optimizer=optimizer, optimizer_params=optimizer_params)
 
     # get the log-likelihood given a batch of data
-    def compute_nll(self, 
+    def compute_ll(self, 
                      batch: mx.io.DataBatch, 
                      val_metric: mx.metric.CompositeEvalMetric):
         val_metric.reset()
@@ -310,12 +311,28 @@ class TrainableInferenceModel(sockeye.inference.InferenceModel):
         for _, val in val_metric.get_name_value():
             total_val += val
         
-        return -np.log(total_val) # FIXME: conversion from perplexity to normalized log-likelihood, -logLL = log(perplexity). Smarter way?
+        return -np.log(total_val) # FIXME: conversion from perplexity to normalized log-likelihood, logLL = -log(perplexity). Smarter way?
     
     def forward(self, 
                 batch: mx.io.DataBatch):         
         self.module.forward(data_batch=batch, is_train=True)  
- 
+
+    def backward_and_collect_gradients(self, 
+                                       reward: int,
+                                       agg_grads: List[List[mx.nd.NDArray]]):
+        # execute backward step
+        self.module.backward()
+
+        # collect and agggregate gradients
+        if agg_grads == None:
+            agg_grads = [[reward * grad.copyto(grad.context) for grad in grads] for grads in self.module._curr_module._exec_group.grad_arrays] # current gradients
+        else:
+            for gradsc, gradsp in zip(self.module._curr_module._exec_group.grad_arrays, agg_grads):
+                for gradc, gradp in zip(gradsc, gradsp):
+                    gradp += reward * gradc # aggregate gradients
+
+        return agg_grads # FIXME: this step is time-consuming. agg_grads is referenced by value, not by object.
+    
     # evaluate over a given development set
     def evaluate_dev(self, 
                      val_iter: sockeye.data_io.ParallelBucketSentenceIter,
@@ -334,11 +351,12 @@ class TrainableInferenceModel(sockeye.inference.InferenceModel):
         return total_val
 
     def update_params(self, 
-                      reward_scale: float):
-        self.module.backward() # backward step
-
-        #self.module._curr_module._optimizer.rescale_grad = reward_scale # FIXME: this is hacky, thinking another way?
-        self.module.update() # update the parameters
+                      k: int,
+                      agg_grads: List[List[mx.nd.NDArray]]):
+        updater = self.module._curr_module._updater         
+        for ind, key in enumerate(self.params.keys()):
+            grad = 1.0/k * agg_grads[ind][0] # averaging - FIXME: agg_grads should be a dict[str, mx.nd.NDArray]?
+            updater(index=ind, grad=grad, weight=self.params[key])
 
     def save_params(self, output_folder: str, 
                     checkpoint: int):
