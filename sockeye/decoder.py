@@ -260,11 +260,12 @@ class StackedRNNDecoder(Decoder):
         :param batch_size: Batch size.
         """
         layer_states, layer_shapes, layer_names = [], [], []
-        for state_idx, (_, init_num_hidden) in enumerate(self.lm_pre_rnn.state_shape):
-            name = "%sdec_lm_init_%d" % (self.prefix, state_idx)
-            layer_states.append(mx.sym.Variable(name))
-            layer_shapes.append(mx.io.DataDesc(name=name, shape=(batch_size, init_num_hidden), layout=C.BATCH_MAJOR))
-            layer_names.append(name)
+        if self.lm_pre_rnn is not None:
+            for state_idx, (_, init_num_hidden) in enumerate(self.lm_pre_rnn.state_shape):
+                name = "%sdec_lm_init_%d" % (self.prefix, state_idx)
+                layer_states.append(mx.sym.Variable(name))
+                layer_shapes.append(mx.io.DataDesc(name=name, shape=(batch_size, init_num_hidden), layout=C.BATCH_MAJOR))
+                layer_names.append(name)
 
         return layer_states, layer_shapes, layer_names
 

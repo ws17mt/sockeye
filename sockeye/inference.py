@@ -157,7 +157,9 @@ class InferenceModel(sockeye.model.SockeyeModel):
             symbol_group = [softmax_out,
                             next_attention_state.probs,
                             next_attention_state.dynamic_source,
-                            next_state.hidden] + next_state.layer_states + next_state.lm_pre_states
+                            next_state.hidden] + next_state.layer_states
+            if next_state.lm_pre_states is not None:
+                symbol_group += next_state.lm_pre_states
             return mx.sym.Group(symbol_group), data_names, label_names
 
         decoder_module = mx.mod.BucketingModule(sym_gen=decoder_sym_gen,
