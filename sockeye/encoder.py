@@ -218,7 +218,8 @@ class EncoderSequence(Encoder):
         :return: Encoded input data.
         """
         for encoder in self.encoders:
-            logger.info(str(encoder))
+            #logger.info(str(encoder))
+            #metadata = mx.symbol.concat(data, metadata, dim=0)
             data = encoder.encode(data, data_length, seq_len, metadata=metadata)
         return data
 
@@ -448,6 +449,8 @@ class GraphConvEncoder(Encoder):
         Convolve data using adj and the GCN parameters
         """
         adj = metadata
+        #logger.info('adj tensor')
+        #adj = mx.symbol.concat(data, adj, dim=0)
         with mx.AttrScope(__layout__=C.BATCH_MAJOR):
             data = mx.sym.swapaxes(data=data, dim1=0, dim2=1)
         #outputs = mx.sym.batch_dot(adj, data)

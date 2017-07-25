@@ -96,6 +96,7 @@ class TrainingModel(sockeye.model.SockeyeModel):
         source = mx.sym.Variable(C.SOURCE_NAME)
         source_length = mx.sym.Variable(C.SOURCE_LENGTH_NAME)
         source_metadata = mx.sym.Variable(C.SOURCE_METADATA_NAME)
+        #source_metadata = mx.sym.concat(source, source_metadata, dim=0)
         target = mx.sym.Variable(C.TARGET_NAME)
         labels = mx.sym.reshape(data=mx.sym.Variable(C.TARGET_LABEL_NAME), shape=(-1,))
 

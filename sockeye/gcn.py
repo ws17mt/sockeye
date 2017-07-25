@@ -65,37 +65,57 @@ class GCNCell(object):
         self._activation = activation
         #self._W = self._params.get('weight')
         #self._b = self._params.get('bias')
-        self._W = mx.symbol.Variable(self._prefix + 'weight',
-                                     shape=(tensor_dim, input_dim, output_dim))
-        self._b = mx.symbol.Variable(self._prefix + 'bias',
-                                     shape=(tensor_dim, output_dim))
+        self._W = [mx.symbol.Variable(self._prefix + str(i) + '_weight',
+                                      shape=(input_dim, output_dim))
+                                      for i in range(tensor_dim)]
+        self._b = [mx.symbol.Variable(self._prefix + str(i) + '_bias',
+                                      shape=(output_dim,))
+                                      for i in range(tensor_dim)]
+        #self._W = mx.symbol.Variable(self._prefix + 'weight',
+        #                             shape=(tensor_dim, input_dim, output_dim))
+        #self._b = mx.symbol.Variable(self._prefix + 'bias',
+        #                             shape=(tensor_dim, output_dim))
 
     def convolve(self, adj, inputs, seq_len):
-        # inputs go through linear transformation
-        # annoyingly, MXNet does not have a batched version
-        # of FullyConnected so we need some reshaping
-        #reshaped = mx.symbol.reshape(inputs, (-3, -1))
         output_list = []
+        #reshaped = mx.symbol.reshape(inputs, (-3, -1))
+        reshaped = inputs
         for i in range(self._tensor_dim):
             # linear transformation
-            Wi = mx.symbol.slice_axis(self._W, axis=0, begin=i, end=i+1)
-            bi = mx.symbol.slice_axis(self._b, axis=0, begin=i, end=i+1)
-            output = mx.symbol.dot(inputs, mx.symbol.reshape(Wi, (self._input_dim, self._output_dim)))
+            #Wi = mx.symbol.slice_axis(self._W, axis=0, begin=i, end=i+1)
+            #bi = mx.symbol.slice_axis(self._b, axis=0, begin=i, end=i+1)
+            Wi = self._W[i]
+            bi = self._b[i]
+            
+            output = mx.symbol.dot(reshaped, Wi)
+            output = mx.symbol.broadcast_add(output, bi)
+            #output = mx.symbol.dot(inputs, mx.symbol.reshape(Wi, (self._input_dim, self._output_dim)))
             #output = mx.symbol.add(output, bi)
             #output = output + mx.symbol.reshape(bi, (self._output_dim))
-            output = mx.symbol.broadcast_add(output, mx.symbol.reshape(bi, (self._output_dim)))
+            #output = mx.symbol.broadcast_add(output, mx.symbol.reshape(bi, (self._output_dim)))
             # convolution
+            #output = mx.symbol.concat(inputs, output, dim=0)
+            #output = mx.symbol.concat(inputs, adj, dim=0)
             adji = mx.symbol.slice_axis(adj, axis=1, begin=i, end=i+1)
+            adji = mx.symbol.reshape(adji, (-1, seq_len, seq_len))
             output = mx.symbol.batch_dot(adji, output)
+            #output = mx.symbol.concat(inputs, output, dim=0)
             output = mx.symbol.expand_dims(output, axis=1)
             output_list.append(output)
         outputs = mx.symbol.concat(*output_list, dim=1)
-        final_output = outputs
+        outputs = mx.symbol.sum(outputs, axis=1)
+        #outputs = mx.symbol.concat(inputs, outputs, dim=0)
+        final_output = mx.symbol.Activation(outputs, act_type=self._activation)
+        #final_output = mx.symbol.concat(inputs, final_output, dim=0)
         #final_output = mx.symbol.sum(outputs, axis=1)
         #print(final_output.infer_shape())
         #print(final_output.debug_str())
         return final_output
-        
+
+        # inputs go through linear transformation
+        # annoyingly, MXNet does not have a batched version
+        # of FullyConnected so we need some reshaping
+        #reshaped = mx.symbol.reshape(inputs, (-3, -1))
         #outputs = mx.symbol.FullyConnected(data=reshaped, weight=self._W,
         #                                   bias=self._b, num_hidden=self._num_hidden,
         #                                   name='%sFC'%self._prefix)
