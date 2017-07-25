@@ -214,7 +214,12 @@ class TrainableInferenceModel(sockeye.inference.InferenceModel):
 
         initializer = sockeye.initializer.get_initializer(C.RNN_INIT_ORTHOGONAL, lexicon=None) # FIXME: these values are set manually for now!
         self.module.init_params(initializer=initializer, arg_params=self.params, aux_params=None,
-                                allow_missing=False, force_init=False) # just copy from pre-initialized params
+                                allow_missing=False, force_init=False) # just copy from pre-initialized params (self.params)
+
+        # WEIRD! There is an inconsistency between self.params and parameter array in self.module.
+        self.param_maps = {}
+        for ind, param_name in enumerate(self.module._curr_module._exec_group.param_names): # list of parameter names from the module
+            self.param_maps[param_name] = ind
 
     def _get_module_data_shapes(self, 
                                 max_seq_len: int):
@@ -279,8 +284,14 @@ class TrainableInferenceModel(sockeye.inference.InferenceModel):
         arg_params, aux_params = self.module.get_params()
         
         # set params for inference module
-        self.encoder_module.set_params(arg_params=arg_params, aux_params=aux_params)
-        self.decoder_module.set_params(arg_params=arg_params, aux_params=aux_params)
+        self.encoder_module.set_params(arg_params=arg_params, 
+                                       aux_params=aux_params, 
+                                       allow_missing=False, 
+                                       force_init=False)
+        self.decoder_module.set_params(arg_params=arg_params, 
+                                       aux_params=aux_params, 
+                                       allow_missing=False, 
+                                       force_init=False)
 
     def setup_optimizer(self, initial_learning_rate: float, 
                         opt_configs: Tuple[str, float, float, float, 'sockeye.lr_scheduler.LearningRateScheduler']):
@@ -324,14 +335,14 @@ class TrainableInferenceModel(sockeye.inference.InferenceModel):
         self.module.backward()
 
         # collect and agggregate gradients
-        if agg_grads == None:
+        if agg_grads == None: # FIXME: or len(agg_grads) == 0
             agg_grads = [[reward * grad.copyto(grad.context) for grad in grads] for grads in self.module._curr_module._exec_group.grad_arrays] # current gradients
         else:
             for gradsc, gradsp in zip(self.module._curr_module._exec_group.grad_arrays, agg_grads):
                 for gradc, gradp in zip(gradsc, gradsp):
                     gradp += reward * gradc # aggregate gradients
 
-        return agg_grads # FIXME: this step is time-consuming. agg_grads is referenced by value, not by object.
+        return agg_grads # FIXME: this step is time-consuming. agg_grads is referenced by value, not by object?
     
     # evaluate over a given development set
     def evaluate_dev(self, 
@@ -355,16 +366,20 @@ class TrainableInferenceModel(sockeye.inference.InferenceModel):
                       agg_grads: List[List[mx.nd.NDArray]]):
         updater = self.module._curr_module._updater         
         for ind, key in enumerate(self.params.keys()):
-            grad = 1.0/k * agg_grads[ind][0] # averaging - FIXME: agg_grads should be a dict[str, mx.nd.NDArray]?
+            grad = 1.0/k * agg_grads[self.param_maps[key]][0] # averaging - perhaps agg_grads should be a dict[str, mx.nd.NDArray]?
             updater(index=ind, grad=grad, weight=self.params[key])
+
+        self.module.set_params(self.params, 
+                               None, 
+                               allow_missing=False, 
+                               force_init=False, 
+                               allow_extra=False)
 
     def save_params(self, output_folder: str, 
                     checkpoint: int):
         """
         Saves the parameters to disk.
         """
-        arg_params, aux_params = self.module.get_params()  # sync aux params across devices
-        self.module.set_params(arg_params, aux_params)
-        self.params = arg_params
-        params_base_fname = C.PARAMS_NAME % checkpoint
-        self.save_params_to_file(os.path.join(output_folder, params_base_fname))
+        self.save_params_to_file(os.path.join(output_folder, C.PARAMS_NAME % checkpoint))
+
+        

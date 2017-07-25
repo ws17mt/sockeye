@@ -230,9 +230,8 @@ def _dual_learn(context: mx.context.Context,
         print("Passed!")
 
         # create an input batch as input_iter
-        # FIXME: just apply for one best translation (thinking about gradient updates)
-        agg_grads_s2t = None
-        agg_grads_t2s = None
+        agg_grads_s2t = None # FIXME: can be []
+        agg_grads_t2s = None # FIXME: can be []
         for mid_hyp in mid_hyps:
             print("DEBUG 8d (learning loop) - create data batches")
             infer_input_s2t = _get_inputs(trans_input[2], p_dec_s2t.vocab_source, p_dec_s2t.buckets)
