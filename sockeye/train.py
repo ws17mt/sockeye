@@ -241,7 +241,10 @@ def main():
                                                  loss=args.loss,
                                                  normalize_loss=args.normalize_loss,
                                                  smoothed_cross_entropy_alpha=args.smoothed_cross_entropy_alpha,
-                                                 use_gcn=args.use_gcn)
+                                                 use_gcn=args.use_gcn,
+                                                 gcn_num_hidden=10,
+                                                 gcn_num_tensor=vocab_metadata_size,
+                                                 )
 
         # create training model
         model = sockeye.training.TrainingModel(model_config=model_config,

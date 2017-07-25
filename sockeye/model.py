@@ -52,6 +52,8 @@ ModelConfig = sockeye.utils.namedtuple_with_defaults('ModelConfig',
                                                       "normalize_loss",
                                                       "smoothed_cross_entropy_alpha",
                                                       "use_gcn",
+                                                      "gcn_num_hidden",
+                                                      "gcn_num_tensor",
                                                   ],
                                                      default_values={
                                                       "attention_use_prev_word": False,
@@ -152,6 +154,8 @@ class SockeyeModel:
                                                    self.config.rnn_residual_connections,
                                                    self.config.dropout,
                                                    self.config.use_gcn,
+                                                   self.config.gcn_num_hidden,
+                                                   self.config.gcn_num_tensor,
                                                    rnn_forget_bias,
                                                    fused_encoder)
 
