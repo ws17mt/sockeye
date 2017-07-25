@@ -48,6 +48,7 @@ ModelConfig = sockeye.utils.namedtuple_with_defaults('ModelConfig',
                                                       "rnn_num_layers",
                                                       "rnn_num_hidden",
                                                       "rnn_residual_connections",
+                                                      "lm_pretrain_layers",
                                                       "weight_tying",
                                                       "context_gating",
                                                       "lexical_bias",
@@ -65,6 +66,7 @@ ModelConfig = sockeye.utils.namedtuple_with_defaults('ModelConfig',
                                                       "normalize_loss": False,
                                                       "layer_normalization": False,
                                                       "encoder": C.RNN_NAME,
+                                                      "lm_pretrain_layers": 0,
                                                       "conv_embed_max_filter_width": 8,
                                                       "conv_embed_num_filters": None,
                                                       "conv_embed_pool_stride": 5,
@@ -147,7 +149,7 @@ class SockeyeModel:
             self.params = cell.pack_weights(self.params)
         logger.info('Loaded params from "%s"', fname)
 
-    def _build_model_components(self, max_seq_len: int, fused_encoder: bool, rnn_forget_bias: float = 0.0, lm_pre_layers: int=0):
+    def _build_model_components(self, max_seq_len: int, fused_encoder: bool, rnn_forget_bias: float = 0.0):
         """
         Builds and sets model components given maximum sequence length.
 
@@ -157,8 +159,7 @@ class SockeyeModel:
         """
         self.encoder = sockeye.encoder.get_encoder(self.config,
                                                    rnn_forget_bias,
-                                                   fused_encoder,
-                                                   lm_pre_layers=lm_pre_layers)
+                                                   fused_encoder)
 
         self.attention = sockeye.attention.get_attention(self.config.attention_use_prev_word,
                                                          self.config.attention_type,
@@ -186,7 +187,7 @@ class SockeyeModel:
                                                    self.lexicon,
                                                    self.config.context_gating,
                                                    self.config.layer_normalization,
-                                                   lm_pre_layers=lm_pre_layers)
+                                                   self.config.lm_pretrain_layers)
 
         self.rnn_cells = self.encoder.get_rnn_cells() + self.decoder.get_rnn_cells()
 

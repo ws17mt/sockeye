@@ -16,14 +16,13 @@ logger = logging.getLogger(__name__)
 
 
 def get_lm_from_encoder(config: sockeye.model.ModelConfig,
-                        lm_pre_layers,
                         encoder,
                         fused,
                         rnn_forget_bias) -> 'SharedLanguageModel':
     """
     Language model that shares weights with an encoder
     """
-    assert lm_pre_layers > 0
+    assert config.lm_pretrain_layers > 0
     assert encoder.embed.embed_weight is not None
     assert encoder.lm_pre_rnn.rnn.params is not None
     # Also tie source LM output weights if we are doing tying
@@ -34,7 +33,7 @@ def get_lm_from_encoder(config: sockeye.model.ModelConfig,
         num_embed=config.num_embed_source,
         vocab_size=config.vocab_source_size,
         dropout=config.dropout,
-        rnn_num_layers=lm_pre_layers,
+        rnn_num_layers=config.lm_pretrain_layers,
         rnn_num_hidden=config.rnn_num_hidden,
         rnn_cell_type=config.rnn_cell_type,
         rnn_residual_connections=config.rnn_residual_connections,
@@ -48,20 +47,19 @@ def get_lm_from_encoder(config: sockeye.model.ModelConfig,
 
 
 def get_lm_from_decoder(config,
-                        lm_pre_layers,
                         decoder,
                         rnn_forget_bias) -> 'SharedLanguageModel':
     """
     Language model that shares weights with a decoder
     """
-    assert lm_pre_layers > 0
+    assert config.lm_pretrain_layers > 0
     assert decoder.embedding.embed_weight is not None
     assert decoder.lm_pre_rnn is not None
     lmodel = SharedLanguageModel(
         num_embed=config.num_embed_target,
         vocab_size=config.vocab_target_size,
         dropout=config.dropout,
-        rnn_num_layers=lm_pre_layers,
+        rnn_num_layers=config.lm_pretrain_layers,
         rnn_num_hidden=config.rnn_num_hidden,
         rnn_cell_type=config.rnn_cell_type,
         rnn_residual_connections=config.rnn_residual_connections,

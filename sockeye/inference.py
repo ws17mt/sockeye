@@ -107,8 +107,10 @@ class InferenceModel(sockeye.model.SockeyeModel):
             source_encoded_batch_major = mx.sym.swapaxes(source_encoded, dim1=0, dim2=1)
 
             # initial decoder states
-            decoder_hidden_init, decoder_init_states = self.decoder.compute_init_states(source_encoded,
-                                                                                        source_encoded_length)
+            decoder_hidden_init, decoder_init_states, lm_init_states = self.decoder.compute_init_states(source_encoded,
+                                                                                                        source_encoded_length)
+            if lm_init_states is not None:
+                decoder_init_states += lm_init_states
             # initial attention state
             attention_state = self.attention.get_initial_state(source_encoded_length, source_encoded_seq_len)
 
@@ -130,7 +132,8 @@ class InferenceModel(sockeye.model.SockeyeModel):
         word_id_prev = mx.sym.Variable(C.TARGET_PREVIOUS_NAME)
         hidden_prev = mx.sym.Variable(C.HIDDEN_PREVIOUS_NAME)
         layer_states, self.layer_shapes, layer_names = self.decoder.create_layer_input_variables(self.beam_size)
-        state = DecoderState(hidden_prev, layer_states)
+        lm_layer_states, self.lm_layer_shapes, lm_layer_names = self.decoder.create_lm_layer_input_variables(self.beam_size)
+        state = DecoderState(hidden_prev, layer_states, lm_layer_states)
         attention_state = AttentionState(context=None, probs=None, dynamic_source=dynamic_source_prev)
 
         def decoder_sym_gen(source_seq_len: int):
@@ -138,7 +141,7 @@ class InferenceModel(sockeye.model.SockeyeModel):
                           C.SOURCE_DYNAMIC_PREVIOUS_NAME,
                           C.SOURCE_LENGTH_NAME,
                           C.TARGET_PREVIOUS_NAME,
-                          C.HIDDEN_PREVIOUS_NAME] + layer_names
+                          C.HIDDEN_PREVIOUS_NAME] + layer_names + lm_layer_names
             label_names = []
 
             source_encoded_seq_len = self.encoder.get_encoded_seq_len(source_seq_len)
@@ -154,7 +157,7 @@ class InferenceModel(sockeye.model.SockeyeModel):
             symbol_group = [softmax_out,
                             next_attention_state.probs,
                             next_attention_state.dynamic_source,
-                            next_state.hidden] + next_state.layer_states
+                            next_state.hidden] + next_state.layer_states + next_state.lm_pre_states
             return mx.sym.Group(symbol_group), data_names, label_names
 
         decoder_module = mx.mod.BucketingModule(sym_gen=decoder_sym_gen,
@@ -196,7 +199,7 @@ class InferenceModel(sockeye.model.SockeyeModel):
         if input_length in self.decoder_data_shapes_cache:
             return self.decoder_data_shapes_cache[input_length]
 
-        shapes = self._get_decoder_variable_shapes(input_length) + self.layer_shapes
+        shapes = self._get_decoder_variable_shapes(input_length) + self.layer_shapes + self.lm_layer_shapes
         self.decoder_data_shapes_cache[input_length] = shapes
         return shapes
 

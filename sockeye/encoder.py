@@ -32,8 +32,7 @@ logger = logging.getLogger(__name__)
 # TODO break out EncoderConfig to allow use without populating options for full translation model
 def get_encoder(config: "ModelConfig",
                 forget_bias: float,
-                fused: bool = False,
-                lm_pre_layers: int = 0) -> 'Encoder':
+                fused: bool = False) -> 'Encoder':
     """
     Returns an encoder with embedding, batch2time-major conversion, and bidirectional RNN encoder.
     If num_layers > 1, adds uni-directional RNNs.
@@ -65,9 +64,9 @@ def get_encoder(config: "ModelConfig",
 
     encoder_class = FusedRecurrentEncoder if fused else RecurrentEncoder
     lm_pre_rnn = None
-    if lm_pre_layers > 0:
+    if config.lm_pretrain_layers > 0:
         lm_pre_rnn = encoder_class(num_hidden=config.rnn_num_hidden,
-                                   num_layers=lm_pre_layers,
+                                   num_layers=config.lm_pretrain_layers,
                                    dropout=config.dropout,
                                    prefix=C.STACKEDRNN_PREFIX+C.LM_SOURCE_PREFIX,
                                    layout=C.TIME_MAJOR,

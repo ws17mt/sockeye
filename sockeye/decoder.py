@@ -247,6 +247,25 @@ class StackedRNNDecoder(Decoder):
             layer_states.append(mx.sym.Variable(name))
             layer_shapes.append(mx.io.DataDesc(name=name, shape=(batch_size, init_num_hidden), layout=C.BATCH_MAJOR))
             layer_names.append(name)
+
+        return layer_states, layer_shapes, layer_names
+
+    def create_lm_layer_input_variables(self, batch_size: int) \
+            -> Tuple[List[mx.sym.Symbol], List[mx.io.DataDesc], List[str]]:
+        """
+        Creates RNN layer state variables. Used for inference.
+        Returns nested list of layer_states variables, flat list of layer shapes (for module binding),
+        and a flat list of layer names (for BucketingModule's data names)
+
+        :param batch_size: Batch size.
+        """
+        layer_states, layer_shapes, layer_names = [], [], []
+        for state_idx, (_, init_num_hidden) in enumerate(self.lm_pre_rnn.state_shape):
+            name = "%sdec_lm_init_%d" % (self.prefix, state_idx)
+            layer_states.append(mx.sym.Variable(name))
+            layer_shapes.append(mx.io.DataDesc(name=name, shape=(batch_size, init_num_hidden), layout=C.BATCH_MAJOR))
+            layer_names.append(name)
+
         return layer_states, layer_shapes, layer_names
 
     def compute_init_states(self,
@@ -280,7 +299,7 @@ class StackedRNNDecoder(Decoder):
         # initial states for lm_pre_train layer
         lm_pre_states = None
         if self.lm_pre_rnn is not None:
-            lm_pre_states = self.lm_pre_rnn.begin_state()
+            lm_pre_states = self.lm_pre_rnn.begin_state(func=mx.sym.zeros_like, data=layer_states[0])
 
         return DecoderState(hidden, layer_states, lm_pre_states)
 
