@@ -51,14 +51,15 @@ def mask_labels_after_EOS(logits: mx.sym.Symbol,
     :return: Actual sequence lengths for each target sequence. Shape: (batch_size,).
     """
     best_tokens = mx.sym.argmax(logits, axis=1)
+    # NOTE rows are word1,sent1 - word2,sent1 - ...
+    best_tokens = best_tokens.reshape((batch_size, target_seq_len))
     # NOTE rows are word1,sent1 - word1,sent2, -... and not word1,sent1 - word2,sent1, ...
-    # TODO: check that this is actually the case
-    best_tokens = mx.sym.transpose(data=best_tokens.reshape((target_seq_len, batch_size))) 
+    #best_tokens = mx.sym.transpose(data=best_tokens.reshape((target_seq_len, batch_size))) 
     eos_index = C.VOCAB_SYMBOLS.index(C.EOS_SYMBOL)
     eos_sym = mx.sym.ones((1,))
     eos_sym = eos_sym * eos_index
     eos_indices = mx.sym.broadcast_equal(lhs=best_tokens, rhs=eos_sym)
-    eos_position = mx.sym.argmax(eos_indices, axis=1)
+    eos_position = mx.sym.argmax(eos_indices, axis=1, keepdims=True)
     # if we got a zero, we will not mask anything -- use target_seq_len as sentence length
     zero_condition = mx.sym.broadcast_greater(eos_position, mx.sym.zeros(1,))
     max_pos = target_seq_len-1
@@ -187,8 +188,6 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
         data_names = [x[0] for x in train_iter.provide_data]
         label_names = [x[0] for x in train_iter.provide_label]
 
-        print(data_names, label_names)
-
         def sym_gen(e_seq_len, f_seq_len):
             """
             Returns a (grouped) loss symbol given source & target input lengths.
@@ -246,6 +245,8 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
 
             f_logits_transfer = sym_gen_transfer(e_encoded, e_source_length, e_seq_len, C.F_BOS_SYMBOL)
             e_logits_transfer = sym_gen_transfer(f_encoded, f_source_length, f_seq_len, C.E_BOS_SYMBOL)
+            #f_logits_transfer = e_logits_autoencoder
+            #e_logits_transfer = f_logits_autoencoder
             ########
 
             # feed these into the discriminator
@@ -277,11 +278,6 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
                                                              f_transfer_length, self.loss_lambda)
             # TODO maybe get the labels from here?
 
-            print(f_D_autoencoder.list_arguments())
-            print(e_D_autoencoder.list_arguments())
-            print(e_D_transfer.list_arguments())
-            print(f_D_transfer.list_arguments())
-
             # get labels for autoencoders (all ones) and translators (all zeros)
             # TODO move this to data_io..
             e_labels_autoencoder = mx.symbol.ones(shape=(train_iter.batch_size,))
@@ -290,7 +286,6 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
             f_labels_transfer = mx.symbol.zeros(shape=(train_iter.batch_size,))
 
             # logits_ae_e and logits_tr_f are originally in e
-            # TODO make sure args are in the right order..
             loss_G, loss_D = loss.get_loss(e_logits_autoencoder, f_logits_autoencoder, e_labels, f_labels,
                                     e_D_autoencoder, e_D_transfer, e_labels_autoencoder, e_labels_transfer,
                                     f_D_autoencoder, f_D_transfer, f_labels_autoencoder, f_labels_transfer)
@@ -309,23 +304,24 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
                              logger=logger,
                              context=self.context)
 
-    @staticmethod
-    def _create_eval_metric(metric_names: List[AnyStr]) -> mx.metric.CompositeEvalMetric:
-        """
-        Creates a composite EvalMetric given a list of metric names.
-        """
-        metrics = []
-        # output_names refers to the list of outputs this metric should use to update itself, e.g. the softmax output
-        for metric_name in metric_names:
-            if metric_name == C.ACCURACY:
-                metrics.append(sockeye.utils.Accuracy(ignore_label=C.PAD_ID, output_names=[C.SOFTMAX_OUTPUT_NAME]))
-            elif metric_name == C.PERPLEXITY:
-                # TODO for now we will just use the autoencoder loss for style transfer..
-                # TODO change this because it makes no sense -- want equilibrium
-                metrics.append(mx.metric.Perplexity(ignore_label=C.PAD_ID, output_names=[C.GAN_LOSS + '_g_output']))
-            else:
-                raise ValueError("unknown metric name")
-        return mx.metric.create(metrics)
+# TODO remove this -- we will not use an eval_metric for now
+#    @staticmethod
+#    def _create_eval_metric(metric_names: List[AnyStr]) -> mx.metric.CompositeEvalMetric:
+#        """
+#        Creates a composite EvalMetric given a list of metric names.
+#        """
+#        metrics = []
+#        # output_names refers to the list of outputs this metric should use to update itself, e.g. the softmax output
+#        for metric_name in metric_names:
+#            if metric_name == C.ACCURACY:
+#                metrics.append(sockeye.utils.Accuracy(ignore_label=C.PAD_ID, output_names=[C.SOFTMAX_OUTPUT_NAME]))
+#            elif metric_name == C.PERPLEXITY:
+#                # TODO for now we will just use the autoencoder loss for style transfer..
+#                # TODO change this because it makes no sense -- want equilibrium
+#                metrics.append(mx.metric.Perplexity(ignore_label=C.PAD_ID, output_names=[C.GAN_LOSS + '_g_output']))
+#            else:
+#                raise ValueError("unknown metric name")
+#        return mx.metric.create(metrics)
 
     def fit(self,
             train_iter: sockeye.data_io.ParallelBucketSentenceIter,
@@ -393,7 +389,7 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
                                                                  checkpoint_decoder=checkpoint_decoder)
         val_iter = None
         self._fit(train_iter, output_folder,
-                  metrics=metrics,
+#                  metrics=metrics,
                   max_updates=max_updates,
                   checkpoint_frequency=checkpoint_frequency,
                   max_num_not_improved=max_num_not_improved,
@@ -409,7 +405,7 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
     def _fit(self,
              train_iter: sockeye.data_io.ParallelBucketSentenceIter,
              output_folder: str,
-             metrics: List[AnyStr],
+#             metrics: List[AnyStr],
              max_updates: int,
              checkpoint_frequency: int,
              max_num_not_improved: int,
@@ -427,8 +423,7 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
         :param max_num_not_improved: Maximum number of checkpoints until fitting is stopped if model does not improve.
         :param min_num_epochs: Minimum number of epochs to train, even if validation scores did not improve.
         """
-        print(metrics)
-        metric_train = self._create_eval_metric(metrics)
+#        metric_train = self._create_eval_metric(metrics)
         tic = time.time()
 
         training_state_dir = os.path.join(output_folder, C.TRAINING_STATE_DIRNAME)
@@ -460,14 +455,17 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
 
             #TODO: Update update_metric to be compaitble with our loss.
             # self.module.update_metric(metric_train, batch.label)
-            self.training_monitor.batch_end_callback(train_state.epoch, train_state.updates, metric_train)
+#            self.training_monitor.batch_end_callback(train_state.epoch, train_state.updates, metric_train)
             train_state.updates += 1
             train_state.samples += train_iter.batch_size
 
             if train_state.updates > 0 and train_state.updates % checkpoint_frequency == 0:
                 train_state.checkpoint += 1
                 self._save_params(output_folder, train_state.checkpoint)
-                self.training_monitor.checkpoint_callback(train_state.checkpoint, metric_train)
+#                self.training_monitor.checkpoint_callback(train_state.checkpoint, metric_train)
+
+                # TODO print out the losses
+                print(self.module.symbol[0])
 
                 toc = time.time()
                 logger.info("Checkpoint [%d]\tUpdates=%d Epoch=%d Samples=%d Time-cost=%.3f",
@@ -475,13 +473,14 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
                             train_state.samples, (toc - tic))
                 tic = time.time()
 
-                for name, val in metric_train.get_name_value():
-                    logger.info('Checkpoint [%d]\tTrain-%s=%f', train_state.checkpoint, name, val)
-                metric_train.reset()
+#                for name, val in metric_train.get_name_value():
+#                    logger.info('Checkpoint [%d]\tTrain-%s=%f', train_state.checkpoint, name, val)
+#                metric_train.reset()
 
                 # TODO:evaluation on validation set
                 has_improved = True
                 best_checkpoint = True
+                # TODO will need to fix the lr_scheduler instead of always saying has_improved=True
                 # has_improved, best_checkpoint = self._evaluate(train_state, val_iter, metric_val)
                 if self.lr_scheduler is not None:
                     self.lr_scheduler.new_evaluation_result(has_improved)

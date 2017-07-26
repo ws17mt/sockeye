@@ -23,7 +23,7 @@ class GradientReversalLayer(mx.operator.CustomOp):
         :param loss_lambda: Weight for the discriminator losses.
         """
         super(GradientReversalLayer, self).__init__()
-        self.loss_lambda = loss_lambda
+        self.loss_lambda = float(loss_lambda)
 
     def forward(self,
                 is_train: bool,
@@ -60,10 +60,10 @@ class GradientReversalLayer(mx.operator.CustomOp):
         :param in_grad: List of arrays corresponding to the incoming gradient.
         :param aux: Can be ignored.
         """
-        # just multiply the gradient by negative lambda (loss_lambda)
-        # TODO check this! (not sure if it should be out_grad or out_data..
-        dx = -1 * self.loss_lambda * out_grad[0]
+        # just multiply the gradient by negative lambda
+        dx = -1. * self.loss_lambda * out_grad[0]
         self.assign(in_grad[0], req[0], dx)
+        # TODO the problem is that out_grad[0] is an empty array..
 
 @mx.operator.register("gradientreversallayer")
 class GradientReversalLayerProp(mx.operator.CustomOpProp):

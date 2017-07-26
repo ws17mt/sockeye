@@ -79,6 +79,19 @@ class MLPDiscriminator(Discriminator):
         self.num_hidden = num_hidden
         self.num_layers = num_layers
         self.dropout = dropout # TODO add dropout (currently don't use this at all)
+        # initialize weights and biases (note no weights or biases on the GRL)
+        # input layer
+        self.in_w = mx.sym.Variable('%sin_weight' % self.prefix)
+        self.in_b = mx.sym.Variable('%sin_bias' % self.prefix)
+        # hidden layers
+        self.weight_dict = {}
+        self.bias_dict = {}
+        for layer in range(self.num_layers):
+            self.weight_dict[layer] = mx.sym.Variable('%slayer%d_weight' % (self.prefix, layer))
+            self.bias_dict[layer] = mx.sym.Variable('%slayer%d_bias' % (self.prefix, layer))
+        # output layer
+        self.out_w = mx.sym.Variable('%sout_weight' % prefix)
+        self.out_b = mx.sym.Variable('%sout_bias' % prefix)
 
     def discriminate(self,
                      data: mx.sym.Symbol,
@@ -97,21 +110,23 @@ class MLPDiscriminator(Discriminator):
         :return: Logits of discriminator decision for target sequence. Shape: (batch_size, 2).
         """
         # reshape the data so it's max len x batch size x vocab size
-        # TODO the problem is somewhere in here.. (reshape or SequenceLast, or maybe the inputs)
-        target = mx.sym.reshape(data=data, shape=(target_seq_len, -1, target_vocab_size))
+        target = mx.sym.reshape(data=data, shape=(-1, target_seq_len, target_vocab_size))
+        target = mx.sym.swapaxes(data=target, dim1=0, dim2=1)
         decoder_last_state = mx.sym.SequenceLast(data=target, sequence_length=target_length,
                                                  use_sequence_length=True)
         # add a gradient reversal layer before the discriminators
-        reverse_grad = mx.symbol.Custom(data=decoder_last_state, op_type='gradientreversallayer', loss_lambda=loss_lambda)
+        reverse_grad = mx.symbol.Custom(data=decoder_last_state, op_type='gradientreversallayer',
+                                        loss_lambda=loss_lambda)
         # input layer
-        logits = mx.sym.FullyConnected(data=reverse_grad, num_hidden=self.num_hidden)
+        logits = mx.sym.FullyConnected(data=reverse_grad, num_hidden=self.num_hidden, weight=self.in_w, bias=self.in_b)
         logits = mx.sym.Activation(data=logits, act_type=self.act)
         # hidden layers
         for layer in range(self.num_layers):
-            logits = mx.sym.FullyConnected(data=logits, num_hidden=self.num_hidden)
+            logits = mx.sym.FullyConnected(data=logits, num_hidden=self.num_hidden, weight=self.weight_dict[layer],
+                                           bias=self.bias_dict[layer])
             logits = mx.sym.Activation(data=logits, act_type=self.act)
         # output layer
-        logits = mx.sym.FullyConnected(data=logits, num_hidden=2)
+        logits = mx.sym.FullyConnected(data=logits, num_hidden=2, weight=self.out_w, bias=self.out_b)
         logits = mx.sym.sigmoid(data=logits)
         return logits
     
