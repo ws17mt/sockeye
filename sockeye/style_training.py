@@ -53,8 +53,6 @@ def mask_labels_after_EOS(logits: mx.sym.Symbol,
     best_tokens = mx.sym.argmax(logits, axis=1)
     # NOTE rows are word1,sent1 - word2,sent1 - ...
     best_tokens = best_tokens.reshape((batch_size, target_seq_len))
-    # NOTE rows are word1,sent1 - word1,sent2, -... and not word1,sent1 - word2,sent1, ...
-    #best_tokens = mx.sym.transpose(data=best_tokens.reshape((target_seq_len, batch_size))) 
     eos_index = C.VOCAB_SYMBOLS.index(C.EOS_SYMBOL)
     eos_sym = mx.sym.ones((1,))
     eos_sym = eos_sym * eos_index
@@ -161,100 +159,156 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
                       f_max_seq_len: int):
         """
         Initializes model components, creates training symbol and module, and binds it.
+
+        :param train_iter: The training iterator; this contains the data for e and f
+        :param e_max_seq_len: The max length of the e encoder/decoders
+        :param f_max_seq_len: The max length of the f encoder/decoders
         """
-        # Build e->e and e->f model
-        # source_encoder is the input to the encoder; can be e or f
+
+        # The symbol for the source/target and their lengths
+        # source_e: (bs, seq_len)
         e_source = mx.sym.Variable(C.SOURCE_NAME + '_e')
+        # source_length_e: (bs,)
         e_source_length = mx.sym.Variable(C.SOURCE_LENGTH_NAME + '_e')
-
+        # target_e: (bs, seq_len)
         e_target = mx.sym.Variable(C.TARGET_NAME + '_e')
+        # target_label_e: (bs, seq_len) -> (bs*seq_len,)
         e_labels = mx.sym.reshape(data=mx.sym.Variable(C.TARGET_LABEL_NAME + '_e'), shape=(-1,))
-        # also need labels for autoencoder and transfer discriminators
-        e_labels_transfer = mx.sym.reshape(data=mx.sym.Variable(C.TRANSFER_LABEL_NAME + '_e'), shape=(-1,))
-        e_labels_autoencoder = mx.sym.reshape(data=mx.sym.Variable(C.AUTOENCODER_LABEL_NAME + '_e'), shape=(-1,))
 
-        # build f->f and f->e model
+        # source_f: (bs, seq_len)
         f_source = mx.sym.Variable(C.SOURCE_NAME + '_f')
+        # source_length_f: (bs,)
         f_source_length = mx.sym.Variable(C.SOURCE_LENGTH_NAME + '_f')
-
+        # target_e: (bs, seq_len)
         f_target = mx.sym.Variable(C.TARGET_NAME + '_f')
+        # target_label_e: (bs, seq_len) -> (bs*seq_len,)
         f_labels = mx.sym.reshape(data=mx.sym.Variable(C.TARGET_LABEL_NAME + '_f'), shape=(-1,))
-        # also need labels for autoencoder and transfer discriminators
-        f_labels_transfer = mx.sym.reshape(data=mx.sym.Variable(C.TRANSFER_LABEL_NAME + '_f'), shape=(-1,))
-        f_labels_autoencoder = mx.sym.reshape(data=mx.sym.Variable(C.AUTOENCODER_LABEL_NAME + '_f'), shape=(-1,))
 
+        # Returns loss_G, loss_D
+        # loss_G ;
         loss = sockeye.loss.get_loss(self.config)
 
+        # ['source_e', 'source_length_e', 'target_e', 'source_f', 'source_length_f', 'target_f']
         data_names = [x[0] for x in train_iter.provide_data]
+        # ['target_label_e', 'target_label_f']
         label_names = [x[0] for x in train_iter.provide_label]
 
         def sym_gen(e_seq_len, f_seq_len):
             """
             Returns a (grouped) loss symbol given source & target input lengths.
-            Also returns data and label names for the BucketingModule.
+            The computation graph contains two instances of the encoder (input = {e,f})
+            and four instances of the decoder (output={e,f} x input)
+
+            :param e_seq_len: The maximum length of the e encoder/decoder
+            :param f_seq_len: The maximum length of the f encoder/decoder
             """
+
+            # (int)
             vocab_size = len(self.vocab)
 
-            ##### AUTOENCODER FOR E #####
-            # Process e->e and e->f
-            # Add the e embedding "encoder" to the list of encoders.
+            ##### ENCODER FOR E and F #####
+            # Add the embedding "encoder" to the list of encoders.
             self.encoder.encoders = [self.embedding] + self.encoder.encoders
-            # Symbols for encoding e and f input respectively.
-            e_encoded = self.encoder.encode(e_source, e_source_length, seq_len=e_seq_len)
-            f_encoded = self.encoder.encode(f_source, f_source_length, seq_len=f_seq_len)
-            # For lexical bias; we don't really use this (yet).
-            source_lexicon = None
 
-            # This is the autoencoder. It will use the f_embedding matrix
-            e_logits_autoencoder = self.decoder.decode(e_encoded, e_seq_len, e_source_length,
-                                                     e_target, e_seq_len, source_lexicon,
-                                                     self.embedding)
+            # Symbols for encoding e and f source input respectively.
+            # e_encoded, f_encoded: (seq_len, bs, num_hidden)
+            e_encoded = self.encoder.encode(data=e_source, data_length=e_source_length, seq_len=e_seq_len)
+            f_encoded = self.encoder.encode(data=f_source, data_length=f_source_length, seq_len=f_seq_len)
 
-            f_logits_autoencoder = self.decoder.decode(f_encoded, f_seq_len, f_source_length,
-                                                       f_target, f_seq_len, source_lexicon,
-                                                       self.embedding)
+            # The autoencoders for e and f
+            # e_logits_autoencoder, f_logits_autoencoder: (bs * seq_len, vocab_size)
+            e_logits_autoencoder = self.decoder.decode(source_encoded=e_encoded,
+                                                       source_seq_len=e_seq_len,
+                                                       source_length=e_source_length,
+                                                       target=e_target,
+                                                       target_seq_len=e_seq_len,
+                                                       embedding=self.embedding)
+
+            f_logits_autoencoder = self.decoder.decode(source_encoded=f_encoded,
+                                                       source_seq_len=f_seq_len,
+                                                       source_length=f_source_length,
+                                                       target=f_target,
+                                                       target_seq_len=f_seq_len,
+                                                       embedding=self.embedding)
 
 
 
             #####################
             def sym_gen_transfer(source_encoded, source_length, seq_len, word_id_initial):
-                attention_func = self.attention.on(source_encoded, source_length, seq_len)
-                attention_state = self.attention.get_initial_state(source_length, seq_len)
-                word_id_prev = mx.sym.Variable(word_id_initial)
-                hidden_prev = mx.sym.Variable(C.HIDDEN_PREVIOUS_NAME)
-                layer_states, layer_shapes, layer_names = self.decoder.create_layer_input_variables(1)
-                decoder_state = sockeye.decoder.DecoderState(hidden_prev, layer_states)
-                # Force first softmax to be the one hot vector
-                softmax_out = word_id_prev
+                """
+                Creates the computation graph for the transfer generators
 
+                :param source_encoded: The symbol for the output of the encoders
+                :param source_length: The length of the source
+                :param seq_len: The maximum length to unroll the transfer generators to
+                :param word_id_initial: The id of the word to be fed as input at time=0
+                :return: The logits of the transfer RNN.
+                """
+                source_encoded_batch_major = mx.sym.swapaxes(source_encoded, dim1=0, dim2=1,
+                                                             name='source_encoded_batch_major')
+
+                # Initialize attention
+                attention_func = self.attention.on(source_encoded_batch_major, source_length, seq_len)
+                attention_state = self.attention.get_initial_state(source_length, seq_len)
+
+                # Embedding for first lang specific word
+                # word_id_prev: (bs,)
+                word_id_prev = word_id_initial
+
+                # source_encoded: (seq_len, bs, num_hidden)
+                # Decoder state is a tuple of hidden and layer states
+                decoder_state = self.decoder.compute_init_states(source_encoded, source_length)
+
+                # We'll accumulate the pre-softmax logits for each timestep here
                 transfer_logits_list = []
 
+                # Used to bypass embedding the input word when it is an
+                # expected word (and embedding of)
+                input_is_embedding = False
+
                 for seq_idx in range(seq_len):
+                    # softmax_out : (bs, vocab_size)
+                    # logits : (bs, vocab_size)
                     (softmax_out, decoder_state, attention_state, local_logits) \
                         = self.decoder.predict(
-                                                word_id_prev=softmax_out,
+                                                word_id_prev=word_id_prev,
                                                 state_prev=decoder_state,
                                                 attention_func=attention_func,
                                                 attention_state_prev=attention_state,
                                                 embedding=self.embedding,
+                                                word_is_embedding=input_is_embedding
                                               )
-                    transfer_logits_list.append(local_logits)
+                    # Expand logits to : (bs, 1, vocab_size) : to concat later along axis 1
+                    transfer_logits_list.append(mx.sym.expand_dims(local_logits, axis=1))
 
-                transfer_logits = mx.sym.concat(*transfer_logits_list, dim=0)
-                return mx.sym.flatten(transfer_logits)
+                    # The input to the next time step will be the expected word
+                    # (bs, vocab_size) * (vocab_size, num_embed)
+                    # This will be an 'embedded' word and not a one hot vector
+                    # Its embedding will have to be bypassed by the decoder.
+                    word_id_prev = mx.sym.dot(softmax_out, self.embedding.embed_weight)
+                    input_is_embedding = True
 
-            f_logits_transfer = sym_gen_transfer(e_encoded, e_source_length, e_seq_len, C.F_BOS_SYMBOL)
-            e_logits_transfer = sym_gen_transfer(f_encoded, f_source_length, f_seq_len, C.E_BOS_SYMBOL)
-            #f_logits_transfer = e_logits_autoencoder
-            #e_logits_transfer = f_logits_autoencoder
-            ########
+                # (bs * seq_len) x vocab_size
+                transfer_logits = mx.sym.reshape(mx.sym.concat(*transfer_logits_list, dim=1),
+                                                 shape=(-1, vocab_size))
+                return transfer_logits
 
-            # feed these into the discriminator
-            # TODO target_lexicon?
-            # TODO target_length instead of source_length?
-            # TODO fix source_encoder_length; Is this the correct thing to use?
-            # TODO need to use f_vocab_size for both e and f -- not sure why but the output is that shape..
-            # TODO ... so need to check the decoder to make sure this is the desired shape..
+            # Initialize the first words for the two generators
+            # (bs,)
+            f_first_word = mx.sym.Variable(name='f_bos_transfer_input',
+                                           init=mx.init.Constant(value=self.vocab[C.F_BOS_SYMBOL]),
+                                           shape=(train_iter.batch_size,))
+            e_first_word = mx.sym.Variable(name='e_bos_transfer_input',
+                                           init=mx.init.Constant(value=self.vocab[C.E_BOS_SYMBOL]),
+                                           shape=(train_iter.batch_size,))
+
+            # f_logits_transfer: (bs * seq_len, vocab_size)
+            #TODO: Only send the last input to e_encoded
+            f_logits_transfer = sym_gen_transfer(e_encoded, e_source_length, e_seq_len, f_first_word)
+            e_logits_transfer = sym_gen_transfer(f_encoded, f_source_length, f_seq_len, e_first_word)
+
+            # feed the autoencoder output to the discriminator
+            # f_D_autoencoder, e_D_autoencoder: (bs, 2) (2 = binary decisions)
             f_D_autoencoder = self.discriminator_f.discriminate(f_logits_autoencoder, f_seq_len, vocab_size,
                                                                 f_source_length, self.loss_lambda)
 
@@ -267,28 +321,28 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
             # The following operation will determine where the EOS occurs (greedy) and pad
             # (Deepak's work)
             # Note that the batch sizes are switched because we care about the input batch size.
+            # f_transfer_length, e_transfer_length: (bs,)
             f_transfer_length = mask_labels_after_EOS(f_logits_transfer, train_iter.batch_size, e_seq_len)
             e_transfer_length = mask_labels_after_EOS(e_logits_transfer, train_iter.batch_size, f_seq_len)
 
             # e_logits_transfer come from f->e, so we use f_batch_size, etc. for e_D_transfer
-            # TODO need f_vocab_size for both e and f for some reason (see above); need to check decoder
+            # f_D_transfer, e_D_transfer: (bs, 2) (2 = binary decisions)
             e_D_transfer = self.discriminator_e.discriminate(e_logits_transfer, f_seq_len, vocab_size,
                                                              e_transfer_length, self.loss_lambda)
             f_D_transfer = self.discriminator_f.discriminate(f_logits_transfer, e_seq_len, vocab_size,
                                                              f_transfer_length, self.loss_lambda)
-            # TODO maybe get the labels from here?
 
-            # get labels for autoencoders (all ones) and translators (all zeros)
-            # TODO move this to data_io..
-            e_labels_autoencoder = mx.symbol.ones(shape=(train_iter.batch_size,))
-            f_labels_autoencoder = mx.symbol.ones(shape=(train_iter.batch_size,)) # Note the switch in batch size.
-            e_labels_transfer = mx.symbol.zeros(shape=(train_iter.batch_size,))
-            f_labels_transfer = mx.symbol.zeros(shape=(train_iter.batch_size,))
+            # get labels to train the discriminators
+            # for autoencoders (all ones) and transfers (all zeros)
+            e_disc_labels_autoencoder = mx.symbol.ones(shape=(train_iter.batch_size,))
+            f_disc_labels_autoencoder = mx.symbol.ones(shape=(train_iter.batch_size,))
+            e_disc_labels_transfer = mx.symbol.zeros(shape=(train_iter.batch_size,))
+            f_disc_labels_transfer = mx.symbol.zeros(shape=(train_iter.batch_size,))
 
             # logits_ae_e and logits_tr_f are originally in e
             loss_G, loss_D = loss.get_loss(e_logits_autoencoder, f_logits_autoencoder, e_labels, f_labels,
-                                    e_D_autoencoder, e_D_transfer, e_labels_autoencoder, e_labels_transfer,
-                                    f_D_autoencoder, f_D_transfer, f_labels_autoencoder, f_labels_transfer)
+                                    e_D_autoencoder, e_D_transfer, e_disc_labels_autoencoder, e_disc_labels_transfer,
+                                    f_D_autoencoder, f_D_transfer, f_disc_labels_autoencoder, f_disc_labels_transfer)
 
             return mx.sym.Group([loss_G, loss_D]), data_names, label_names
 
@@ -438,6 +492,11 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
                 samples=0
             )
 
+        # batch details
+        # bs = 20, max_seq_len=50
+        # source_e, (20, 50), source_length_e, (20, ), target_e, (20, 50)
+        # source_f, (20, 50), source_length_f, (20, ), target_f, (20, 50)
+        # target_label_e, (20, 50), target_label_f, (20, 50)
         next_data_batch = train_iter.next()
 
         while max_updates == -1 or train_state.updates < max_updates:
