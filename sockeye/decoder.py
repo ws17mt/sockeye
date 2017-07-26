@@ -418,7 +418,8 @@ class StackedRNNDecoder(Decoder):
                 attention_state_prev: sockeye.attention.AttentionState,
                 source_lexicon: Optional[mx.sym.Symbol] = None,
                 softmax_temperature: Optional[float] = None,
-                embedding=None) -> Tuple[mx.sym.Symbol,
+                embedding=None,
+                word_is_embedding=False) -> Tuple[mx.sym.Symbol,
                                                                       DecoderState,
                                                                       sockeye.attention.AttentionState]:
         """
@@ -436,10 +437,13 @@ class StackedRNNDecoder(Decoder):
         :return: (predicted next-word distribution, decoder state, attention state).
         """
         # target side embedding (use external embedding when provided)
-        if embedding is None:
-            word_vec_prev = self.embedding.encode(word_id_prev, None, 1)
+        if not word_is_embedding:
+            if embedding is None:
+                word_vec_prev = self.embedding.encode(word_id_prev, None, 1)
+            else:
+                word_vec_prev = embedding.encode(word_id_prev, None, 1)
         else:
-            word_vec_prev = embedding.encode(word_id_prev, None, 1)
+            word_vec_prev = word_id_prev
 
         # state.hidden: (batch_size, rnn_num_hidden)
         # attention_state.dynamic_source: (batch_size, source_seq_len, coverage_num_hidden)
