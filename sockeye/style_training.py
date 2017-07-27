@@ -50,6 +50,9 @@ def mask_labels_after_EOS(logits: mx.sym.Symbol,
     :param target_seq_len: Maximum sequence length for target sentences.
     :return: Actual sequence lengths for each target sequence. Shape: (batch_size,).
     """
+    # TODO: currently, if a sequence has EOS as the first word, we take the whole sequence
+    # length instead (since when we do argmax, those sequences are indistinguishible from 
+    # those sequences that never have an EOS). This needs to be changed!
     # (batch_size, )
     best_tokens = mx.sym.argmax(logits, axis=1)
     # NOTE rows are word1,sent1 - word2,sent1 - ...
@@ -57,13 +60,17 @@ def mask_labels_after_EOS(logits: mx.sym.Symbol,
     best_tokens = best_tokens.reshape((-1, target_seq_len))
     eos_index = C.VOCAB_SYMBOLS.index(C.EOS_SYMBOL)
     eos_sym = mx.sym.ones((1,))
+    # (1, )
     eos_sym = eos_sym * eos_index
+    # (batch_size, )
     eos_indices = mx.sym.broadcast_equal(lhs=best_tokens, rhs=eos_sym)
+    # (batch_size, )
     eos_position = mx.sym.argmax(eos_indices, axis=1)
     # if we got a zero, we will not mask anything -- use target_seq_len as sentence length
     zero_condition = mx.sym.broadcast_greater(eos_position, mx.sym.zeros(1,))
     max_pos = target_seq_len-1
     max_pos_sym = mx.sym.ones((batch_size,))
+    # (batch_size, )
     max_pos_sym = max_pos_sym * max_pos
     eos_position = mx.sym.where(zero_condition, eos_position, max_pos_sym)
     # in fact, we want length, not position
@@ -229,15 +236,6 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
                                                        target_seq_len=f_seq_len,
                                                        embedding=self.embedding)
 
-            # TODO this is just for debugging, remove it!
-            shapes_dict = {'source_e':(20,50), 'source_f': (20,50),
-                           'source_length_e': (20,), 'source_length_f': (20,),
-                           'target_e': (20,50), 'target_f': (20,50),
-                           'target_label_e': (20,50), 'target_label_f': (20,50)}
-
-            #print(f_logits_autoencoder.infer_shape(**shapes_dict))
-
-
             #####################
             def sym_gen_transfer(source_encoded, source_length, seq_len, word_id_initial):
                 """
@@ -302,21 +300,21 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
             # Initialize the first words for the two generators
             # (bs,)
             # TODO: Not sure if dtype is required
-            f_first_word = mx.sym.Variable(name='f_bos_transfer_input',
+            f_first_word = mx.sym.BlockGrad(mx.sym.Variable(name='f_bos_transfer_input',
                                            init=mx.init.Constant(value=self.vocab[C.F_BOS_SYMBOL]),
                                            shape=(train_iter.batch_size,),
-                                           dtype=np.int32)
-            e_first_word = mx.sym.Variable(name='e_bos_transfer_input',
+                                           dtype=np.float32))
+            e_first_word = mx.sym.BlockGrad(mx.sym.Variable(name='e_bos_transfer_input',
                                            init=mx.init.Constant(value=self.vocab[C.E_BOS_SYMBOL]),
                                            shape=(train_iter.batch_size,),
-                                           dtype=np.int32)
+                                           dtype=np.float32))
 
             # f_logits_transfer: (bs * seq_len, vocab_size)
             #TODO: Only send the last input to e_encoded
-            #f_logits_transfer = sym_gen_transfer(e_encoded, e_source_length, e_seq_len, f_first_word)
-            #e_logits_transfer = sym_gen_transfer(f_encoded, f_source_length, f_seq_len, e_first_word)
-            f_logits_transfer = e_logits_autoencoder
-            e_logits_transfer = f_logits_autoencoder
+            f_logits_transfer = sym_gen_transfer(e_encoded, e_source_length, e_seq_len, f_first_word)
+            e_logits_transfer = sym_gen_transfer(f_encoded, f_source_length, f_seq_len, e_first_word)
+            #f_logits_transfer = e_logits_autoencoder
+            #e_logits_transfer = f_logits_autoencoder
             
             # feed the autoencoder output to the discriminator
             # f_D_autoencoder, e_D_autoencoder: (bs, 2) (2 = binary decisions)
@@ -336,9 +334,6 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
             f_transfer_length = mask_labels_after_EOS(f_logits_transfer, train_iter.batch_size, e_seq_len)
             e_transfer_length = mask_labels_after_EOS(e_logits_transfer, train_iter.batch_size, f_seq_len)
 
-            #f_transfer_length = f_source_length
-            #e_transfer_length = e_source_length
-
             # e_logits_transfer come from f->e, so we use f_batch_size, etc. for e_D_transfer
             # f_D_transfer, e_D_transfer: (bs, 2) (2 = binary decisions)
             e_D_transfer = self.discriminator_e.discriminate(e_logits_transfer, f_seq_len, vocab_size,
@@ -357,7 +352,7 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
             loss_G, loss_D = loss.get_loss(e_logits_autoencoder, f_logits_autoencoder, e_labels, f_labels,
                                     e_D_autoencoder, e_D_transfer, e_disc_labels_autoencoder, e_disc_labels_transfer,
                                     f_D_autoencoder, f_D_transfer, f_disc_labels_autoencoder, f_disc_labels_transfer)
-
+            print(loss_D.list_arguments())
             return mx.sym.Group([loss_G, loss_D]), data_names, label_names
 
         # TODO: Add bucketing later
@@ -525,6 +520,7 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
             # This is a batch with the training data for e and f
             batch = next_data_batch
             self.module.forward_backward(batch)
+            print(self.module.get_outputs())
             self.module.update()
 
             #TODO: Update update_metric to be compaitble with our loss.
@@ -619,8 +615,7 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
 
     def _checkpoint(self, training_state: _StyleTrainingState,
                     output_folder: str,
-                    e_train_iter: sockeye.data_io.ParallelBucketSentenceIter,
-                    f_train_iter: sockeye.data_io.ParallelBucketSentenceIter):
+                    train_iter: sockeye.data_io.ParallelBucketSentenceIter):
         """
         Saves checkpoint. Note that the parameters are saved in _save_params.
         """
@@ -645,8 +640,7 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
             self.module.save_optimizer_states(opt_state_fname)
 
         # State of the bucket iterator
-        e_train_iter.save_state(os.path.join(training_state_dirname, C.E_BUCKET_ITER_STATE_NAME))
-        f_train_iter.save_state(os.path.join(training_state_dirname, C.F_BUCKET_ITER_STATE_NAME))
+        train_iter.save_state(os.path.join(training_state_dirname, C.BUCKET_ITER_STATE_NAME))
 
         # RNG states: python's random and np.random provide functions for
         # storing the state, mxnet does not, but inside our code mxnet's RNG is
