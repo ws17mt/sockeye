@@ -1,0 +1,2 @@
+python -m sockeye.train --source ../amr/processed_data/training-amr.surface --target ../amr/processed_data/training-eng --source-metadata ../amr/processed_data/training-amr.edges --validation-source ../amr/processed_data/dev-amr.surface --validation-target ../amr/processed_data/dev-eng --val-source-metadata ../amr/processed_data/dev-amr.edges --use-cpu --use-gcn --output toy_model --batch-size 20 --rnn-num-hidden 64 --num-embed 64 --checkpoint-frequency 200 --metadata-vocab ../amr/processed_data/simple.json
+rm -rf toy_model

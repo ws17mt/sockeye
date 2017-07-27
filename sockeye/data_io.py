@@ -372,7 +372,7 @@ class ParallelBucketSentenceIter(mx.io.DataIter):
             mx.io.DataDesc(name=source_data_name, shape=(batch_size, self.default_bucket_key[0]), layout=C.BATCH_MAJOR),
             mx.io.DataDesc(name=source_data_length_name, shape=(batch_size,), layout=C.BATCH_MAJOR),
             mx.io.DataDesc(name=target_data_name, shape=(batch_size, self.default_bucket_key[1]), layout=C.BATCH_MAJOR),
-            mx.io.DataDesc(name=src_metadata_name, shape=(batch_size, self.md_vocab_size, self.default_bucket_key[1], self.default_bucket_key[1]), layout=C.BATCH_MAJOR) ]
+            mx.io.DataDesc(name=src_metadata_name, shape=(batch_size, self.md_vocab_size, self.default_bucket_key[0], self.default_bucket_key[0]), layout=C.BATCH_MAJOR) ]
         self.provide_label = [
             mx.io.DataDesc(name=label_name, shape=(self.batch_size, self.default_bucket_key[1]), layout=C.BATCH_MAJOR)]
 
@@ -469,12 +469,12 @@ class ParallelBucketSentenceIter(mx.io.DataIter):
             self.data_label[i] = np.asarray(self.data_label[i], dtype=self.dtype)
             #####
             # GCN
-            logger.info(self.data_src_metadata[i])
-            logger.info(self.data_length[i])
-            logger.info(self.buckets[i])
-            self.data_src_metadata[i] = self._convert_to_adj_matrix(self.buckets[i][1], self.data_src_metadata[i])
+            #logger.info(self.data_src_metadata[i])
+            #logger.info(self.data_length[i])
+            #logger.info(self.buckets[i])
+            self.data_src_metadata[i] = self._convert_to_adj_matrix(self.buckets[i][0], self.data_src_metadata[i])
             #self.data_src_metadata[i] = np.asarray([np.asarray(row) for row in self.data_src_metadata[i]])#, dtype=self.dtype)
-            logger.info(self.data_src_metadata[i])
+            logger.info("SRC_METADATA SHAPE: " + str(self.data_src_metadata[i].shape))
             #####
             
             n = len(self.data_source[i])
@@ -513,17 +513,18 @@ class ParallelBucketSentenceIter(mx.io.DataIter):
         TODO: extend this to tensors using label information.
         """
         batch_size = len(data_src_metadata)
+        logger.info("BUCKET SIZE: %d", bucket_size)
         #new_src_metadata = np.zeroes((batch_size, bucket_size, bucket_size))
         new_src_metadata = np.array([np.zeros((self.md_vocab_size, bucket_size, bucket_size)) for sent in range(batch_size)])
-        logger.info(new_src_metadata.shape)
+        #logger.info(new_src_metadata.shape)
         for i, graph in enumerate(data_src_metadata):
             for tup in graph:
                 new_src_metadata[i][tup[2]][tup[0]][tup[1]] = 1.0
                 # No need for this anymore, reverse edges are read from data
                 #new_src_metadata[i][tup[1]][tup[0]] = 1.0
         #self.data_src_metadata[i] = np.asarray([np.asarray(row) for row in self.data_src_metadata[i]])#, dtype=self.dtype)
-        logger.info('adj tensors')
-        logger.info(new_src_metadata.shape)
+        #logger.info('adj tensors')
+        #logger.info(new_src_metadata.shape)
         return new_src_metadata
         
     def reset(self):
@@ -572,7 +573,7 @@ class ParallelBucketSentenceIter(mx.io.DataIter):
         self.nd_target.append(mx.nd.array(self.data_target[bucket].take(shuffled_indices, axis=0), dtype=self.dtype))
         self.nd_label.append(mx.nd.array(self.data_label[bucket].take(shuffled_indices, axis=0), dtype=self.dtype))
         #####
-        self.nd_src_metadata.append(mx.nd.array(self.data_label[bucket].take(shuffled_indices, axis=0), dtype=self.dtype))
+        self.nd_src_metadata.append(mx.nd.array(self.data_src_metadata[bucket].take(shuffled_indices, axis=0), dtype=self.dtype))
 
     def iter_next(self) -> bool:
         """

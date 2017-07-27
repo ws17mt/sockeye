@@ -79,37 +79,24 @@ class GCNCell(object):
     def convolve(self, adj, inputs, seq_len):
         output_list = []
         #reshaped = mx.symbol.reshape(inputs, (-3, -1))
-        reshaped = inputs
+        #reshaped = inputs
         for i in range(self._tensor_dim):
             # linear transformation
             #Wi = mx.symbol.slice_axis(self._W, axis=0, begin=i, end=i+1)
             #bi = mx.symbol.slice_axis(self._b, axis=0, begin=i, end=i+1)
             Wi = self._W[i]
-            bi = self._b[i]
-            
-            output = mx.symbol.dot(reshaped, Wi)
+            bi = self._b[i]            
+            output = mx.symbol.dot(inputs, Wi)
             output = mx.symbol.broadcast_add(output, bi)
-            #output = mx.symbol.dot(inputs, mx.symbol.reshape(Wi, (self._input_dim, self._output_dim)))
-            #output = mx.symbol.add(output, bi)
-            #output = output + mx.symbol.reshape(bi, (self._output_dim))
-            #output = mx.symbol.broadcast_add(output, mx.symbol.reshape(bi, (self._output_dim)))
             # convolution
-            #output = mx.symbol.concat(inputs, output, dim=0)
-            #output = mx.symbol.concat(inputs, adj, dim=0)
             adji = mx.symbol.slice_axis(adj, axis=1, begin=i, end=i+1)
             adji = mx.symbol.reshape(adji, (-1, seq_len, seq_len))
             output = mx.symbol.batch_dot(adji, output)
-            #output = mx.symbol.concat(inputs, output, dim=0)
             output = mx.symbol.expand_dims(output, axis=1)
             output_list.append(output)
         outputs = mx.symbol.concat(*output_list, dim=1)
         outputs = mx.symbol.sum(outputs, axis=1)
-        #outputs = mx.symbol.concat(inputs, outputs, dim=0)
         final_output = mx.symbol.Activation(outputs, act_type=self._activation)
-        #final_output = mx.symbol.concat(inputs, final_output, dim=0)
-        #final_output = mx.symbol.sum(outputs, axis=1)
-        #print(final_output.infer_shape())
-        #print(final_output.debug_str())
         return final_output
 
         # inputs go through linear transformation
