@@ -115,7 +115,6 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
                  lr_scheduler,
                  rnn_forget_bias: float,
                  vocab,
-                 embedding,
                  disc_act: str,
                  disc_num_hidden: int,
                  disc_num_layers: int,
@@ -125,7 +124,10 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
         self.context = context
         self.lr_scheduler = lr_scheduler
         self.bucketing = bucketing
-        self.embedding = embedding
+        self.embedding = sockeye.encoder.Embedding(num_embed=self.config.num_embed_source,
+                                                   vocab_size=len(vocab),
+                                                   prefix=C.EMBEDDING_PREFIX,
+                                                   dropout=self.config.dropout)
         self.vocab = vocab
         self.disc_act = disc_act
         self.disc_num_hidden = disc_num_hidden
@@ -133,6 +135,7 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
         self.disc_dropout = disc_dropout
         self.loss_lambda = loss_lambda
         self._build_model_components(self.config.max_seq_len, fused, rnn_forget_bias, initialize_embedding=False)
+        # TODO: Get this from config
         self._build_discriminators(self.disc_act, self.disc_num_hidden, self.disc_num_layers, self.disc_dropout)
         self.module = self._build_module(train_iter, self.config.max_seq_len, self.config.max_seq_len)
         self.training_monitor = None
@@ -295,12 +298,15 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
 
             # Initialize the first words for the two generators
             # (bs,)
+            # TODO: Not sure if dtype is required
             f_first_word = mx.sym.Variable(name='f_bos_transfer_input',
                                            init=mx.init.Constant(value=self.vocab[C.F_BOS_SYMBOL]),
-                                           shape=(train_iter.batch_size,))
+                                           shape=(train_iter.batch_size,),
+                                           dtype=np.int32)
             e_first_word = mx.sym.Variable(name='e_bos_transfer_input',
                                            init=mx.init.Constant(value=self.vocab[C.E_BOS_SYMBOL]),
-                                           shape=(train_iter.batch_size,))
+                                           shape=(train_iter.batch_size,),
+                                           dtype=np.int32)
 
             # f_logits_transfer: (bs * seq_len, vocab_size)
             #TODO: Only send the last input to e_encoded
@@ -422,6 +428,7 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
 
         self.module.bind(data_shapes=data_shapes, label_shapes=label_shapes, for_training=True,
                          force_rebind=True, grad_req='write')
+
         self.module.symbol.save(os.path.join(output_folder, C.SYMBOL_NAME))
 
         self.module.init_params(initializer=initializer, arg_params=self.params, aux_params=None,
