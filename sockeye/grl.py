@@ -63,13 +63,12 @@ class GradientReversalLayer(mx.operator.CustomOp):
         # just multiply the gradient by negative lambda
         dx = -1. * self.loss_lambda * out_grad[0]
         self.assign(in_grad[0], req[0], dx)
-        # TODO the problem is that out_grad[0] is an empty array..
 
 @mx.operator.register("gradientreversallayer")
 class GradientReversalLayerProp(mx.operator.CustomOpProp):
     def __init__(self, loss_lambda: float):
         self.loss_lambda = loss_lambda
-        super(GradientReversalLayerProp, self).__init__()
+        super(GradientReversalLayerProp, self).__init__(need_top_grad=True)
 
     def list_arguments(self):
         return ['data']

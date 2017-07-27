@@ -45,19 +45,21 @@ def mask_labels_after_EOS(logits: mx.sym.Symbol,
     """
     Calculate sentence lengths for translated sentences.
     
-    :param logits: Input data. Shape: (target_seq_len*batch_size, target_vocab_size).
+    :param logits: Input data. Shape: (batch_size * target_seq_len, target_vocab_size).
     :param batch_size: Batch size for the input data.
     :param target_seq_len: Maximum sequence length for target sentences.
     :return: Actual sequence lengths for each target sequence. Shape: (batch_size,).
     """
+    # (batch_size, )
     best_tokens = mx.sym.argmax(logits, axis=1)
     # NOTE rows are word1,sent1 - word2,sent1 - ...
-    best_tokens = best_tokens.reshape((batch_size, target_seq_len))
+    # (batch_size, target_seq_len)
+    best_tokens = best_tokens.reshape((-1, target_seq_len))
     eos_index = C.VOCAB_SYMBOLS.index(C.EOS_SYMBOL)
     eos_sym = mx.sym.ones((1,))
     eos_sym = eos_sym * eos_index
     eos_indices = mx.sym.broadcast_equal(lhs=best_tokens, rhs=eos_sym)
-    eos_position = mx.sym.argmax(eos_indices, axis=1, keepdims=True)
+    eos_position = mx.sym.argmax(eos_indices, axis=1)
     # if we got a zero, we will not mask anything -- use target_seq_len as sentence length
     zero_condition = mx.sym.broadcast_greater(eos_position, mx.sym.zeros(1,))
     max_pos = target_seq_len-1
@@ -114,8 +116,7 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
                  bucketing: bool,
                  lr_scheduler,
                  rnn_forget_bias: float,
-                 vocab,
-                 embedding) -> None:
+                 vocab) -> None:
         super().__init__(model_config)
         self.context = context
         self.lr_scheduler = lr_scheduler
@@ -228,6 +229,13 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
                                                        target_seq_len=f_seq_len,
                                                        embedding=self.embedding)
 
+            # TODO this is just for debugging, remove it!
+            shapes_dict = {'source_e':(20,50), 'source_f': (20,50),
+                           'source_length_e': (20,), 'source_length_f': (20,),
+                           'target_e': (20,50), 'target_f': (20,50),
+                           'target_label_e': (20,50), 'target_label_f': (20,50)}
+
+            #print(f_logits_autoencoder.infer_shape(**shapes_dict))
 
 
             #####################
@@ -327,6 +335,9 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
             # f_transfer_length, e_transfer_length: (bs,)
             f_transfer_length = mask_labels_after_EOS(f_logits_transfer, train_iter.batch_size, e_seq_len)
             e_transfer_length = mask_labels_after_EOS(e_logits_transfer, train_iter.batch_size, f_seq_len)
+
+            #f_transfer_length = f_source_length
+            #e_transfer_length = e_source_length
 
             # e_logits_transfer come from f->e, so we use f_batch_size, etc. for e_D_transfer
             # f_D_transfer, e_D_transfer: (bs, 2) (2 = binary decisions)
