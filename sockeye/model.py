@@ -51,12 +51,22 @@ ModelConfig = sockeye.utils.namedtuple_with_defaults('ModelConfig',
                                                       "loss",
                                                       "normalize_loss",
                                                       "smoothed_cross_entropy_alpha",
+                                                      "disc_act",
+                                                      "disc_num_hidden",
+                                                      "disc_num_layers",
+                                                      "disc_dropout",
+                                                      "loss_lambda"
                                                   ],
                                                      default_values={
                                                       "attention_use_prev_word": False,
                                                       "context_gating": False,
                                                       "loss": C.CROSS_ENTROPY,
-                                                      "normalize_loss": False
+                                                      "normalize_loss": False,
+                                                      "disc_act": "relu",
+                                                      "disc_num_hidden": 50,
+                                                      "disc_num_layers": 1,
+                                                      "disc_dropout": 0.,
+                                                      "loss_lambda": 1.
                                                   })
 """
 ModelConfig defines model parameters defined at training time which are relevant to model inference.

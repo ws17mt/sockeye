@@ -115,29 +115,20 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
                  lr_scheduler,
                  rnn_forget_bias: float,
                  vocab,
-                 embedding,
-                 disc_act: str,
-                 disc_num_hidden: int,
-                 disc_num_layers: int,
-                 disc_dropout: float,
-                 loss_lambda: float) -> None:
+                 embedding) -> None:
         super().__init__(model_config)
         self.context = context
         self.lr_scheduler = lr_scheduler
         self.bucketing = bucketing
         self.embedding = embedding
         self.vocab = vocab
-        self.disc_act = disc_act
-        self.disc_num_hidden = disc_num_hidden
-        self.disc_num_layers = disc_num_layers
-        self.disc_dropout = disc_dropout
-        self.loss_lambda = loss_lambda
         self._build_model_components(self.config.max_seq_len, fused, rnn_forget_bias, initialize_embedding=False)
-        self._build_discriminators(self.disc_act, self.disc_num_hidden, self.disc_num_layers, self.disc_dropout)
+        self._build_discriminators(self.config.disc_act, self.config.disc_num_hidden, self.config.disc_num_layers,
+                                   self.config.disc_dropout, self.config.loss_lambda)
         self.module = self._build_module(train_iter, self.config.max_seq_len, self.config.max_seq_len)
         self.training_monitor = None
 
-    def _build_discriminators(self, act: str, num_hidden: int, num_layers: int, dropout: float):
+    def _build_discriminators(self, act: str, num_hidden: int, num_layers: int, dropout: float, loss_lambda: float):
         """
         Builds and sets discriminators for style transfer.
 
@@ -145,12 +136,15 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
         :param num_hidden: Number of hidden units for the discriminators.
         :param num_layers: Number of layers for the discriminators.
         :param dropout: Dropout probability for the discriminators.
+        :param loss_lambda: Weight for the discriminator losses.
         """
         self.discriminator_e = sockeye.discriminator.get_discriminator(act, num_hidden,
                                                                        num_layers, dropout,
+                                                                       loss_lambda,
                                                                        prefix=C.DISCRIMINATOR_E_PREFIX)
         self.discriminator_f = sockeye.discriminator.get_discriminator(act, num_hidden,
                                                                        num_layers, dropout,
+                                                                       loss_lambda,
                                                                        prefix=C.DISCRIMINATOR_F_PREFIX)
 
     def _build_module(self,
@@ -292,6 +286,7 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
                 transfer_logits = mx.sym.reshape(mx.sym.concat(*transfer_logits_list, dim=1),
                                                  shape=(-1, vocab_size))
                 return transfer_logits
+            ################
 
             # Initialize the first words for the two generators
             # (bs,)
@@ -304,16 +299,18 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
 
             # f_logits_transfer: (bs * seq_len, vocab_size)
             #TODO: Only send the last input to e_encoded
-            f_logits_transfer = sym_gen_transfer(e_encoded, e_source_length, e_seq_len, f_first_word)
-            e_logits_transfer = sym_gen_transfer(f_encoded, f_source_length, f_seq_len, e_first_word)
-
+            #f_logits_transfer = sym_gen_transfer(e_encoded, e_source_length, e_seq_len, f_first_word)
+            #e_logits_transfer = sym_gen_transfer(f_encoded, f_source_length, f_seq_len, e_first_word)
+            f_logits_transfer = e_logits_autoencoder
+            e_logits_transfer = f_logits_autoencoder
+            
             # feed the autoencoder output to the discriminator
             # f_D_autoencoder, e_D_autoencoder: (bs, 2) (2 = binary decisions)
-            f_D_autoencoder = self.discriminator_f.discriminate(f_logits_autoencoder, f_seq_len, vocab_size,
-                                                                f_source_length, self.loss_lambda)
+            f_D_autoencoder = self.discriminator_f.discriminate(f_logits_autoencoder, f_seq_len,
+                                                                vocab_size, f_source_length)
 
-            e_D_autoencoder = self.discriminator_e.discriminate(e_logits_autoencoder, e_seq_len, vocab_size,
-                                                                e_source_length, self.loss_lambda)
+            e_D_autoencoder = self.discriminator_e.discriminate(e_logits_autoencoder, e_seq_len,
+                                                                vocab_size, e_source_length)
 
             # Logits_transfer keeps generating to max_seq_len since there's no stopping condition
             # We post-process to determine EOS and pad the output after an EOS appears
@@ -328,16 +325,16 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
             # e_logits_transfer come from f->e, so we use f_batch_size, etc. for e_D_transfer
             # f_D_transfer, e_D_transfer: (bs, 2) (2 = binary decisions)
             e_D_transfer = self.discriminator_e.discriminate(e_logits_transfer, f_seq_len, vocab_size,
-                                                             e_transfer_length, self.loss_lambda)
+                                                             e_transfer_length)
             f_D_transfer = self.discriminator_f.discriminate(f_logits_transfer, e_seq_len, vocab_size,
-                                                             f_transfer_length, self.loss_lambda)
+                                                             f_transfer_length)
 
             # get labels to train the discriminators
             # for autoencoders (all ones) and transfers (all zeros)
-            e_disc_labels_autoencoder = mx.symbol.ones(shape=(train_iter.batch_size,))
-            f_disc_labels_autoencoder = mx.symbol.ones(shape=(train_iter.batch_size,))
-            e_disc_labels_transfer = mx.symbol.zeros(shape=(train_iter.batch_size,))
-            f_disc_labels_transfer = mx.symbol.zeros(shape=(train_iter.batch_size,))
+            e_disc_labels_autoencoder = mx.symbol.ones(shape=(train_iter.batch_size,), name='e_disc_labels_ae')
+            f_disc_labels_autoencoder = mx.symbol.ones(shape=(train_iter.batch_size,), name='f_disc_labels_ae')
+            e_disc_labels_transfer = mx.symbol.zeros(shape=(train_iter.batch_size,), name='e_disc_labels_tr')
+            f_disc_labels_transfer = mx.symbol.zeros(shape=(train_iter.batch_size,), name='f_disc_labels_tr')
 
             # logits_ae_e and logits_tr_f are originally in e
             loss_G, loss_D = loss.get_loss(e_logits_autoencoder, f_logits_autoencoder, e_labels, f_labels,

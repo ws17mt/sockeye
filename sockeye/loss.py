@@ -201,8 +201,6 @@ class GANLoss(Loss):
                                         normalization=normalization, name=C.GAN_LOSS + '_f')
 
         # now combine them
-        #loss_D = mx.sym.concat(e_loss_D, loss_G, dim=0)
         loss_D = mx.sym.concat(e_loss_D, f_loss_D, dim=0)
         # NOTE: the GRL reverses the gradients and adds the lambda, so we add the three losses here
         return loss_G, loss_D
-        #return loss_G

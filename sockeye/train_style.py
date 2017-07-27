@@ -137,7 +137,12 @@ model_config = sockeye.model.ModelConfig(max_seq_len=max_seq_len,
                                          data_info=data_info,
                                          loss=C.GAN_LOSS,
                                          normalize_loss=False,
-                                         smoothed_cross_entropy_alpha=0.3)
+                                         smoothed_cross_entropy_alpha=0.3,
+                                         disc_act=disc_act,
+                                         disc_num_hidden=disc_num_hidden,
+                                         disc_num_layers=disc_num_layers,
+                                         disc_dropout=disc_dropout,
+                                         loss_lambda=1.0)
 
 model = sockeye.style_training.StyleTrainingModel(model_config=model_config,
                                                   context=context,
@@ -147,12 +152,7 @@ model = sockeye.style_training.StyleTrainingModel(model_config=model_config,
                                                   lr_scheduler=lr_scheduler,
                                                   rnn_forget_bias=0.0,
                                                   vocab=vocab,
-                                                  embedding=vocab_embedding,
-                                                  disc_act=disc_act,
-                                                  disc_num_hidden=disc_num_hidden,
-                                                  disc_num_layers=disc_num_layers,
-                                                  disc_dropout=disc_dropout,
-                                                  loss_lambda=1.0)
+                                                  embedding=vocab_embedding)
 
 # For lexical bias, set to None
 lexicon = None
