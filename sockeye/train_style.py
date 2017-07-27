@@ -13,11 +13,11 @@ from sockeye.train import _build_or_load_vocab
 
 logger = setup_main_logger(__name__, file_logging=False, console=True)
 
-e_corpus = "/home/acurrey/labs/nmt/JSALT17-NMT-Lab/data/multi30k/train-toy.de.atok"
-f_corpus = "/home/acurrey/labs/nmt/JSALT17-NMT-Lab/data/multi30k/train-toy.en.atok"
+# e_corpus = "/home/acurrey/labs/nmt/JSALT17-NMT-Lab/data/multi30k/train-toy.de.atok"
+# f_corpus = "/home/acurrey/labs/nmt/JSALT17-NMT-Lab/data/multi30k/train-toy.en.atok"
 # Convention: Source (e), Target (f)
-#e_corpus = "/Users/gaurav/Dropbox/Projects/JSALT17-NMT-Lab/data/multi30k/train-toy.de.atok"
-#f_corpus = "/Users/gaurav/Dropbox/Projects/JSALT17-NMT-Lab/data/multi30k/train-toy.en.atok"
+e_corpus = "/Users/gaurav/Dropbox/Projects/JSALT17-NMT-Lab/data/multi30k/train-toy.de.atok"
+f_corpus = "/Users/gaurav/Dropbox/Projects/JSALT17-NMT-Lab/data/multi30k/train-toy.en.atok"
 
 output_folder="tmp"
 
@@ -40,18 +40,18 @@ output_folder="tmp"
 # disc_act='relu'
 
 lr_scheduler = None
-num_embed = 2
+num_embed = 4
 attention_type="fixed" # TODO:Fix
-attention_num_hidden = 2
+attention_num_hidden = 5
 dropout=0.1
 rnn_cell_type=C.GRU_TYPE
 rnn_num_layers=1
-rnn_num_hidden=2
+rnn_num_hidden=6
 num_words = 10000
 word_min_count = 1
 batch_size = 20
 max_seq_len=50
-disc_num_hidden=2
+disc_num_hidden=7
 disc_num_layers=1
 disc_dropout=0.
 disc_act='relu'
@@ -67,11 +67,6 @@ vocab = _build_or_load_vocab(None, [e_corpus, f_corpus], num_words, word_min_cou
 
 vocab_size = len(vocab)
 logger.info("Vocabulary size (merged e, f): %d", vocab_size)
-
-vocab_embedding = sockeye.encoder.Embedding(num_embed=num_embed,
-                                            vocab_size=vocab_size,
-                                            prefix=C.EMBEDDING_PREFIX,
-                                            dropout=dropout)
 
 # NamedTuple which will keep track of stuff
 data_info = sockeye.data_io.StyleDataInfo(os.path.abspath(e_corpus),
