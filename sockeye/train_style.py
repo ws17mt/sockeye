@@ -146,8 +146,7 @@ model = sockeye.style_training.StyleTrainingModel(model_config=model_config,
                                                   bucketing=False,
                                                   lr_scheduler=lr_scheduler,
                                                   rnn_forget_bias=0.0,
-                                                  vocab=vocab,
-                                                  embedding=vocab_embedding)
+                                                  vocab=vocab)
 
 # For lexical bias, set to None
 lexicon = None
