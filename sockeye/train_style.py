@@ -18,6 +18,8 @@ logger = setup_main_logger(__name__, file_logging=False, console=True)
 # Convention: Source (e), Target (f)
 e_corpus = "/Users/gaurav/Dropbox/Projects/JSALT17-NMT-Lab/data/multi30k/train-toy.de.atok"
 f_corpus = "/Users/gaurav/Dropbox/Projects/JSALT17-NMT-Lab/data/multi30k/train-toy.en.atok"
+e_val = "/Users/gaurav/Dropbox/Projects/JSALT17-NMT-Lab/data/multi30k/val.de.atok"
+f_val = "/Users/gaurav/Dropbox/Projects/JSALT17-NMT-Lab/data/multi30k/val.en.atok"
 
 output_folder="tmp"
 
@@ -71,6 +73,8 @@ logger.info("Vocabulary size (merged e, f): %d", vocab_size)
 # NamedTuple which will keep track of stuff
 data_info = sockeye.data_io.StyleDataInfo(os.path.abspath(e_corpus),
                                           os.path.abspath(f_corpus),
+                                          os.path.abspath(e_val),
+                                          os.path.abspath(f_val),
                                           vocab)
 
 # This will return a ParallelBucketIterator
@@ -99,6 +103,21 @@ f_train_iter = sockeye.data_io.get_style_training_data_iters(
                         bucket_width=100,
                         target_bos_symbol=C.F_BOS_SYMBOL,
                         suffix='_f'
+                    )
+
+# Validation iter
+val_iter = sockeye.data_io.get_style_training_data_iters(
+                        source=data_info.e_val,
+                        target=data_info.f_val,
+                        vocab=vocab,
+                        batch_size=batch_size,
+                        fill_up=True,
+                        max_seq_len=max_seq_len,
+                        bucketing=False,
+                        bucket_width=100,
+                        target_bos_symbol=C.F_BOS_SYMBOL,
+                        suffix='_val_e',
+                        target_suffix='_val_f'
                     )
 
 # Merge the two iterators to get one.
@@ -142,6 +161,7 @@ model_config = sockeye.model.ModelConfig(max_seq_len=max_seq_len,
 model = sockeye.style_training.StyleTrainingModel(model_config=model_config,
                                                   context=context,
                                                   train_iter=train_iter,
+
                                                   fused=False,
                                                   bucketing=False,
                                                   lr_scheduler=lr_scheduler,
@@ -166,7 +186,8 @@ logger.info("Optimizer Parameters: %s", optimizer_params)
 
 
 
-model.fit(train_iter,
+model.fit(train_iter=train_iter,
+          val_iter=val_iter,
           output_folder=output_folder,
           metrics=[C.PERPLEXITY],
           initializer=initializer,

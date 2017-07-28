@@ -388,7 +388,7 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
 
     def fit(self,
             train_iter: sockeye.data_io.ParallelBucketSentenceIter,
-            #val_iter: sockeye.data_io.ParallelBucketSentenceIter,
+            val_iter: sockeye.data_io.ParallelBucketSentenceIter,
             output_folder: str,
             metrics: List[AnyStr],
             initializer: mx.initializer.Initializer,
@@ -520,7 +520,7 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
             # This is a batch with the training data for e and f
             batch = next_data_batch
             self.module.forward_backward(batch)
-            print(self.module.get_outputs())
+            # print(self.module.get_outputs())
             self.module.update()
 
             #TODO: Update update_metric to be compaitble with our loss.
@@ -535,7 +535,7 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
 #                self.training_monitor.checkpoint_callback(train_state.checkpoint, metric_train)
 
                 # TODO print out the losses
-                print(self.module.symbol[0])
+                # print(self.module.symbol[0])
 
                 toc = time.time()
                 logger.info("Checkpoint [%d]\tUpdates=%d Epoch=%d Samples=%d Time-cost=%.3f",

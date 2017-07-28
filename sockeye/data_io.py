@@ -177,7 +177,9 @@ def get_style_training_data_iters(source: str,
                                   bucketing: bool,
                                   bucket_width: int,
                                   target_bos_symbol,
-                                  suffix: str) -> 'ParallelBucketSentenceIter':
+                                  suffix: str,
+                                  target=None,
+                                  target_suffix=None) -> 'ParallelBucketSentenceIter':
     """
     Returns data iterators for training and validation data.
 
@@ -195,7 +197,7 @@ def get_style_training_data_iters(source: str,
     # Assuming an autoencoder like setup where the output sequence
     # is the same as the input sequence
     train_source_sentences, train_target_sentences = read_parallel_corpus(source,
-                                                                          source,
+                                                                          source if target is None else target,
                                                                           vocab,
                                                                           vocab,
                                                                           target_bos_symbol=target_bos_symbol)
@@ -204,7 +206,7 @@ def get_style_training_data_iters(source: str,
         (max_seq_len, max_seq_len)]
 
     train_iter = ParallelBucketSentenceIter(train_source_sentences,
-                                            train_source_sentences,
+                                            train_source_sentences if target is None else train_target_sentences,
                                             buckets,
                                             batch_size,
                                             vocab[C.EOS_SYMBOL],
@@ -213,8 +215,8 @@ def get_style_training_data_iters(source: str,
                                             fill_up=fill_up,
                                             source_data_name=C.SOURCE_NAME + suffix,
                                             source_data_length_name=C.SOURCE_LENGTH_NAME + suffix,
-                                            target_data_name=C.TARGET_NAME + suffix,
-                                            label_name=C.TARGET_LABEL_NAME + suffix)
+                                            target_data_name=C.TARGET_NAME + (suffix if target_suffix is None else target_suffix),
+                                            label_name=C.TARGET_LABEL_NAME + (suffix if target_suffix is None else target_suffix))
 
     return train_iter
 
@@ -241,6 +243,8 @@ Tuple to collect data information for training.
 StyleDataInfo = NamedTuple('StyleDataInfo', [
     ('e', str),
     ('f', str),
+    ('e_val', str),
+    ('f_val', str),
     ('vocab', str),
 ])
 """
