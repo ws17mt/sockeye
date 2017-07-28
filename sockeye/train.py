@@ -242,7 +242,7 @@ def main():
                                                  normalize_loss=args.normalize_loss,
                                                  smoothed_cross_entropy_alpha=args.smoothed_cross_entropy_alpha,
                                                  use_gcn=args.use_gcn,
-                                                 gcn_num_hidden=10,
+                                                 gcn_num_hidden=args.rnn_num_hidden,
                                                  gcn_num_tensor=vocab_metadata_size,
                                                  )
 

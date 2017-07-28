@@ -78,12 +78,8 @@ class GCNCell(object):
 
     def convolve(self, adj, inputs, seq_len):
         output_list = []
-        #reshaped = mx.symbol.reshape(inputs, (-3, -1))
-        #reshaped = inputs
         for i in range(self._tensor_dim):
             # linear transformation
-            #Wi = mx.symbol.slice_axis(self._W, axis=0, begin=i, end=i+1)
-            #bi = mx.symbol.slice_axis(self._b, axis=0, begin=i, end=i+1)
             Wi = self._W[i]
             bi = self._b[i]            
             output = mx.symbol.dot(inputs, Wi)
