@@ -73,6 +73,50 @@ def mask_labels_after_EOS(logits: mx.sym.Symbol,
     sentence_length = mx.sym.broadcast_plus(eos_position, mx.sym.ones(1,))
     return sentence_length
 
+
+def save_prefetchiter_state(p_iter, fname):
+    """
+    Saves the current state of pre-fetching iterator to a file, so that iteration can be
+    continued. Note that the data is not saved, i.e. the iterator must be
+    initialized with the same parameters as in the first call.
+
+    :param p_iter: A pre-fetching iterator
+    :param fname: File name to save the information to.
+   """
+    with open(fname, "wb") as fp:
+        for iter in p_iter.iters:
+            pickle.dump(iter.idx, fp)
+            pickle.dump(iter.curr_idx, fp)
+            np.save(fp, iter.indices)
+
+
+def load_prefetchiter_state(p_iter, fname):
+    """
+    Loads the state of the pre-fetching iterator from a file.
+
+    :param p_iter: A pre-fetching iterator
+    :param fname: File name to load the information from.
+   """
+    with open(fname, "rb") as fp:
+        for iter in p_iter.iters:
+            iter.idx = pickle.load(fp)
+            iter.curr_idx = pickle.load(fp)
+            iter.indices = np.load(fp)
+
+            # Because of how checkpointing is done (pre-fetching the next batch in
+            # each iteration), curr_idx should be always >= 1
+            assert iter.curr_idx >= 1
+            # Right after loading the iterator state, next() should be called
+            iter.curr_idx -= 1
+
+            iter.nd_source = []
+            iter.nd_length = []
+            iter.nd_target = []
+            iter.nd_label = []
+            for i in range(len(iter.data_source)):
+                iter._append_ndarrays(i, iter.indices[i])
+
+
 class _StyleTrainingState:
     """
     Stores the state of the training process. These are the variables that will
@@ -643,7 +687,7 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
             self.module.save_optimizer_states(opt_state_fname)
 
         # State of the bucket iterator
-        train_iter.save_state(os.path.join(training_state_dirname, C.BUCKET_ITER_STATE_NAME))
+        save_prefetchiter_state(train_iter, os.path.join(training_state_dirname, C.BUCKET_ITER_STATE_NAME))
 
         # RNG states: python's random and np.random provide functions for
         # storing the state, mxnet does not, but inside our code mxnet's RNG is
@@ -716,7 +760,7 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
             self.module.load_optimizer_states(opt_state_fname)
 
         # State of the bucket iterator
-        train_iter.load_state(os.path.join(directory, C.BUCKET_ITER_STATE_NAME))
+        load_prefetchiter_state(train_iter, os.path.join(directory, C.BUCKET_ITER_STATE_NAME))
 
         # RNG states: python's random and np.random provide functions for
         # storing the state, mxnet does not, but inside our code mxnet's RNG is
