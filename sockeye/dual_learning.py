@@ -274,11 +274,12 @@ class TrainableInferenceModel(sockeye.inference.InferenceModel):
 
     def set_params_inference_modules(self):        
         # set params for inference module
-        self.encoder_module.set_params(arg_params=self.params, 
+        arg_params, _ = self.module.get_params()
+        self.encoder_module.init_params(arg_params=arg_params, 
                                        aux_params=None, 
                                        allow_missing=False, 
                                        force_init=True)
-        self.decoder_module.set_params(arg_params=self.params, 
+        self.decoder_module.init_params(arg_params=arg_params, 
                                        aux_params=None, 
                                        allow_missing=False, 
                                        force_init=True)
@@ -354,10 +355,12 @@ class TrainableInferenceModel(sockeye.inference.InferenceModel):
     def update_params(self, 
                       k: int,
                       agg_grads: List[List[mx.nd.NDArray]]):
-        updater = self.module._curr_module._updater
-        for ind, pair in enumerate(zip(self.module._curr_module._exec_group.param_arrays, agg_grads)):
-            grad = 1.0/k * pair[1][0] # averaging - perhaps agg_grads should be a dict[str, mx.nd.NDArray]?
-            updater(index=ind, grad=grad, weight=pair[0][0])
+        for old_grad_list, new_grad_list in zip(self.module._curr_module._exec_group.grad_arrays, agg_grads):
+            for old_grad, new_grad in zip(old_grad_list, new_grad_list):
+                new_grad /= float(k) # averaging
+                old_grad = new_grad.copyto(new_grad.context)
+        
+        self.module.update()
     
         arg_params, _ = self.module.get_params()  # sync aux params across devices
         self.params.update(arg_params)

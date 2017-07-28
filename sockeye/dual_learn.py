@@ -222,6 +222,7 @@ def _dual_learn(context: mx.context.Context,
             agg_grads_s2t = None
             agg_grads_t2s = None
             for mid_hyp in mid_hyps:
+                if len(mid_hyp) == 0: continue
                 print("DEBUG 8d (learning loop) - create data batches")
                 infer_input_s2t = _get_inputs(trans_input[2], tm_s2t.vocab_source, tm_s2t.buckets)
                 infer_input_t2s = _get_inputs(mid_hyp, tm_t2s.vocab_source, tm_t2s.buckets) 
@@ -276,19 +277,20 @@ def _dual_learn(context: mx.context.Context,
                                                                                 agg_grads=agg_grads_t2s)
                 print("Passed!")
         
-            # update model parameters
-            print("DEBUG 8h (learning loop) - update params for learning modules")
-            tm_s2t.models[0].update_params(k=k, 
-                                           agg_grads=agg_grads_s2t)
-            tm_t2s.models[0].update_params(k=k, 
-                                           agg_grads=agg_grads_t2s)
-            print("Passed!")
+            if agg_grads_s2t != None and agg_grads_t2s != None:
+                # update model parameters
+                print("DEBUG 8h (learning loop) - update params for learning modules")
+                tm_s2t.models[0].update_params(k=k, 
+                                               agg_grads=agg_grads_s2t)
+                tm_t2s.models[0].update_params(k=k, 
+                                               agg_grads=agg_grads_t2s)
+                print("Passed!")
             
-            # re-set the params for inference modules after each update of model parameters
-            print("DEBUG 8i (learning loop) - update params for inference modules")
-            tm_s2t.models[0].set_params_inference_modules()
-            tm_t2s.models[0].set_params_inference_modules()
-            print("Passed!")
+                # re-set the params for inference modules after each update of model parameters
+                print("DEBUG 8i (learning loop) - update params for inference modules")
+                tm_s2t.models[0].set_params_inference_modules()
+                tm_t2s.models[0].set_params_inference_modules()
+                print("Passed!")
 
         if flag == False:   
             _process_sample(sent, 
@@ -315,18 +317,18 @@ def _dual_learn(context: mx.context.Context,
             # t2s model
             dev_loss_t2s = dec_t2s.models[0].evaluate_dev(all_data[1], metric_val)
 
-            # print the losses to the consoles
+            # print the perplexities to the consoles
             print("-------------------------------------------------------------------------")
-            print("Loss over development set from source-to-target model: %f", dev_loss_s2t)
-            print("Loss over development set from target-to-source model: %f", dev_loss_t2s)
+            print("Perplexity over development set from source-to-target model:", dev_loss_s2t)
+            print("Perplexity over development set from target-to-source model:", dev_loss_t2s)
             print("-------------------------------------------------------------------------")
 
             # save the better model(s) if losses over dev are decreasing!
             if best_dev_loss_s2t > dev_loss_s2t:
-                p_dec_s2t.models[0].save_params(model_folders[0], 1) # FIXME: add checkpoints
+                dec_s2t.models[0].save_params(model_folders[0], 1) # FIXME: add checkpoints
                 best_dev_loss_s2t = dev_loss_s2t
             if best_dev_loss_t2s > dev_loss_t2s:
-                p_dec_t2s.models[0].save_params(model_folders[1], 1) # FIXME: add checkpoints
+                dec_t2s.models[0].save_params(model_folders[1], 1) # FIXME: add checkpoints
                 best_dev_loss_t2s = dev_loss_t2s
 
             r = 0 # reset the round
