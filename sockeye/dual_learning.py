@@ -149,7 +149,7 @@ class InferenceLModel(sockeye.training.TrainingModel):
                                  logger=logger,
                                  context=self.context)
 
-    # get the negative log-likelihood given a batch of data
+    # get the normalized log-likelihood given a sentence
     def compute_ll(self, 
                    batch: mx.io.DataBatch, 
                    val_metric: mx.metric.CompositeEvalMetric) -> float:
