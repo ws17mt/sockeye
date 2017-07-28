@@ -93,7 +93,6 @@ class InferenceModel(sockeye.model.SockeyeModel):
         self.decoder_module.init_params(arg_params=self.params, allow_missing=False)
 
     def _build_modules(self):
-
         # Encoder symbol & module
         source = mx.sym.Variable(C.SOURCE_NAME)
         source_length = mx.sym.Variable(C.SOURCE_LENGTH_NAME)

@@ -152,17 +152,15 @@ class InferenceLModel(sockeye.training.TrainingModel):
     # get the negative log-likelihood given a batch of data
     def compute_ll(self, 
                    batch: mx.io.DataBatch, 
-                   val_metric: mx.metric.CompositeEvalMetric):
+                   val_metric: mx.metric.CompositeEvalMetric) -> float:
         val_metric.reset()
         
         self.module.forward(data_batch=batch, is_train=False)  
         self.module.update_metric(val_metric, batch.label)
         
-        total_val = 0
-        for _, val in val_metric.get_name_value():
-            total_val += val
-        
-        return -np.log(total_val) # FIXME: conversion from perplexity to normalized log-likelihood, logLL = -log(perplexity). Smarter way?
+        normLL = -np.log(val_metric.get_name_value()[0][1])
+               
+        return normLL # conversion from perplexity to normalized log-likelihood, normLL = -log(perplexity). Smarter way?
     
 class TrainableInferenceModel(sockeye.inference.InferenceModel):
     """
@@ -206,7 +204,7 @@ class TrainableInferenceModel(sockeye.inference.InferenceModel):
         max_label_shapes = self._get_module_label_shapes(self.max_input_len)
         self.module.bind(data_shapes=max_data_shapes, 
                          label_shapes=max_label_shapes, 
-                         force_rebind=True,
+                         force_rebind=False,
                          for_training=True, 
                          grad_req='write')
         
@@ -215,11 +213,6 @@ class TrainableInferenceModel(sockeye.inference.InferenceModel):
         initializer = sockeye.initializer.get_initializer(C.RNN_INIT_ORTHOGONAL, lexicon=None) # FIXME: these values are set manually for now!
         self.module.init_params(initializer=initializer, arg_params=self.params, aux_params=None,
                                 allow_missing=False, force_init=False) # just copy from pre-initialized params (self.params)
-
-        # WEIRD! There is an inconsistency between self.params and parameter array in self.module.
-        self.param_maps = {}
-        for ind, param_name in enumerate(self.module._curr_module._exec_group.param_names): # list of parameter names from the module
-            self.param_maps[param_name] = ind
 
     def _get_module_data_shapes(self, 
                                 max_seq_len: int):
@@ -279,20 +272,17 @@ class TrainableInferenceModel(sockeye.inference.InferenceModel):
                                           default_bucket_key=(self.max_input_len, self.max_input_len),
                                           context=self.context)
 
-    def set_params_inference_modules(self):
-        # get params from train module
-        arg_params, aux_params = self.module.get_params()
-        
+    def set_params_inference_modules(self):        
         # set params for inference module
-        self.encoder_module.set_params(arg_params=arg_params, 
-                                       aux_params=aux_params, 
+        self.encoder_module.set_params(arg_params=self.params, 
+                                       aux_params=None, 
                                        allow_missing=False, 
-                                       force_init=False)
-        self.decoder_module.set_params(arg_params=arg_params, 
-                                       aux_params=aux_params, 
+                                       force_init=True)
+        self.decoder_module.set_params(arg_params=self.params, 
+                                       aux_params=None, 
                                        allow_missing=False, 
-                                       force_init=False)
-
+                                       force_init=True)
+        
     def setup_optimizer(self, initial_learning_rate: float, 
                         opt_configs: Tuple[str, float, float, float, 'sockeye.lr_scheduler.LearningRateScheduler']):
         optimizer = opt_configs[0]
@@ -312,37 +302,37 @@ class TrainableInferenceModel(sockeye.inference.InferenceModel):
     # get the log-likelihood given a batch of data
     def compute_ll(self, 
                      batch: mx.io.DataBatch, 
-                     val_metric: mx.metric.CompositeEvalMetric):
+                     val_metric: mx.metric.CompositeEvalMetric) -> float:
         val_metric.reset()
         
         self.module.forward(data_batch=batch, is_train=True)  
+        losses = self.module.get_outputs()
+        
         self.module.update_metric(val_metric, batch.label)
         
-        total_val = 0
-        for _, val in val_metric.get_name_value():
-            total_val += val
+        normLL = -np.log(val_metric.get_name_value()[0][1])
         
-        return -np.log(total_val) # FIXME: conversion from perplexity to normalized log-likelihood, logLL = -log(perplexity). Smarter way?
+        return normLL # conversion from perplexity to normalized log-likelihood, normLL = -log(perplexity). Smarter way?
     
     def forward(self, 
                 batch: mx.io.DataBatch):         
         self.module.forward(data_batch=batch, is_train=True)  
 
     def backward_and_collect_gradients(self, 
-                                       reward: int,
-                                       agg_grads: List[List[mx.nd.NDArray]]):
+                                       reward: float,
+                                       agg_grads: List[List[mx.nd.NDArray]]) -> List[List[mx.nd.NDArray]]:
         # execute backward step
         self.module.backward()
 
         # collect and agggregate gradients
-        if agg_grads == None: # FIXME: or len(agg_grads) == 0
+        if agg_grads == None:
             agg_grads = [[reward * grad.copyto(grad.context) for grad in grads] for grads in self.module._curr_module._exec_group.grad_arrays] # current gradients
         else:
             for gradsc, gradsp in zip(self.module._curr_module._exec_group.grad_arrays, agg_grads):
                 for gradc, gradp in zip(gradsc, gradsp):
                     gradp += reward * gradc # aggregate gradients
 
-        return agg_grads # FIXME: this step is time-consuming. agg_grads is referenced by value, not by object?
+        return agg_grads # FIXME: how to change agg_grads inside this function!
     
     # evaluate over a given development set
     def evaluate_dev(self, 
@@ -364,22 +354,18 @@ class TrainableInferenceModel(sockeye.inference.InferenceModel):
     def update_params(self, 
                       k: int,
                       agg_grads: List[List[mx.nd.NDArray]]):
-        updater = self.module._curr_module._updater         
-        for ind, key in enumerate(self.params.keys()):
-            grad = 1.0/k * agg_grads[self.param_maps[key]][0] # averaging - perhaps agg_grads should be a dict[str, mx.nd.NDArray]?
-            updater(index=ind, grad=grad, weight=self.params[key])
-
-        self.module.set_params(self.params, 
-                               None, 
-                               allow_missing=False, 
-                               force_init=False, 
-                               allow_extra=False)
+        updater = self.module._curr_module._updater
+        for ind, pair in enumerate(zip(self.module._curr_module._exec_group.param_arrays, agg_grads)):
+            grad = 1.0/k * pair[1][0] # averaging - perhaps agg_grads should be a dict[str, mx.nd.NDArray]?
+            updater(index=ind, grad=grad, weight=pair[0][0])
+    
+        arg_params, _ = self.module.get_params()  # sync aux params across devices
+        self.params.update(arg_params)
 
     def save_params(self, output_folder: str, 
                     checkpoint: int):
         """
         Saves the parameters to disk.
         """
+        # update the current params from self.module first
         self.save_params_to_file(os.path.join(output_folder, C.PARAMS_NAME % checkpoint))
-
-        

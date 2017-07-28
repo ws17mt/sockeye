@@ -169,8 +169,9 @@ def _dual_learn(context: mx.context.Context,
     # create eval metric
     metric_val = mx.metric.create([mx.metric.Perplexity(ignore_label=C.PAD_ID, output_names=[C.SOFTMAX_OUTPUT_NAME])]) # FIXME: use cross-entropy loss instead
 
-    # pointers for switching between the models 
-    # including: p_dec_s2t, p_dec_t2s, p_dec (dynamically changed within the loop)
+    # print the perplexities over dev (for debugging only)
+    #print("Perplexity(s2t,dev)=", dec_s2t.models[0].evaluate_dev(all_data[0], metric_val))
+    #print("Perplexity(t2s,dev)=", dec_t2s.models[0].evaluate_dev(all_data[1], metric_val))
 
     # start the dual learning algorithm
     print("DEBUG 8d (learning loop)")
@@ -203,110 +204,104 @@ def _dual_learn(context: mx.context.Context,
             id_t = 0
 
         # sample sentence sentA and sentB from mono_cor_s and mono_cor_t respectively
-        sent = ""
-        if flag == True:
-            sent = all_data[2][orders_s[id_s]]
-
-            # switch the pointers
-            p_dec_s2t = dec_s2t
-            p_dec_t2s = dec_t2s
-            p_dec = models[2]
-        else:
-            sent = all_data[3][orders_t[id_t]]
-
-            # switch the pointers
-            p_dec_s2t = dec_t2s
-            p_dec_t2s = dec_s2t
-            p_dec = models[3]
-
+        sent = all_data[2][orders_s[id_s]] if flag == True else all_data[3][orders_t[id_t]]
         print("Sampled sentence: ", sent)
-        
-        # generate K translated sentences s_{mid,1},...,s_{mid,K} using beam search according to translation model P(.|sentA; mod_am_s2t)
-        print("DEBUG 8d (learning loop) - K-best translation")
-        trans_input = p_dec_s2t.make_input(0, sent) # 0: unused for now!
-        trans_outputs = p_dec_s2t.translate_kbest(trans_input, k) # generate k-best translations
-        mid_hyps = [list(sockeye.data_io.get_tokens(trans[1])) for trans in trans_outputs]
-        print(mid_hyps)
-        print("Passed!")
 
-        # create an input batch as input_iter
-        agg_grads_s2t = None # FIXME: can be []
-        agg_grads_t2s = None # FIXME: can be []
-        for mid_hyp in mid_hyps:
-            print("DEBUG 8d (learning loop) - create data batches")
-            infer_input_s2t = _get_inputs(trans_input[2], p_dec_s2t.vocab_source, p_dec_s2t.buckets)
-            infer_input_t2s = _get_inputs(mid_hyp, p_dec_t2s.vocab_source, p_dec_t2s.buckets) 
-            input_batch_s2t = mx.io.DataBatch(data=[infer_input_s2t[0], infer_input_s2t[2], infer_input_t2s[0]], 
-                                              label=[infer_input_t2s[1]], # slice one position for label seq
-                                              bucket_key=(infer_input_s2t[3],infer_input_t2s[3]),
-                                              provide_data=[mx.io.DataDesc(name=C.SOURCE_NAME, shape=(1, infer_input_s2t[3]), layout=C.BATCH_MAJOR),
-                                                            mx.io.DataDesc(name=C.SOURCE_LENGTH_NAME, shape=(1,), layout=C.BATCH_MAJOR),
-                                                            mx.io.DataDesc(name=C.TARGET_NAME, shape=(1, infer_input_t2s[3]), layout=C.BATCH_MAJOR)],
-                                              provide_label=[mx.io.DataDesc(name=C.TARGET_LABEL_NAME, shape=(1, infer_input_t2s[3]), layout=C.BATCH_MAJOR)])
-            input_batch_t2s = mx.io.DataBatch(data=[infer_input_t2s[0], infer_input_t2s[2], infer_input_s2t[0]], 
-                                              label=[infer_input_s2t[1]], #  slice one position for label seq
-                                              bucket_key=(infer_input_t2s[3],infer_input_s2t[3]),
-                                              provide_data=[mx.io.DataDesc(name=C.SOURCE_NAME, shape=(1, infer_input_t2s[3]), layout=C.BATCH_MAJOR),
-                                                            mx.io.DataDesc(name=C.SOURCE_LENGTH_NAME, shape=(1,), layout=C.BATCH_MAJOR),
-                                                            mx.io.DataDesc(name=C.TARGET_NAME, shape=(1, infer_input_s2t[3]), layout=C.BATCH_MAJOR)],
-                                              provide_label=[mx.io.DataDesc(name=C.TARGET_LABEL_NAME, shape=(1, infer_input_s2t[3]), layout=C.BATCH_MAJOR)])
-            input_batch_mono = mx.io.DataBatch(data=[infer_input_t2s[0]], 
-                                               label=[infer_input_t2s[1]], #  slice one position for label seq
-                                               bucket_key=infer_input_t2s[3],
-                                               provide_data=[mx.io.DataDesc(name=C.MONO_NAME, shape=(1, infer_input_t2s[3]), layout=C.BATCH_MAJOR)],
-                                               provide_label=[mx.io.DataDesc(name=C.MONO_LABEL_NAME, shape=(1, infer_input_t2s[3]), layout=C.BATCH_MAJOR)])
+        def _process_sample(sent, tm_s2t, tm_t2s, lm):
+            # generate K translated sentences s_{mid,1},...,s_{mid,K} using beam search according to translation model P(.|sentA; mod_am_s2t)
+            print("DEBUG 8d (learning loop) - K-best translation")
+            trans_input = tm_s2t.make_input(0, sent) # 0: unused for now!
+            trans_outputs = tm_s2t.translate_kbest(trans_input, k) # generate k-best translations
+            mid_hyps = [list(sockeye.data_io.get_tokens(trans[1])) for trans in trans_outputs]
+            mid_hyp_scores = [trans[4] for trans in trans_outputs]
+            print(k, "best translations=", mid_hyps)
+            print("Scores=", mid_hyp_scores)
             print("Passed!")
 
-            print("DEBUG 8e (learning loop) - computing rewards")
-            # set the language-model reward for currently-sampled sentence from P(mid_hyp; mod_mlm_t)
-            # 1) bind the data {(mid_hyp,mid_hyp)} into the model's module
-            # 2) do forward step --> get the r1 = P(mid_hyp; mod_mlm_t)
-            print("Computing reward_1")
-            reward_1 = p_dec.compute_ll(input_batch_mono, metric_val)
-            print("reward_1=", reward_1)
+            # create an input batch as input_iter
+            agg_grads_s2t = None
+            agg_grads_t2s = None
+            for mid_hyp in mid_hyps:
+                print("DEBUG 8d (learning loop) - create data batches")
+                infer_input_s2t = _get_inputs(trans_input[2], tm_s2t.vocab_source, tm_s2t.buckets)
+                infer_input_t2s = _get_inputs(mid_hyp, tm_t2s.vocab_source, tm_t2s.buckets) 
+                input_batch_s2t = mx.io.DataBatch(data=[infer_input_s2t[0], infer_input_s2t[2], infer_input_t2s[0]], 
+                                                  label=[infer_input_t2s[1]], # slice one position for label seq
+                                                  bucket_key=(infer_input_s2t[3],infer_input_t2s[3]),
+                                                  provide_data=[mx.io.DataDesc(name=C.SOURCE_NAME, shape=(1, infer_input_s2t[3]), layout=C.BATCH_MAJOR),
+                                                                mx.io.DataDesc(name=C.SOURCE_LENGTH_NAME, shape=(1,), layout=C.BATCH_MAJOR),
+                                                                mx.io.DataDesc(name=C.TARGET_NAME, shape=(1, infer_input_t2s[3]), layout=C.BATCH_MAJOR)],
+                                                  provide_label=[mx.io.DataDesc(name=C.TARGET_LABEL_NAME, shape=(1, infer_input_t2s[3]), layout=C.BATCH_MAJOR)])
+                input_batch_t2s = mx.io.DataBatch(data=[infer_input_t2s[0], infer_input_t2s[2], infer_input_s2t[0]], 
+                                                  label=[infer_input_s2t[1]], #  slice one position for label seq
+                                                  bucket_key=(infer_input_t2s[3],infer_input_s2t[3]),
+                                                  provide_data=[mx.io.DataDesc(name=C.SOURCE_NAME, shape=(1, infer_input_t2s[3]), layout=C.BATCH_MAJOR),
+                                                                mx.io.DataDesc(name=C.SOURCE_LENGTH_NAME, shape=(1,), layout=C.BATCH_MAJOR),
+                                                                mx.io.DataDesc(name=C.TARGET_NAME, shape=(1, infer_input_s2t[3]), layout=C.BATCH_MAJOR)],
+                                                  provide_label=[mx.io.DataDesc(name=C.TARGET_LABEL_NAME, shape=(1, infer_input_s2t[3]), layout=C.BATCH_MAJOR)])
+                input_batch_mono = mx.io.DataBatch(data=[infer_input_t2s[0]], 
+                                                   label=[infer_input_t2s[1]], #  slice one position for label seq
+                                                   bucket_key=infer_input_t2s[3],
+                                                   provide_data=[mx.io.DataDesc(name=C.MONO_NAME, shape=(1, infer_input_t2s[3]), layout=C.BATCH_MAJOR)],
+                                                   provide_label=[mx.io.DataDesc(name=C.MONO_LABEL_NAME, shape=(1, infer_input_t2s[3]), layout=C.BATCH_MAJOR)])
+                print("Passed!")
+
+                print("DEBUG 8e (learning loop) - computing rewards")
+                # set the language-model reward for currently-sampled sentence from P(mid_hyp; mod_mlm_t)
+                # 1) bind the data {(mid_hyp,mid_hyp)} into the model's module
+                # 2) do forward step --> get the r1 = P(mid_hyp; mod_mlm_t)
+                print("Computing reward_1")
+                reward_1 = lm.compute_ll(input_batch_mono, metric_val)
+                print("reward_1=", reward_1)
          
-            # set the communication reward for currently-sampled sentence from P(sentA|mid_hype; mod_am_t2s)
-            # do forward step --> get the r2 = P(sentA|mid_hyp; mod_am_t2s)
-            print("Computing reward_2") 
-            reward_2 = p_dec_t2s.models[0].compute_ll(input_batch_t2s, metric_val) # also includes forward step
-            print("reward_2=", reward_2)
+                # set the communication reward for currently-sampled sentence from P(sentA|mid_hype; mod_am_t2s)
+                # do forward step --> get the r2 = P(sentA|mid_hyp; mod_am_t2s)
+                print("Computing reward_2") 
+                reward_2 = tm_t2s.models[0].compute_ll(input_batch_t2s, metric_val) # also includes forward step
+                print("reward_2=", reward_2)
 
-            # reward interpolation: r = alpha * r1 + (1 - alpha) * r2
-            reward = grad_alphas[0] * reward_1 + (1.0 - grad_alphas[0]) * reward_2
-            print("total_reward=", reward)
-            print("Passed!")
+                # reward interpolation: r = alpha * r1 + (1 - alpha) * r2
+                reward = grad_alphas[0] * reward_1 + (1.0 - grad_alphas[0]) * reward_2
+                print("total_reward=", reward)
+                print("Passed!")
         
-            # do forward step for s2t model - FIXME: this step is done twice (one for inference and one for computing loss). Better way? 
-            print("DEBUG 8f (learning loop) - re-update model parameters")
-            p_dec_s2t.models[0].forward(input_batch_s2t)
-            print("Passed!")
+                # do forward step for s2t model - FIXME: this step is done twice (one for inference and one for computing loss). Better way? 
+                tm_s2t.models[0].forward(input_batch_s2t)
 
-            # do backward steps & collect gradients 
-            print("DEBUG 8g (learning loop) - backward and collect gradients")
-            agg_grads_s2t = p_dec_s2t.models[0].backward_and_collect_gradients(reward=reward, 
-                                                                               agg_grads=agg_grads_s2t)
-            agg_grads_t2s = p_dec_t2s.models[0].backward_and_collect_gradients(reward=1.0 - grad_alphas[0], 
-                                                                               agg_grads=agg_grads_t2s)
-            print("Passed!")
+                # do backward steps & collect gradients 
+                print("DEBUG 8g (learning loop) - backward and collect gradients")
+                agg_grads_s2t = tm_s2t.models[0].backward_and_collect_gradients(reward=reward, 
+                                                                                agg_grads=agg_grads_s2t)
+                agg_grads_t2s = tm_t2s.models[0].backward_and_collect_gradients(reward=1.0 - grad_alphas[0], 
+                                                                                agg_grads=agg_grads_t2s)
+                print("Passed!")
         
-        # update model parameters
-        print("DEBUG 8h (learning loop) - update params for learning module")
-        p_dec_s2t.models[0].update_params(k=k, 
-                                          agg_grads=agg_grads_s2t)
-        p_dec_t2s.models[0].update_params(k=k, 
-                                          agg_grads=agg_grads_t2s)
-        print("Passed!")
+            # update model parameters
+            print("DEBUG 8h (learning loop) - update params for learning modules")
+            tm_s2t.models[0].update_params(k=k, 
+                                           agg_grads=agg_grads_s2t)
+            tm_t2s.models[0].update_params(k=k, 
+                                           agg_grads=agg_grads_t2s)
+            print("Passed!")
             
-        # re-set the params for inference modules after each update of model parameters
-        print("DEBUG 8i (learning loop) - update params for inference modules")
-        p_dec_s2t.models[0].set_params_inference_modules()
-        p_dec_t2s.models[0].set_params_inference_modules()
-        print("Passed!")
+            # re-set the params for inference modules after each update of model parameters
+            print("DEBUG 8i (learning loop) - update params for inference modules")
+            tm_s2t.models[0].set_params_inference_modules()
+            tm_t2s.models[0].set_params_inference_modules()
+            print("Passed!")
 
-        if flag == False: 
-            r += 1 # next round
+        if flag == False:   
+            _process_sample(sent, 
+                            dec_t2s, 
+                            dec_s2t, 
+                            models[3])
+            r += 1 # next round       
             id_t += 1
         else:
+            _process_sample(sent, 
+                            dec_s2t, 
+                            dec_t2s, 
+                            models[2])
             id_s += 1
    
         # switch source and target roles
@@ -315,10 +310,10 @@ def _dual_learn(context: mx.context.Context,
         # testing over the development data (all_data[0] and all_data[1]) to check the improvements (after a desired number of rounds)
         if r == lmon[1]:
             # s2t model
-            dev_loss_s2t = p_dec_s2t.models[0].evaluate_dev(all_data[0], metric_val)
+            dev_loss_s2t = dec_s2t.models[0].evaluate_dev(all_data[0], metric_val)
 
             # t2s model
-            dev_loss_t2s = p_dec_t2s.models[0].evaluate_dev(all_data[1], metric_val)
+            dev_loss_t2s = dec_t2s.models[0].evaluate_dev(all_data[1], metric_val)
 
             # print the losses to the consoles
             print("-------------------------------------------------------------------------")
@@ -430,32 +425,32 @@ def main():
         # create data iterators
         # important note: need to get buckets from train_iter and apply it to eval_iter and rev_eval_iter and other things within dual learning stuffs.
         train_iter, eval_iter = sockeye.data_io.get_training_data_iters(source=data_info.source,
-                                                                  target=data_info.target,
-                                                                  validation_source=data_info.validation_source,
-                                                                  validation_target=data_info.validation_target,
-                                                                  vocab_source=vocab_source,
-                                                                  vocab_target=vocab_target,
-                                                                  no_bos=False,
-                                                                  batch_size=64, # FIXME: the following values are currently set manually!
-                                                                  fill_up='replicate',
-                                                                  max_seq_len_source=100,
-                                                                  max_seq_len_target=100,
-                                                                  bucketing=True,
-                                                                  bucket_width=10)
+                                                                        target=data_info.target,
+                                                                        validation_source=data_info.validation_source,
+                                                                        validation_target=data_info.validation_target,
+                                                                        vocab_source=vocab_source,
+                                                                        vocab_target=vocab_target,
+                                                                        no_bos=False,
+                                                                        batch_size=1, # FIXME: the following values are currently set manually!
+                                                                        fill_up='replicate',
+                                                                        max_seq_len_source=100,
+                                                                        max_seq_len_target=100,
+                                                                        bucketing=True,
+                                                                        bucket_width=10)
 
         rev_train_iter, rev_eval_iter = sockeye.data_io.get_training_data_iters(source=data_info.target,
-                                                                           target=data_info.source,
-                                                                           validation_source=data_info.validation_target,
-                                                                           validation_target=data_info.validation_source,
-                                                                           vocab_source=vocab_target,
-                                                                           vocab_target=vocab_source,
-                                                                           no_bos=False,
-                                                                           batch_size=64, # FIXME: the following values are currently set manually!
-                                                                           fill_up='replicate',
-                                                                           max_seq_len_source=100,
-                                                                           max_seq_len_target=100,
-                                                                           bucketing=True,
-                                                                           bucket_width=10)
+                                                                                target=data_info.source,
+                                                                                validation_source=data_info.validation_target,
+                                                                                validation_target=data_info.validation_source,
+                                                                                vocab_source=vocab_target,
+                                                                                vocab_target=vocab_source,
+                                                                                no_bos=False,
+                                                                                batch_size=1, # FIXME: the following values are currently set manually!
+                                                                                fill_up='replicate',
+                                                                                max_seq_len_source=100,
+                                                                                max_seq_len_target=100,
+                                                                                bucketing=True,
+                                                                                bucket_width=10)
         
         # monolingual corpora
         # Note that monolingual source and target data may be different in sizes.
