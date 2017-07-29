@@ -286,6 +286,8 @@ class TrainableInferenceModel(sockeye.inference.InferenceModel):
         
     def setup_optimizer(self, initial_learning_rate: float, 
                         opt_configs: Tuple[str, float, float, float, 'sockeye.lr_scheduler.LearningRateScheduler']):
+        self.learning_rate = initial_learning_rate
+        
         optimizer = opt_configs[0]
         optimizer_params = {'wd': opt_configs[1],
                             "learning_rate": initial_learning_rate}
@@ -298,7 +300,9 @@ class TrainableInferenceModel(sockeye.inference.InferenceModel):
             optimizer_params["momentum"] = opt_configs[2]
         optimizer_params["rescale_grad"] = 1.0
 
-        self.module.init_optimizer(kvstore='device', optimizer=optimizer, optimizer_params=optimizer_params)
+        self.module.init_optimizer(kvstore='local', 
+                                   optimizer=optimizer, 
+                                   optimizer_params=optimizer_params)
 
     # get the log-likelihood given a batch of data
     def compute_ll(self, 
@@ -306,9 +310,7 @@ class TrainableInferenceModel(sockeye.inference.InferenceModel):
                      val_metric: mx.metric.CompositeEvalMetric) -> float:
         val_metric.reset()
         
-        self.module.forward(data_batch=batch, is_train=True)  
-        losses = self.module.get_outputs()
-        
+        self.module.forward(data_batch=batch, is_train=True)
         self.module.update_metric(val_metric, batch.label)
         
         normLL = -np.log(val_metric.get_name_value()[0][1])
@@ -327,11 +329,11 @@ class TrainableInferenceModel(sockeye.inference.InferenceModel):
 
         # collect and agggregate gradients
         if agg_grads == None:
-            agg_grads = [[reward * grad.copyto(grad.context) for grad in grads] for grads in self.module._curr_module._exec_group.grad_arrays] # current gradients
+            agg_grads = [[reward * grad.copy() for grad in grads] for grads in self.module._curr_module._exec_group.grad_arrays] # current gradients
         else:
             for gradsc, gradsp in zip(self.module._curr_module._exec_group.grad_arrays, agg_grads):
                 for gradc, gradp in zip(gradsc, gradsp):
-                    gradp += reward * gradc # aggregate gradients
+                    gradp += reward * gradc.copy() # aggregate gradients
 
         return agg_grads # FIXME: how to change agg_grads inside this function!
     
@@ -355,12 +357,9 @@ class TrainableInferenceModel(sockeye.inference.InferenceModel):
     def update_params(self, 
                       k: int,
                       agg_grads: List[List[mx.nd.NDArray]]):
-        for old_grad_list, new_grad_list in zip(self.module._curr_module._exec_group.grad_arrays, agg_grads):
-            for old_grad, new_grad in zip(old_grad_list, new_grad_list):
-                new_grad /= float(k) # averaging
-                old_grad = new_grad.copyto(new_grad.context)
-        
-        self.module.update()
+        for param_list, grad_list in zip(self.module._curr_module._exec_group.param_arrays, agg_grads):
+            for param, grad in zip(param_list, grad_list):
+                mx.ndarray.sgd_update(weight=param, grad=grad/float(k), lr=self.learning_rate, out=param)
     
         arg_params, _ = self.module.get_params()  # sync aux params across devices
         self.params.update(arg_params)

@@ -106,11 +106,6 @@ def _get_inputs(tokens: List[str],
         for i in range(len(ids) - 1):
             source_label[0, i] = ids[i + 1]
         source_label[0, len(ids) - 1] = vocab[C.EOS_SYMBOL]
-
-        #print(source.asnumpy())
-        #print(source_label.asnumpy())
-        #print(length.asnumpy())
-        #print(bucket_key)
         
         return source, source_label, length, bucket_key
 
@@ -171,8 +166,8 @@ def _dual_learn(context: mx.context.Context,
     metric_val = mx.metric.create([mx.metric.Perplexity(ignore_label=C.PAD_ID, output_names=[C.SOFTMAX_OUTPUT_NAME])]) # FIXME: use cross-entropy loss instead
 
     # print the perplexities over dev (for debugging only)
-    logger.info("Perplexity(s2t,dev)=" + str(dec_s2t.models[0].evaluate_dev(all_data[0], metric_val)))
-    logger.info("Perplexity(t2s,dev)=" + str(dec_t2s.models[0].evaluate_dev(all_data[1], metric_val)))
+    logger.info("Perplexity over development set from source-to-target model:" + str(dec_s2t.models[0].evaluate_dev(all_data[0], metric_val)))
+    logger.info("Perplexity over development set from target-to-source model:" + str(dec_t2s.models[0].evaluate_dev(all_data[1], metric_val)))
 
     # start the dual learning algorithm
     logger.info("DEBUG - 8d (learning loop)")
@@ -272,9 +267,9 @@ def _dual_learn(context: mx.context.Context,
 
                 # do backward steps & collect gradients 
                 logger.info("DEBUG - 8g (learning loop) - backward and collect gradients")
-                agg_grads_s2t = tm_s2t.models[0].backward_and_collect_gradients(reward=1.0,#-reward, 
+                agg_grads_s2t = tm_s2t.models[0].backward_and_collect_gradients(reward=-reward, # gradient ascent
                                                                                 agg_grads=agg_grads_s2t)
-                agg_grads_t2s = tm_t2s.models[0].backward_and_collect_gradients(reward=1.0,#-(1.0 - grad_alphas[0]), 
+                agg_grads_t2s = tm_t2s.models[0].backward_and_collect_gradients(reward=-(1.0 - grad_alphas[0]), # gradient ascent
                                                                                 agg_grads=agg_grads_t2s)
                 logger.info("Passed!")
         
