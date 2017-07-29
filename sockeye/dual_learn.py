@@ -22,6 +22,7 @@ from typing import Optional, Dict, List, Tuple, Iterator
 
 import mxnet as mx
 import numpy as np
+import math
 
 import sockeye.arguments as arguments
 import sockeye.attention
@@ -137,7 +138,7 @@ def _dual_learn(context: mx.context.Context,
                 model_folders: Tuple[str, str],
                 k: int):
     # set up decoders/translators
-    print("DEBUG 8a")
+    logger.info("DEBUG - 8a")
     dec_s2t = sockeye.inference.Translator(context=context,
                                            ensemble_mode="linear", #unused
                                            set_bos=None, #unused
@@ -150,31 +151,31 @@ def _dual_learn(context: mx.context.Context,
                                            models=[models[1]], 
                                            vocab_source=vocab_target,
                                            vocab_target=vocab_source)
-    print("Passed!")
+    logger.info("Passed!")
 
     # set up monolingual data access/ids
-    print("DEBUG 8b")
+    logger.info("DEBUG - 8b")
     orders_s = list(range(len(all_data[2])))
     orders_t = list(range(len(all_data[3])))
     np.random.shuffle(orders_s)
     np.random.shuffle(orders_t)
-    print("Passed!")
+    logger.info("Passed!")
 
     # set up optimizers
-    print("DEBUG 8c")
+    logger.info("DEBUG - 8c")
     dec_s2t.models[0].setup_optimizer(initial_learning_rate=grad_alphas[1], opt_configs=opt_configs)
     dec_t2s.models[0].setup_optimizer(initial_learning_rate=grad_alphas[2], opt_configs=opt_configs)
-    print("Passed!")
+    logger.info("Passed!")
 
     # create eval metric
     metric_val = mx.metric.create([mx.metric.Perplexity(ignore_label=C.PAD_ID, output_names=[C.SOFTMAX_OUTPUT_NAME])]) # FIXME: use cross-entropy loss instead
 
     # print the perplexities over dev (for debugging only)
-    #print("Perplexity(s2t,dev)=", dec_s2t.models[0].evaluate_dev(all_data[0], metric_val))
-    #print("Perplexity(t2s,dev)=", dec_t2s.models[0].evaluate_dev(all_data[1], metric_val))
+    logger.info("Perplexity(s2t,dev)=" + str(dec_s2t.models[0].evaluate_dev(all_data[0], metric_val)))
+    logger.info("Perplexity(t2s,dev)=" + str(dec_t2s.models[0].evaluate_dev(all_data[1], metric_val)))
 
     # start the dual learning algorithm
-    print("DEBUG 8d (learning loop)")
+    logger.info("DEBUG - 8d (learning loop)")
     best_dev_loss_s2t = 9e+99
     best_dev_loss_t2s = 9e+99
     id_s = 0
@@ -205,25 +206,25 @@ def _dual_learn(context: mx.context.Context,
 
         # sample sentence sentA and sentB from mono_cor_s and mono_cor_t respectively
         sent = all_data[2][orders_s[id_s]] if flag == True else all_data[3][orders_t[id_t]]
-        print("Sampled sentence: ", sent)
+        logger.info("Sampled sentence: " + sent)
 
         def _process_sample(sent, tm_s2t, tm_t2s, lm):
             # generate K translated sentences s_{mid,1},...,s_{mid,K} using beam search according to translation model P(.|sentA; mod_am_s2t)
-            print("DEBUG 8d (learning loop) - K-best translation")
+            logger.info("DEBUG - 8d (learning loop) - K-best translation")
             trans_input = tm_s2t.make_input(0, sent) # 0: unused for now!
             trans_outputs = tm_s2t.translate_kbest(trans_input, k) # generate k-best translations
             mid_hyps = [list(sockeye.data_io.get_tokens(trans[1])) for trans in trans_outputs]
             mid_hyp_scores = [trans[4] for trans in trans_outputs]
-            print(k, "best translations=", mid_hyps)
-            print("Scores=", mid_hyp_scores)
-            print("Passed!")
+            logger.info(str(k) +"-best translations: " + str(mid_hyps))#mid_hyps)
+            logger.info("Scores: " + str(mid_hyp_scores))
+            logger.info("Passed!")
 
             # create an input batch as input_iter
             agg_grads_s2t = None
             agg_grads_t2s = None
             for mid_hyp in mid_hyps:
                 if len(mid_hyp) == 0: continue
-                print("DEBUG 8d (learning loop) - create data batches")
+                logger.info("DEBUG - 8d (learning loop) - create data batches")
                 infer_input_s2t = _get_inputs(trans_input[2], tm_s2t.vocab_source, tm_s2t.buckets)
                 infer_input_t2s = _get_inputs(mid_hyp, tm_t2s.vocab_source, tm_t2s.buckets) 
                 input_batch_s2t = mx.io.DataBatch(data=[infer_input_s2t[0], infer_input_s2t[2], infer_input_t2s[0]], 
@@ -245,52 +246,52 @@ def _dual_learn(context: mx.context.Context,
                                                    bucket_key=infer_input_t2s[3],
                                                    provide_data=[mx.io.DataDesc(name=C.MONO_NAME, shape=(1, infer_input_t2s[3]), layout=C.BATCH_MAJOR)],
                                                    provide_label=[mx.io.DataDesc(name=C.MONO_LABEL_NAME, shape=(1, infer_input_t2s[3]), layout=C.BATCH_MAJOR)])
-                print("Passed!")
+                logger.info("Passed!")
 
-                print("DEBUG 8e (learning loop) - computing rewards")
+                logger.info("DEBUG - 8e (learning loop) - computing rewards")
                 # set the language-model reward for currently-sampled sentence from P(mid_hyp; mod_mlm_t)
                 # 1) bind the data {(mid_hyp,mid_hyp)} into the model's module
                 # 2) do forward step --> get the r1 = P(mid_hyp; mod_mlm_t)
                 print("Computing reward_1")
                 reward_1 = lm.compute_ll(input_batch_mono, metric_val)
-                print("reward_1=", reward_1)
+                logger.info("reward_1=" + str(reward_1))
          
                 # set the communication reward for currently-sampled sentence from P(sentA|mid_hype; mod_am_t2s)
                 # do forward step --> get the r2 = P(sentA|mid_hyp; mod_am_t2s)
                 print("Computing reward_2") 
                 reward_2 = tm_t2s.models[0].compute_ll(input_batch_t2s, metric_val) # also includes forward step
-                print("reward_2=", reward_2)
+                logger.info("reward_2=" + str(reward_2))
 
                 # reward interpolation: r = alpha * r1 + (1 - alpha) * r2
                 reward = grad_alphas[0] * reward_1 + (1.0 - grad_alphas[0]) * reward_2
-                print("total_reward=", reward)
-                print("Passed!")
+                logger.info("total_reward=" + str(reward))
+                logger.info("Passed!")
         
                 # do forward step for s2t model - FIXME: this step is done twice (one for inference and one for computing loss). Better way? 
                 tm_s2t.models[0].forward(input_batch_s2t)
 
                 # do backward steps & collect gradients 
-                print("DEBUG 8g (learning loop) - backward and collect gradients")
-                agg_grads_s2t = tm_s2t.models[0].backward_and_collect_gradients(reward=reward, 
+                logger.info("DEBUG - 8g (learning loop) - backward and collect gradients")
+                agg_grads_s2t = tm_s2t.models[0].backward_and_collect_gradients(reward=1.0,#-reward, 
                                                                                 agg_grads=agg_grads_s2t)
-                agg_grads_t2s = tm_t2s.models[0].backward_and_collect_gradients(reward=1.0 - grad_alphas[0], 
+                agg_grads_t2s = tm_t2s.models[0].backward_and_collect_gradients(reward=1.0,#-(1.0 - grad_alphas[0]), 
                                                                                 agg_grads=agg_grads_t2s)
-                print("Passed!")
+                logger.info("Passed!")
         
             if agg_grads_s2t != None and agg_grads_t2s != None:
                 # update model parameters
-                print("DEBUG 8h (learning loop) - update params for learning modules")
+                logger.info("DEBUG - 8h (learning loop) - update params for learning modules")
                 tm_s2t.models[0].update_params(k=k, 
                                                agg_grads=agg_grads_s2t)
                 tm_t2s.models[0].update_params(k=k, 
                                                agg_grads=agg_grads_t2s)
-                print("Passed!")
+                logger.info("Passed!")
             
                 # re-set the params for inference modules after each update of model parameters
-                print("DEBUG 8i (learning loop) - update params for inference modules")
+                logger.info("DEBUG - 8i (learning loop) - update params for inference modules")
                 tm_s2t.models[0].set_params_inference_modules()
                 tm_t2s.models[0].set_params_inference_modules()
-                print("Passed!")
+                logger.info("Passed!")
 
         if flag == False:   
             _process_sample(sent, 
@@ -318,10 +319,10 @@ def _dual_learn(context: mx.context.Context,
             dev_loss_t2s = dec_t2s.models[0].evaluate_dev(all_data[1], metric_val)
 
             # print the perplexities to the consoles
-            print("-------------------------------------------------------------------------")
-            print("Perplexity over development set from source-to-target model:", dev_loss_s2t)
-            print("Perplexity over development set from target-to-source model:", dev_loss_t2s)
-            print("-------------------------------------------------------------------------")
+            logger.info("-------------------------------------------------------------------------")
+            logger.info("Perplexity over development set from source-to-target model:" + str(dev_loss_s2t))
+            logger.info("Perplexity over development set from target-to-source model:" + str(dev_loss_t2s))
+            logger.info("-------------------------------------------------------------------------")
 
             # save the better model(s) if losses over dev are decreasing!
             if best_dev_loss_s2t > dev_loss_s2t:
@@ -335,31 +336,29 @@ def _dual_learn(context: mx.context.Context,
 
 def main():
     # command line processing
-    print("DEBUG 1")
     params = argparse.ArgumentParser(description='CLI for dual learning of sequence-to-sequence models.')
     arguments.add_device_args(params)
     arguments.add_dual_learning_args(params)
     args = params.parse_args()
-    print("Passed!")
+    logger = setup_main_logger(__name__, file_logging=False, console=not args.quiet)
 
     # seed the RNGs
-    print("DEBUG 2")
+    logger.info("DEBUG - 1")
     np.random.seed(args.seed)
     random.seed(args.seed)
     mx.random.seed(args.seed)
-    print("Passed!")
+    logger.info("Passed!")
 
     # checking status of output folder, resumption, etc.
     # create temporary logger to console only
-    print("DEBUG 3")
-    logger = setup_main_logger(__name__, file_logging=False, console=not args.quiet)
+    logger.info("DEBUG - 2")
     output_s2t_folder = os.path.abspath(args.output_s2t)
     _check_path(output_s2t_folder, logger, args.overwrite_output)
     output_t2s_folder = os.path.abspath(args.output_t2s)
     _check_path(output_t2s_folder, logger, args.overwrite_output)
-    print("Passed!")
+    logger.info("Passed!")
 
-    print("DEBUG 4")
+    logger.info("DEBUG - 3")
     output_folder = os.path.abspath(args.output)
     _check_path(output_folder, logger, args.overwrite_output)
     logger = setup_main_logger(__name__, file_logging=True, console=not args.quiet, path=os.path.join(output_folder, C.LOG_NAME))
@@ -369,10 +368,10 @@ def main():
         json.dump(vars(args), fp)
     with open(os.path.join(output_t2s_folder, C.ARGS_STATE_NAME), "w") as fp:
         json.dump(vars(args), fp)
-    print("Passed!")
+    logger.info("Passed!")
 
     with ExitStack() as exit_stack:
-        print("DEBUG 5a")
+        logger.info("DEBUG - 4")
         # get contexts (either in CPU or GPU)
         if args.use_cpu:
             logger.info("Device: CPU")
@@ -394,14 +393,14 @@ def main():
                     gpu_ids = exit_stack.enter_context(acquire_gpus([-1], lock_dir=args.lock_dir))
                     gpu_id = gpu_ids[0]
             context = mx.gpu(gpu_id)
-        print("Passed!")
+        logger.info("Passed!")
 
         # get model paths
         model_paths = args.models # [0]: s2t NMT; [1]: t2s NMT; [2]: s RNNLM; [3]: t RNNLM
 
         #--- load data
         # create vocabs on-the-fly
-        print("DEBUG 5b")
+        logger.info("DEBUG - 5a")
         vocab_source = sockeye.vocab.vocab_from_json_or_pickle(os.path.join(model_paths[0], C.VOCAB_SRC_NAME))
         sockeye.vocab.vocab_to_json(vocab_source, os.path.join(output_s2t_folder, C.VOCAB_SRC_NAME) + C.JSON_SUFFIX) # dump vocab json file into new output folder
         sockeye.vocab.vocab_to_json(vocab_source, os.path.join(output_t2s_folder, C.VOCAB_SRC_NAME) + C.JSON_SUFFIX) # dump vocab json file into new output folder
@@ -413,10 +412,10 @@ def main():
         vocab_source_size = len(vocab_source)
         vocab_target_size = len(vocab_target)
         logger.info("Vocabulary sizes: source=%d target=%d", vocab_source_size, vocab_target_size)
-        print("Passed!")
+        logger.info("Passed!")
 
         # parallel corpora
-        print("DEBUG 5c")
+        logger.info("DEBUG - 5b")
         data_info = sockeye.data_io.DataInfo(os.path.abspath(args.source),
                                              os.path.abspath(args.target),
                                              os.path.abspath(args.validation_source),
@@ -460,7 +459,7 @@ def main():
         # otherwise, unknown words will be used in place of new words.
         src_mono_data = list(_read_lines(os.path.abspath(args.mono_source))) # FIXME: how to do create a batch of these data?
         trg_mono_data = list(_read_lines(os.path.abspath(args.mono_target)))
-        print("Passed!")
+        logger.info("Passed!")
 
         # group all data
         # [0]: train data iter
@@ -475,10 +474,10 @@ def main():
         # [1]: target-to-source NMT model
         # [2]: source RNNLM model 
         # [3]: target RNNLM model
-        print("DEBUG 6")
+        logger.info("DEBUG - 6")
         models = []
         # NMT models
-        print("DEBUG 6a")
+        logger.info("DEBUG - 6a")
         models.append(sockeye.dual_learning.TrainableInferenceModel(model_folder=model_paths[0],
                                                                     context=context, 
                                                                     fused=False,
@@ -491,25 +490,25 @@ def main():
                                                                     max_input_len=args.max_input_len)) # FIXME: can get bucketing info from rev_train_iter
         
         # RNNLMs 
-        print("DEBUG 6b")
+        logger.info("DEBUG - 6b")
         models.append(sockeye.dual_learning.InferenceLModel(model_folder=model_paths[2],
                                                             context=context))
         models.append(sockeye.dual_learning.InferenceLModel(model_folder=model_paths[3],
                                                             context=context))
-        print("Passed!")
+        logger.info("Passed!")
 
         # learning rate scheduling
-        print("DEBUG 7")
+        logger.info("DEBUG - 7")
         learning_rate_half_life = None if args.learning_rate_half_life < 0 else args.learning_rate_half_life
         lr_scheduler = sockeye.lr_scheduler.get_lr_scheduler(args.learning_rate_scheduler_type,
                                                              1000, # FIXME: checkpoint frequency, now manually set!
                                                              learning_rate_half_life,
                                                              args.learning_rate_reduce_factor,
                                                              args.learning_rate_reduce_num_not_improved)
-        print("Passed!")
+        logger.info("Passed!")
 
         #--- execute dual-learning
-        print("DEBUG 8 (_dual_learn)")
+        logger.info("DEBUG - 8 (_dual_learn)")
         _dual_learn(context=context,
                     vocab_source=vocab_source, vocab_target=vocab_target, 
                     all_data=all_data, 
@@ -519,7 +518,7 @@ def main():
                     lmon=(args.epoch, args.dev_round), # extra stuffs for learning monitor
                     model_folders=(output_s2t_folder, output_t2s_folder), # output folders where the model files will live in!
                     k=args.k_best) # K in K-best translation
-        print("Passed!")
+        logger.info("Passed!")
 
     #--- bye bye message
     print("Dual learning completed!")

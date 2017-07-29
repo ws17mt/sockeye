@@ -558,7 +558,7 @@ def add_dual_learning_args(params):
                              help='Overwrite output folder if it exists.')
 
     dl_params.add_argument('--optimizer',
-                              default='adam',
+                              default='sgd',
                               choices=['adam', 'sgd', 'rmsprop'],
                               help='SGD update rule. Default: %(default)s.')
     dl_params.add_argument('--weight-decay',
