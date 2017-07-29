@@ -492,7 +492,7 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
                                                                  use_tensorboard=use_tensorboard,
                                                                  checkpoint_decoder=checkpoint_decoder)
         val_iter = None
-        self._fit(train_iter, output_folder,
+        self._fit(train_iter, val_iter, output_folder,
                   metrics=metrics,
                   max_updates=max_updates,
                   checkpoint_frequency=checkpoint_frequency,
@@ -508,6 +508,7 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
     # TODO: There's no val iter here.
     def _fit(self,
              train_iter: sockeye.data_io.ParallelBucketSentenceIter,
+             val_iter: sockeye.data_io.ParallelBucketSentenceIter,
              output_folder: str,
              metrics: List[AnyStr],
              max_updates: int,
@@ -568,7 +569,8 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
             # This is a batch with the training data for e and f
             batch = next_data_batch
             self.module.forward_backward(batch)
-            _, loss_D = self.module.get_outputs()
+            loss_G, loss_D = self.module.get_outputs()
+
 #            ce_D.update(loss_D_labels, [loss_D]) # TODO: print this
             self.module.update()
 
@@ -590,8 +592,14 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
                             train_state.samples, (toc - tic))
                 tic = time.time()
 
+                # Compute perplexity over D's decisions
+                loss_D_labels_np = loss_D_labels.asnumpy().astype('int')
+                batch_size = loss_D_labels_np.shape[0]
+                ll_batch = loss_D.asnumpy()[np.arange(batch_size), loss_D_labels_np]
+                D_val = (np.power(2, -1 / batch_size * (np.sum(np.log2(ll_batch)))))
+
                 for name, val in metric_train.get_name_value():
-                    logger.info('Checkpoint [%d]\tTrain-%s=%f', train_state.checkpoint, name, val)
+                    logger.info('Checkpoint [%d]\tTrain-%s=%f\tD=%f', train_state.checkpoint, name, val, D_val)
                 metric_train.reset()
 
                 # TODO:evaluation on validation set
