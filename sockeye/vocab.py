@@ -45,7 +45,6 @@ def build_from_path(paths: List[str], num_words: int = 50000, min_count: int = 1
     return vocab
 
 
-
 def build_vocab(data: List[Iterable[str]], num_words: int = 50000, min_count: int = 1) -> Dict[str, int]:
     """
     Creates a vocabulary mapping from words to ids. Increasing integer ids are assigned by word frequency,
@@ -59,12 +58,11 @@ def build_vocab(data: List[Iterable[str]], num_words: int = 50000, min_count: in
     """
     vocab_symbols_set = set(C.VOCAB_SYMBOLS)
 
-    tokens = []
+    raw_vocab = Counter()
     for d in data:
-        tokens_d = [token for line in d for token in get_tokens(line)
-                    if token not in vocab_symbols_set]
-        tokens += tokens_d
-    raw_vocab = Counter(tokens)
+        for line in d:
+            raw_vocab.update([token for token in get_tokens(line)
+                              if token not in vocab_symbols_set])
 
     # raw_vocab = Counter(token for line in data for token in get_tokens(line)
     #                     if token not in vocab_symbols_set)
