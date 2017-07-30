@@ -260,7 +260,12 @@ def main():
                                                  rnn_num_layers=args.rnn_num_layers,
                                                  rnn_num_hidden=args.rnn_num_hidden,
                                                  rnn_residual_connections=args.rnn_residual_connections,
-                                                 lm_pretrain_layers=args.lm_pretrain_layers,
+                                                 lm_pretrain_layers_source=(args.lm_pretrain_layers
+                                                                            if args.lm_pretrain_layers_source is None
+                                                                            else args.lm_pretrain_layers_source),
+                                                 lm_pretrain_layers_target=(args.lm_pretrain_layers
+                                                                            if args.lm_pretrain_layers_target is None
+                                                                            else args.lm_pretrain_layers_target),
                                                  weight_tying=args.weight_tying,
                                                  context_gating=args.context_gating,
                                                  lexical_bias=args.lexical_bias,

@@ -48,7 +48,8 @@ ModelConfig = sockeye.utils.namedtuple_with_defaults('ModelConfig',
                                                       "rnn_num_layers",
                                                       "rnn_num_hidden",
                                                       "rnn_residual_connections",
-                                                      "lm_pretrain_layers",
+                                                      "lm_pretrain_layers_source",
+                                                      "lm_pretrain_layers_target",
                                                       "weight_tying",
                                                       "context_gating",
                                                       "lexical_bias",
@@ -66,7 +67,8 @@ ModelConfig = sockeye.utils.namedtuple_with_defaults('ModelConfig',
                                                       "normalize_loss": False,
                                                       "layer_normalization": False,
                                                       "encoder": C.RNN_NAME,
-                                                      "lm_pretrain_layers": 0,
+                                                      "lm_pretrain_layers_source": 0,
+                                                      "lm_pretrain_layers_target": 0,
                                                       "conv_embed_max_filter_width": 8,
                                                       "conv_embed_num_filters": None,
                                                       "conv_embed_pool_stride": 5,
@@ -187,7 +189,7 @@ class SockeyeModel:
                                                    self.lexicon,
                                                    self.config.context_gating,
                                                    self.config.layer_normalization,
-                                                   self.config.lm_pretrain_layers)
+                                                   self.config.lm_pretrain_layers_target)
 
         self.rnn_cells = self.encoder.get_rnn_cells() + self.decoder.get_rnn_cells()
 

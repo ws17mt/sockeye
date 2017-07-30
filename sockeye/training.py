@@ -96,7 +96,7 @@ class TrainingModel(sockeye.model.SockeyeModel):
         self.module_list = [self.module]
         self.lm_source_module = None
         self.lm_target_module = None
-        if self.config.lm_pretrain_layers > 0 and mono_source_iter is not None:
+        if self.config.lm_pretrain_layers_source > 0 and mono_source_iter is not None:
             self.lm_source = sockeye.lm.get_lm_from_encoder(config=self.config,
                                                             encoder=self.encoder,
                                                             fused=fused,
@@ -104,7 +104,7 @@ class TrainingModel(sockeye.model.SockeyeModel):
             # self.rnn_cells.append(self.lm_source.rnn)  # TODO: Does this need to be here since they will share params?
             self.lm_source_module = self._build_lm_module(mono_source_iter, self.lm_source, self.config.max_seq_len)
             self.module_list.append(self.lm_source_module)
-        if self.config.lm_pretrain_layers > 0 and mono_target_iter is not None:
+        if self.config.lm_pretrain_layers_target > 0 and mono_target_iter is not None:
             self.lm_target = sockeye.lm.get_lm_from_decoder(config=self.config,
                                                             decoder=self.decoder,
                                                             rnn_forget_bias=rnn_forget_bias)

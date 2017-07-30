@@ -205,6 +205,14 @@ def add_model_parameters(params):
                               default=0,
                               help='Number of LM pretrain RNN layers used for LM initialization or dual '
                               'objective training. Default: %s(default)s.')
+    model_params.add_argument('--lm-pretrain-layers-source',
+                              type=int_greater_or_equal(1),
+                              default=None,
+                              help='Number of LM pretrain RNN layers for source tokens. Overrides --lm-pretrain-layers. Default: %(default)s')
+    model_params.add_argument('--lm-pretrain-layers-target',
+                              type=int_greater_or_equal(1),
+                              default=None,
+                              help='Number of LM pretrain RNN layers for target tokens. Overrides --lm-pretrain-layers. Default: %(default)s')
 
     model_params.add_argument('--rnn-num-layers',
                               type=int_greater_or_equal(1),

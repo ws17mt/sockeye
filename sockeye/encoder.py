@@ -64,9 +64,9 @@ def get_encoder(config: "ModelConfig",
 
     encoder_class = FusedRecurrentEncoder if fused else RecurrentEncoder
     lm_pre_rnn = None
-    if config.lm_pretrain_layers > 0:
+    if config.lm_pretrain_layers_source > 0:
         lm_pre_rnn = encoder_class(num_hidden=config.rnn_num_hidden,
-                                   num_layers=config.lm_pretrain_layers,
+                                   num_layers=config.lm_pretrain_layers_source,
                                    dropout=config.dropout,
                                    prefix=C.STACKEDRNN_PREFIX+C.LM_SOURCE_PREFIX,
                                    layout=C.TIME_MAJOR,
