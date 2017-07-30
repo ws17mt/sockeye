@@ -56,7 +56,8 @@ class TrainingMonitor(object):
                  optimized_metric: str = C.PERPLEXITY,
                  use_tensorboard: bool = False,
                  checkpoint_decoder: Optional[sockeye.checkpoint_decoder.CheckpointDecoder] = None,
-                 num_concurrent_decodes: int = 1) -> None:
+                 num_concurrent_decodes: int = 1,
+                 measure_speed_every: int = C.MEASURE_SPEED_EVERY) -> None:
         self.metrics = []  # stores dicts of metric names & values for each checkpoint
         self.metrics_filename = os.path.join(output_folder, C.METRICS_NAME)
         open(self.metrics_filename, 'w').close()  # clear metrics file
@@ -78,7 +79,7 @@ class TrainingMonitor(object):
         self.decoder_processes = []
         # TODO(fhieber): MXNet Speedometer uses root logger. How to fix this?
         self.speedometer = mx.callback.Speedometer(batch_size=batch_size,
-                                                   frequent=C.MEASURE_SPEED_EVERY,
+                                                   frequent=measure_speed_every,
                                                    auto_reset=False)
         self.optimized_metric = optimized_metric
         if self.optimized_metric == C.PERPLEXITY:

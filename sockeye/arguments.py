@@ -199,7 +199,6 @@ def add_model_parameters(params):
                               default=4,
                               help="Number of highway layers for ConvolutionalEmbeddingEncoder. Default: %(default)s.")
 
-    # TODO: Consider having different values for source and target here
     model_params.add_argument('--lm-pretrain-layers',
                               type=int_greater_or_equal(0),
                               default=0,
@@ -213,6 +212,11 @@ def add_model_parameters(params):
                               type=int_greater_or_equal(1),
                               default=None,
                               help='Number of LM pretrain RNN layers for target tokens. Overrides --lm-pretrain-layers. Default: %(default)s')
+
+    model_params.add_argument('--lm-pretrain-steps',
+                              type=int_greater_or_equal(0),
+                              default=1,
+                              help='Number of LM pretrain steps to take for each TM step. Default: %s(default)s.')
 
     model_params.add_argument('--rnn-num-layers',
                               type=int_greater_or_equal(1),

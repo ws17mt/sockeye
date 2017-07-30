@@ -250,6 +250,7 @@ class TrainingModel(sockeye.model.SockeyeModel):
             min_num_epochs: Optional[int] = None,
             monitor_bleu: int = 0,
             use_tensorboard: bool = False,
+            lm_pretrain_steps: int = 1,
             mono_source_iter: sockeye.data_io.MonoBucketSentenceIter=None,
             mono_target_iter: sockeye.data_io.MonoBucketSentenceIter=None):
         """
@@ -296,6 +297,22 @@ class TrainingModel(sockeye.model.SockeyeModel):
                                                                  optimized_metric=optimized_metric,
                                                                  use_tensorboard=use_tensorboard,
                                                                  checkpoint_decoder=checkpoint_decoder)
+
+        self.lm_source_training_monitor = None
+        if self.lm_source_module is not None:
+            self.lm_source_training_monitor = sockeye.callback.TrainingMonitor(train_iter.batch_size, output_folder,
+                                                                               optimized_metric=optimized_metric,
+                                                                               use_tensorboard=use_tensorboard,
+                                                                               checkpoint_decoder=checkpoint_decoder,
+                                                                               measure_speed_every=C.MEASURE_SPEED_EVERY*lm_pretrain_steps)
+        self.lm_target_training_monitor = None
+        if self.lm_target_module is not None:
+            self.lm_target_training_monitor = sockeye.callback.TrainingMonitor(train_iter.batch_size, output_folder,
+                                                                               optimized_metric=optimized_metric,
+                                                                               use_tensorboard=use_tensorboard,
+                                                                               checkpoint_decoder=checkpoint_decoder,
+                                                                               measure_speed_every=C.MEASURE_SPEED_EVERY*lm_pretrain_steps)
+
         self._fit(train_iter, val_iter, output_folder,
                   max_params_files_to_keep,
                   metrics=metrics,
@@ -303,6 +320,7 @@ class TrainingModel(sockeye.model.SockeyeModel):
                   checkpoint_frequency=checkpoint_frequency,
                   max_num_not_improved=max_num_not_improved,
                   min_num_epochs=min_num_epochs,
+                  lm_pretrain_steps=lm_pretrain_steps,
                   mono_source_iter=mono_source_iter,
                   mono_target_iter=mono_target_iter)
 
@@ -315,10 +333,13 @@ class TrainingModel(sockeye.model.SockeyeModel):
     def _update(self,
                 train_iter,
                 module,
+                module_steps,
                 next_data_batch,
                 train_state,
-                metric_train):
-        if module is not None:
+                metric_train,
+                monitor):
+        steps = module_steps if module is not None else 0
+        for _ in range(steps):
             if not train_iter.iter_next():
                 train_state.epoch += 1
                 train_iter.reset()
@@ -328,7 +349,18 @@ class TrainingModel(sockeye.model.SockeyeModel):
             module.forward_backward(batch)
             module.update()
 
-            # manually sync params across batches
+            if train_iter.iter_next():
+                # pre-fetch next batch
+                next_data_batch = train_iter.next()
+                module.prepare(next_data_batch)
+
+            module.update_metric(metric_train, batch.label)
+            monitor.batch_end_callback(train_state.epoch, train_state.updates, metric_train)
+            train_state.updates += 1
+            train_state.samples += train_iter.batch_size
+
+        if steps > 0:
+            # manually sync params across batches - only do once, regardless of step count
             arg_params, aux_params = module.get_params()
             for m2 in self.module_list:
                 if m2 is not module:
@@ -342,16 +374,6 @@ class TrainingModel(sockeye.model.SockeyeModel):
                                   allow_missing=True,
                                   force_init=True)
 
-            if train_iter.iter_next():
-                # pre-fetch next batch
-                next_data_batch = train_iter.next()
-                module.prepare(next_data_batch)
-
-            module.update_metric(metric_train, batch.label)
-            self.training_monitor.batch_end_callback(train_state.epoch, train_state.updates, metric_train)
-            train_state.updates += 1
-            train_state.samples += train_iter.batch_size
-
             return next_data_batch
 
     def _fit(self,
@@ -364,6 +386,7 @@ class TrainingModel(sockeye.model.SockeyeModel):
              checkpoint_frequency: int,
              max_num_not_improved: int,
              min_num_epochs: Optional[int] = None,
+             lm_pretrain_steps: int = 1,
              mono_source_iter: sockeye.data_io.MonoBucketSentenceIter=None,
              mono_target_iter: sockeye.data_io.MonoBucketSentenceIter=None):
         """
@@ -416,14 +439,16 @@ class TrainingModel(sockeye.model.SockeyeModel):
 
         while max_updates == -1 or train_state.updates < max_updates:
 
-            next_data_batch = self._update(train_iter, self.module,
-                                           next_data_batch, train_state, metric_train)
+            next_data_batch = self._update(train_iter, self.module, 1,
+                                           next_data_batch, train_state, metric_train, self.training_monitor)
 
-            next_source_batch = self._update(mono_source_iter, self.lm_source_module,
-                                             next_source_batch, source_train_state, metric_train_source_lm)
+            next_source_batch = self._update(mono_source_iter, self.lm_source_module, lm_pretrain_steps,
+                                             next_source_batch, source_train_state, metric_train_source_lm,
+                                             self.lm_source_training_monitor)
 
-            next_target_batch = self._update(mono_target_iter, self.lm_target_module,
-                                             next_target_batch, target_train_state, metric_train_target_lm)
+            next_target_batch = self._update(mono_target_iter, self.lm_target_module, lm_pretrain_steps,
+                                             next_target_batch, target_train_state, metric_train_target_lm,
+                                             self.lm_target_training_monitor)
 
             if train_state.updates > 0 and train_state.updates % checkpoint_frequency == 0:
                 train_state.checkpoint += 1

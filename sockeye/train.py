@@ -334,6 +334,7 @@ def main():
                   min_num_epochs=args.min_num_epochs,
                   monitor_bleu=args.monitor_bleu,
                   use_tensorboard=args.use_tensorboard,
+                  lm_pretrain_steps=args.lm_pretrain_steps,
                   mono_source_iter=mono_source_iter,
                   mono_target_iter=mono_target_iter)
 
