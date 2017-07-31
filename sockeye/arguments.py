@@ -82,17 +82,17 @@ def add_io_args(params):
     #########
     # Optional source metadata inputs
 
-    data_params.add_argument('--source-metadata', '-smd',
+    data_params.add_argument('--source-graphs', '-smg',
                              required=False,
                              default=None,
-                             help='Source side metadata (training)')
+                             help='Source side graphs for GCN encoder (training)')
 
-    data_params.add_argument('--val-source-metadata', '-vsmd',
+    data_params.add_argument('--val-source-graphs', '-vsmg',
                              required=False,
                              default=None,
-                             help='Source side metadata (validation)')
+                             help='Source side graphs for GCN encoder (validation)')
     
-    data_params.add_argument('--metadata-vocab',
+    data_params.add_argument('--edge-vocab',
                              required=False,
                              default=None,
                              help='Existing target vocabulary for graph edges (JSON)')
@@ -216,7 +216,20 @@ def add_model_parameters(params):
     # GCN
 
     model_params.add_argument('--use-gcn', action="store_true",
-                              help="Put a GCN layer on top of the encoder.")
+                              help="Put a GCN layer on top of the encoder. Default: %(default)s")
+    model_params.add_argument('--use-gcn-gating', action="store_true",
+                              help="Activate edge gating for the GCN encoder (use only with --use-gcn). Default: %(default)s")
+    model_params.add_argument('--gcn-layers', type=int_greater_or_equal(1),
+                              default=1,
+                              help='Number of layers for GCN encoder (use only with --use-gcn). Default: %(default)s.')
+    #TODO: enable 0 layers for RNN so we can delete this flag.
+    model_params.add_argument('--skip-rnn', action="store_true",
+                              help="Do not use RNNs, put the GCN directly on top of the word embeddings (use only with --use-gcn). Default: %(default)s",)
+    #TODO: add fine grained control of hidden layer sizes when we have multiple GCN layers.
+    model_params.add_argument('--gcn-num-hidden',
+                              type=int_greater_or_equal(1),
+                              default=512,
+                              help='Number of GCN hidden units for encoder (use only with --use-gcn). Default: %(default)s.')
     
     #####
     

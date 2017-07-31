@@ -48,7 +48,7 @@ class GCNCell(object):
     """
     def __init__(self, input_dim, output_dim, tensor_dim,
                  prefix='gcn_', params=None, 
-                 activation='tanh', add_gate=False):
+                 activation='tanh', add_gate=True):
         #if params is None:
         #    params = GCNParams(prefix)
         #    self._own_params = True
