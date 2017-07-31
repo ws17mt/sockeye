@@ -570,7 +570,6 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
             batch = next_data_batch
             self.module.forward_backward(batch)
             loss_G, loss_D = self.module.get_outputs()
-
 #            ce_D.update(loss_D_labels, [loss_D]) # TODO: print this
             self.module.update()
 
@@ -585,6 +584,13 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
                 train_state.checkpoint += 1
                 self._save_params(output_folder, train_state.checkpoint)
                 self.training_monitor.checkpoint_callback(train_state.checkpoint, metric_train)
+
+                # Monitor gradients
+                param_names = self.module._param_names
+                grad_norms = [mx.nd.norm(a[0]).asscalar() for a in self.module._exec_group.grad_arrays]
+                for p, z in zip(param_names, grad_norms):
+                    if z == 0 or z > 80:
+                        logger.info("WARNING: " + str(p) + " : " + str(z))
 
                 toc = time.time()
                 logger.info("Checkpoint [%d]\tUpdates=%d Epoch=%d Samples=%d Time-cost=%.3f",
