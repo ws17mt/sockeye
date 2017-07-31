@@ -99,7 +99,7 @@ class SockeyeModel:
         self.rnn_cells = []
         self.built = False
         self.params = None
-        
+
     def save_config(self, folder: str):
         """
         Saves model configuration to <folder>/config
@@ -167,8 +167,8 @@ class SockeyeModel:
             
 
         rp[C.TARGET_NAME + '_embed_weight'] = temp_params[C.SOURCE_NAME + '_embed_weight']
-        rp[C.DECODER_PREFIX + 'cls_weight'] = temp_params['cls_weight']
-        rp[C.DECODER_PREFIX + 'cls_bias'] = temp_params['cls_bias']
+        rp['lm_cls_weight'] = temp_params['lm_cls_weight']
+        rp['lm_cls_bias'] = temp_params['lm_cls_bias']
         logger.info('Loaded decoder LM params frpm "%s"', fname)
         print(list((x,y.shape) for x,y in rp.items()))
         
