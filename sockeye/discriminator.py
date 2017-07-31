@@ -115,6 +115,8 @@ class MLPDiscriminator(Discriminator):
         target = mx.sym.swapaxes(data=target, dim1=0, dim2=1)
         decoder_last_state = mx.sym.SequenceLast(data=target, sequence_length=target_length,
                                                  use_sequence_length=True)
+        # Apply tanh to the input of the GAN: https://github.com/soumith/ganhacks
+        decoder_last_state = mx.sym.tanh(decoder_last_state)
         # add a gradient reversal layer before the discriminators
         reverse_grad = mx.symbol.Custom(data=decoder_last_state, op_type='gradientreversallayer',
                                         loss_lambda=self.loss_lambda)
