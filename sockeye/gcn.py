@@ -48,7 +48,7 @@ class GCNCell(object):
     """
     def __init__(self, input_dim, output_dim, tensor_dim,
                  prefix='gcn_', params=None, 
-                 activation='tanh'):
+                 activation='tanh', add_gate=False):
         #if params is None:
         #    params = GCNParams(prefix)
         #    self._own_params = True
@@ -63,14 +63,21 @@ class GCNCell(object):
         self._modified = False
         self.reset()
         self._activation = activation
-        #self._W = self._params.get('weight')
-        #self._b = self._params.get('bias')
+        self._add_gate = add_gate
         self._W = [mx.symbol.Variable(self._prefix + str(i) + '_weight',
                                       shape=(input_dim, output_dim))
                                       for i in range(tensor_dim)]
         self._b = [mx.symbol.Variable(self._prefix + str(i) + '_bias',
                                       shape=(output_dim,))
                                       for i in range(tensor_dim)]
+        # Gate parameters
+        if self._add_gate:
+            self._gate_W = [mx.symbol.Variable(self._prefix + str(i) + '_gate_weight',
+                                               shape=(input_dim, 1))
+                                               for i in range(tensor_dim)]
+            self._gate_b = [mx.symbol.Variable(self._prefix + str(i) + '_gate_bias',
+                                               shape=(1, 1))
+                                               for i in range(tensor_dim)]
         #self._W = mx.symbol.Variable(self._prefix + 'weight',
         #                             shape=(tensor_dim, input_dim, output_dim))
         #self._b = mx.symbol.Variable(self._prefix + 'bias',
@@ -84,6 +91,14 @@ class GCNCell(object):
             bi = self._b[i]            
             output = mx.symbol.dot(inputs, Wi)
             output = mx.symbol.broadcast_add(output, bi)
+            # optional gating
+            if self._add_gate:
+                gate_Wi = self._gate_W[i]
+                gate_bi = self._gate_b[i]
+                gate_val = mx.symbol.dot(inputs, gate_Wi)
+                gate_val = mx.symbol.broadcast_add(gate_val, gate_bi)
+                gate_val = mx.symbol.Activation(gate_val, act_type='sigmoid')
+                output = mx.symbol.broadcast_mul(output, gate_val)
             # convolution
             adji = mx.symbol.slice_axis(adj, axis=1, begin=i, end=i+1)
             adji = mx.symbol.reshape(adji, (-1, seq_len, seq_len))
