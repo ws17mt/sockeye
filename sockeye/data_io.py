@@ -68,9 +68,9 @@ def get_bucket(seq_len: int, buckets: List[int]) -> Optional[int]:
 
 
 def get_data_iter(data_source: str, data_target: str,
-                  data_source_metadata: str,
+                  data_source_graphs: str,
                   vocab_source: Dict[str, int], vocab_target: Dict[str, int],
-                  vocab_metadata: Dict[str, int],
+                  vocab_edges: Dict[str, int],
                   batch_size: int,
                   fill_up: str,
                   max_seq_len: int,
@@ -81,10 +81,10 @@ def get_data_iter(data_source: str, data_target: str,
 
     :param data_source: Path to source data.
     :param data_target: Path to target data.
-    :param data_source_metadata: Path to source metadata.
+    :param data_source_graphs: Path to source metadata.
     :param vocab_source: Source vocabulary.
     :param vocab_target: Target vocabulary.
-    :param vocab_metadata: Metadata vocabulary.
+    :param vocab_edges: Metadata vocabulary.
     :param batch_size: Batch size.
     :param fill_up: Fill-up strategy for buckets.
     :param max_seq_len: Maximum sequence length.
@@ -93,10 +93,10 @@ def get_data_iter(data_source: str, data_target: str,
     :return: Data iterator for parallel data.
     """
     source_sentences = read_sentences(data_source, vocab_source, add_bos=False)
-    source_metadata = read_metadata(data_source_metadata, vocab_metadata)
+    source_graphs = read_graphs(data_source_graphs, vocab_edges)
     target_sentences = read_sentences(data_target, vocab_target, add_bos=True)
     assert len(source_sentences) == len(target_sentences)
-    assert len(source_sentences) == len(source_metadata)
+    assert len(source_sentences) == len(source_graphs)
     eos_id = vocab_target[C.EOS_SYMBOL]
 
     length_ratio = sum(len(s) / float(len(t)) for s, t in zip(source_sentences, target_sentences)) / len(
@@ -107,18 +107,18 @@ def get_data_iter(data_source: str, data_target: str,
         (max_seq_len, max_seq_len)]
     ######
     # This is necessary for building the adjacency tensors.
-    md_vocab_size = len(vocab_metadata)
+    edge_vocab_size = len(vocab_edges)
     ######
-    return ParallelBucketSentenceIter(source_sentences, target_sentences, source_metadata,
-                                      buckets, batch_size, md_vocab_size, eos_id, C.PAD_ID,
+    return ParallelBucketSentenceIter(source_sentences, target_sentences, source_graphs,
+                                      buckets, batch_size, edge_vocab_size, eos_id, C.PAD_ID,
                                       vocab_target[C.UNK_SYMBOL], fill_up=fill_up)
 
 
 def get_training_data_iters(source: str, target: str,
                             validation_source: str, validation_target: str,
-                            source_metadata: str, val_source_metadata: str,
+                            source_graphs: str, val_source_graphs: str,
                             vocab_source: Dict[str, int], vocab_target: Dict[str, int],
-                            vocab_metadata: Dict[str, int],
+                            vocab_edges: Dict[str, int],
                             batch_size: int,
                             fill_up: str,
                             max_seq_len: int,
@@ -131,11 +131,11 @@ def get_training_data_iters(source: str, target: str,
     :param target: Path to target training data.
     :param validation_source: Path to source validation data.
     :param validation_target: Path to target validation data.
-    :param source_metadata: Path to source training metadata.
-    :param val_source_metadata: Path to source validation metadata.
+    :param source_graphs: Path to source training graphs.
+    :param val_source_graphs: Path to source validation graphs.
     :param vocab_source: Source vocabulary.
     :param vocab_target: Target vocabulary.
-    :param vocab_metadata: Metadata vocabulary.
+    :param vocab_edges: Graph edge labels vocabulary.
     :param batch_size: Batch size.
     :param fill_up: Fill-up strategy for buckets.
     :param max_seq_len: Maximum sequence length.
@@ -144,12 +144,12 @@ def get_training_data_iters(source: str, target: str,
     :return: Data iterators for parallel data.
     """
     logger.info("Creating train data iterator")
-    train_iter = get_data_iter(source, target, source_metadata, vocab_source, vocab_target, 
-                               vocab_metadata, batch_size, fill_up,
+    train_iter = get_data_iter(source, target, source_graphs, vocab_source, vocab_target, 
+                               vocab_edges, batch_size, fill_up,
                                max_seq_len, bucketing, bucket_width=bucket_width)
     logger.info("Creating validation data iterator")
-    eval_iter = get_data_iter(validation_source, validation_target, val_source_metadata, 
-                              vocab_source, vocab_target, vocab_metadata, batch_size, fill_up,
+    eval_iter = get_data_iter(validation_source, validation_target, val_source_graphs, 
+                              vocab_source, vocab_target, vocab_edges, batch_size, fill_up,
                               max_seq_len, bucketing, bucket_width=bucket_width)
     return train_iter, eval_iter
 
@@ -159,8 +159,8 @@ DataInfo = NamedTuple('DataInfo', [
     ('target', str),
     ('validation_source', str),
     ('validation_target', str),
-    ('source_metadata', str),
-    ('val_source_metadata', str),
+    ('source_graphs', str),
+    ('val_source_graphs', str),
     ('vocab_source', str),
     ('vocab_target', str),
 ])
@@ -171,8 +171,8 @@ Tuple to collect data information for training.
 :param target: Path to training target.
 :param validation_source: Path to validation source.
 :param validation_target: Path to validation target.
-:param source_metadata: Path to training source metadata.
-:param val_source_metadata: Path to validation source metadata.
+:param source_graphs: Path to training source graphs.
+:param val_source_graphs: Path to validation source graphs.
 :param vocab_source: Path to source vocabulary.
 :param vocab_target: Path to target vocabulary.
 """
@@ -263,16 +263,14 @@ def read_sentences(path: str, vocab: Dict[str, int], add_bos=False, limit=None) 
     return sentences
 
 
-def read_metadata(path: str, vocab: Dict[str, int], limit=None): #TODO: add return type
+def read_graphs(path: str, vocab: Dict[str, int], limit=None): #TODO: add return type
     """
-    Reads metadata from path, creating a list of tuples for each sentence.
-    We assume the format for metadata uses whitespace as separator.
+    Reads graphs from path, creating a list of tuples for each sentence.
+    We assume the format for graphs uses whitespace as separator.
     This allows us to reuse the reading methods for the sentences.
 
-    TODO: we are ignoring the edge type for now.
-
     :param path: Path to read data from.
-    :return: List of sequences of integer tuples.
+    :return: List of sequences of integer tuples with the edge label.
     """
     graphs = []
     for graph_tokens in read_content(path, limit):
@@ -323,10 +321,10 @@ class ParallelBucketSentenceIter(mx.io.DataIter):
     def __init__(self,
                  source_sentences: List[List[int]],
                  target_sentences: List[List[int]],
-                 source_metadata: List[Tuple[int, int, str]],
+                 source_graphs: List[Tuple[int, int, str]],
                  buckets: List[Tuple[int, int]],
                  batch_size: int,
-                 md_vocab_size: int,
+                 edge_vocab_size: int,
                  eos_id: int,
                  pad_id: int,
                  unk_id: int,
@@ -334,7 +332,7 @@ class ParallelBucketSentenceIter(mx.io.DataIter):
                  source_data_name=C.SOURCE_NAME,
                  source_data_length_name=C.SOURCE_LENGTH_NAME,
                  target_data_name=C.TARGET_NAME,
-                 src_metadata_name=C.SOURCE_METADATA_NAME,
+                 src_graphs_name=C.SOURCE_GRAPHS_NAME,
                  label_name=C.TARGET_LABEL_NAME,
                  dtype='float32'):
         super(ParallelBucketSentenceIter, self).__init__()
@@ -343,7 +341,7 @@ class ParallelBucketSentenceIter(mx.io.DataIter):
         self.buckets.sort()
         self.default_bucket_key = max(self.buckets)
         self.batch_size = batch_size
-        self.md_vocab_size = md_vocab_size
+        self.edge_vocab_size = edge_vocab_size
         self.eos_id = eos_id
         self.pad_id = pad_id
         self.unk_id = unk_id
@@ -351,7 +349,7 @@ class ParallelBucketSentenceIter(mx.io.DataIter):
         self.source_data_name = source_data_name
         self.source_data_length_name = source_data_length_name
         self.target_data_name = target_data_name
-        self.src_metadata_name = src_metadata_name
+        self.src_graphs_name = src_graphs_name
         self.label_name = label_name
         self.fill_up = fill_up
 
@@ -360,10 +358,10 @@ class ParallelBucketSentenceIter(mx.io.DataIter):
         self.data_length = [[] for _ in self.buckets]
         self.data_target = [[] for _ in self.buckets]
         self.data_label = [[] for _ in self.buckets]
-        self.data_src_metadata = [[] for _ in self.buckets]
+        self.data_src_graphs = [[] for _ in self.buckets]
 
         # assign sentence pairs to buckets
-        self._assign_to_buckets(source_sentences, target_sentences, source_metadata)
+        self._assign_to_buckets(source_sentences, target_sentences, source_graphs)
 
         # convert to single numpy array for each bucket
         self._convert_to_array()
@@ -372,11 +370,11 @@ class ParallelBucketSentenceIter(mx.io.DataIter):
             mx.io.DataDesc(name=source_data_name, shape=(batch_size, self.default_bucket_key[0]), layout=C.BATCH_MAJOR),
             mx.io.DataDesc(name=source_data_length_name, shape=(batch_size,), layout=C.BATCH_MAJOR),
             mx.io.DataDesc(name=target_data_name, shape=(batch_size, self.default_bucket_key[1]), layout=C.BATCH_MAJOR),
-            mx.io.DataDesc(name=src_metadata_name, shape=(batch_size, self.md_vocab_size, self.default_bucket_key[0], self.default_bucket_key[0]), layout=C.BATCH_MAJOR) ]
+            mx.io.DataDesc(name=src_graphs_name, shape=(batch_size, self.edge_vocab_size, self.default_bucket_key[0], self.default_bucket_key[0]), layout=C.BATCH_MAJOR) ]
         self.provide_label = [
             mx.io.DataDesc(name=label_name, shape=(self.batch_size, self.default_bucket_key[1]), layout=C.BATCH_MAJOR)]
 
-        self.data_names = [self.source_data_name, self.source_data_length_name, self.target_data_name, self.src_metadata_name]
+        self.data_names = [self.source_data_name, self.source_data_length_name, self.target_data_name, self.src_graphs_name]
         self.label_names = [self.label_name]
 
         # create index tuples (i,j) into buckets: i := bucket index ; j := row index of bucket array
@@ -397,7 +395,7 @@ class ParallelBucketSentenceIter(mx.io.DataIter):
         self.nd_label = []
         #####
         # GCN
-        self.nd_src_metadata = []
+        self.nd_src_graphs = []
 
         self.reset()
 
@@ -413,13 +411,13 @@ class ParallelBucketSentenceIter(mx.io.DataIter):
                 break
         return bucket
 
-    def _assign_to_buckets(self, source_sentences, target_sentences, source_metadata):
+    def _assign_to_buckets(self, source_sentences, target_sentences, source_graphs):
         ndiscard = 0
         tokens_source = 0
         tokens_target = 0
         num_of_unks_source = 0
         num_of_unks_target = 0
-        for source, target, src_meta in zip(source_sentences, target_sentences, source_metadata):
+        for source, target, src_graph in zip(source_sentences, target_sentences, source_graphs):
             tokens_source += len(source)
             tokens_target += len(target)
             num_of_unks_source += source.count(self.unk_id)
@@ -442,7 +440,7 @@ class ParallelBucketSentenceIter(mx.io.DataIter):
             self.data_label[buck_idx].append(buff_label)
             #####
             # GCN
-            self.data_src_metadata[buck_idx].append(src_meta)
+            self.data_src_graphs[buck_idx].append(src_graph)
             #####
 
         logger.info("Source words: %d", tokens_source)
@@ -469,12 +467,8 @@ class ParallelBucketSentenceIter(mx.io.DataIter):
             self.data_label[i] = np.asarray(self.data_label[i], dtype=self.dtype)
             #####
             # GCN
-            #logger.info(self.data_src_metadata[i])
-            #logger.info(self.data_length[i])
-            #logger.info(self.buckets[i])
-            self.data_src_metadata[i] = self._convert_to_adj_matrix(self.buckets[i][0], self.data_src_metadata[i])
-            #self.data_src_metadata[i] = np.asarray([np.asarray(row) for row in self.data_src_metadata[i]])#, dtype=self.dtype)
-            logger.info("SRC_METADATA SHAPE: " + str(self.data_src_metadata[i].shape))
+            self.data_src_graphs[i] = self._convert_to_adj_matrix(self.buckets[i][0], self.data_src_graphs[i])
+            #logger.info("SRC_METADATA SHAPE: " + str(self.data_src_metadata[i].shape))
             #####
             
             n = len(self.data_source[i])
@@ -499,33 +493,26 @@ class ParallelBucketSentenceIter(mx.io.DataIter):
                                                         axis=0)
                     ####
                     # GCN: we add an empty list as padding
-                    self.data_src_metadata[i] = np.concatenate((self.data_src_metadata[i], self.data_src_metadata[i][random_indices, :, :, :]),
+                    self.data_src_graphs[i] = np.concatenate((self.data_src_graphs[i], self.data_src_graphs[i][random_indices, :, :, :]),
                                                          axis=0)
                     ####
-                    logger.info('Shapes after replication')
-                    logger.info(self.data_source[i].shape)
-                    logger.info(self.data_src_metadata[i].shape)
+                    #logger.info('Shapes after replication')
+                    #logger.info(self.data_source[i].shape)
+                    #logger.info(self.data_src_metadata[i].shape)
                     
-    def _convert_to_adj_matrix(self, bucket_size, data_src_metadata):
+    def _convert_to_adj_matrix(self, bucket_size, data_src_graphs):
         """
         Graph information is in the form of an adjacency list.
         We convert this to an adjacency matrix in NumPy format.
         TODO: extend this to tensors using label information.
         """
-        batch_size = len(data_src_metadata)
-        logger.info("BUCKET SIZE: %d", bucket_size)
-        #new_src_metadata = np.zeroes((batch_size, bucket_size, bucket_size))
-        new_src_metadata = np.array([np.zeros((self.md_vocab_size, bucket_size, bucket_size)) for sent in range(batch_size)])
-        #logger.info(new_src_metadata.shape)
-        for i, graph in enumerate(data_src_metadata):
+        batch_size = len(data_src_graphs)
+        #logger.info("BUCKET SIZE: %d", bucket_size)
+        new_src_graphs = np.array([np.zeros((self.edge_vocab_size, bucket_size, bucket_size)) for sent in range(batch_size)])
+        for i, graph in enumerate(data_src_graphs):
             for tup in graph:
-                new_src_metadata[i][tup[2]][tup[0]][tup[1]] = 1.0
-                # No need for this anymore, reverse edges are read from data
-                #new_src_metadata[i][tup[1]][tup[0]] = 1.0
-        #self.data_src_metadata[i] = np.asarray([np.asarray(row) for row in self.data_src_metadata[i]])#, dtype=self.dtype)
-        #logger.info('adj tensors')
-        #logger.info(new_src_metadata.shape)
-        return new_src_metadata
+                new_src_graphs[i][tup[2]][tup[0]][tup[1]] = 1.0
+        return new_src_graphs
         
     def reset(self):
         """
@@ -541,7 +528,7 @@ class ParallelBucketSentenceIter(mx.io.DataIter):
         self.nd_label = []
         #####
         # GCN
-        self.nd_src_metadata = []
+        self.nd_src_graphs = []
         #####
         for i in range(len(self.data_source)):
             # shuffle indices within each bucket
@@ -550,9 +537,7 @@ class ParallelBucketSentenceIter(mx.io.DataIter):
             self.nd_length.append(mx.nd.array(self.data_length[i].take(indices, axis=0), dtype=self.dtype))
             self.nd_target.append(mx.nd.array(self.data_target[i].take(indices, axis=0), dtype=self.dtype))
             self.nd_label.append(mx.nd.array(self.data_label[i].take(indices, axis=0), dtype=self.dtype))
-            #self.nd_src_graphs.append(mx.nd.array(self.data_src_graphs[i].take(indices, axis=0), dtype=self.dtype))           
-            #self.nd_src_metadata.append([mx.nd.array(m) for m in self.data_src_metadata[i].take(indices, axis=0)])
-            self.nd_src_metadata.append(mx.nd.array(self.data_src_metadata[i].take(indices, axis=0), dtype=self.dtype))
+            self.nd_src_graphs.append(mx.nd.array(self.data_src_graphs[i].take(indices, axis=0), dtype=self.dtype))
             
         self.indices = []
         for i in range(len(self.data_source)):
@@ -573,7 +558,7 @@ class ParallelBucketSentenceIter(mx.io.DataIter):
         self.nd_target.append(mx.nd.array(self.data_target[bucket].take(shuffled_indices, axis=0), dtype=self.dtype))
         self.nd_label.append(mx.nd.array(self.data_label[bucket].take(shuffled_indices, axis=0), dtype=self.dtype))
         #####
-        self.nd_src_metadata.append(mx.nd.array(self.data_src_metadata[bucket].take(shuffled_indices, axis=0), dtype=self.dtype))
+        self.nd_src_graphs.append(mx.nd.array(self.data_src_graphs[bucket].take(shuffled_indices, axis=0), dtype=self.dtype))
 
     def iter_next(self) -> bool:
         """
@@ -594,13 +579,9 @@ class ParallelBucketSentenceIter(mx.io.DataIter):
         source = self.nd_source[i][j:j + self.batch_size]
         length = self.nd_length[i][j:j + self.batch_size]
         target = self.nd_target[i][j:j + self.batch_size]
-        src_meta = self.nd_src_metadata[i][j:j + self.batch_size]
-        ##########
-        #logger.info('inside next')
-        #logger.info(source)
-        #logger.info(src_meta)
-        ##########
-        data = [source, length, target, src_meta]
+        src_graph = self.nd_src_graphs[i][j:j + self.batch_size]
+
+        data = [source, length, target, src_graph]
         label = [self.nd_label[i][j:j + self.batch_size]]
 
         provide_data = [mx.io.DataDesc(name=n, shape=x.shape, layout=C.BATCH_MAJOR) for n, x in

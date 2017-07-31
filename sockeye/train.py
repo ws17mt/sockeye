@@ -89,8 +89,9 @@ def main():
     #####
     # GCN
     if args.use_gcn:
-        assert args.source_metadata is not None, "GCN needs graph inputs for training"
-        assert args.val_source_metadata is not None, "GCN needs graph inputs for validation"
+        assert args.source_graphs is not None, "GCN needs graph inputs for training"
+        assert args.val_source_graphs is not None, "GCN needs graph inputs for validation"
+        assert args.edge_vocab is not None, "GCN needs an explicit edge vocabulary (in JSON format)"
 
     #####
     
@@ -166,10 +167,9 @@ def main():
         ###########
         # GCN
         # For now we assume graph vocab is built externally
-        assert args.metadata_vocab is not None, "You need to provide graph edges vocab as a JSON file"
-        vocab_metadata = _build_or_load_vocab(args.metadata_vocab, args.source_metadata, args.num_words, args.word_min_count)
-        sockeye.vocab.vocab_to_json(vocab_metadata, os.path.join(output_folder, C.VOCAB_MD_NAME) + C.JSON_SUFFIX)
-        vocab_metadata_size = len(vocab_metadata)
+        vocab_edges = _build_or_load_vocab(args.edge_vocab, args.source_graphs, args.num_words, args.word_min_count)
+        sockeye.vocab.vocab_to_json(vocab_edges, os.path.join(output_folder, C.VOCAB_MD_NAME) + C.JSON_SUFFIX)
+        vocab_edges_size = len(vocab_edges)
         ###########
         
         vocab_source_size = len(vocab_source)
@@ -180,8 +180,8 @@ def main():
                                              os.path.abspath(args.target),
                                              os.path.abspath(args.validation_source),
                                              os.path.abspath(args.validation_target),
-                                             os.path.abspath(args.source_metadata),
-                                             os.path.abspath(args.val_source_metadata),
+                                             os.path.abspath(args.source_graphs),
+                                             os.path.abspath(args.val_source_graphs),
                                              args.source_vocab,
                                              args.target_vocab)
 
@@ -190,11 +190,11 @@ def main():
                                                                         target=data_info.target,
                                                                         validation_source=data_info.validation_source,
                                                                         validation_target=data_info.validation_target,
-                                                                        source_metadata=data_info.source_metadata,
-                                                                        val_source_metadata=data_info.val_source_metadata,
+                                                                        source_graphs=data_info.source_graphs,
+                                                                        val_source_graphs=data_info.val_source_graphs,
                                                                         vocab_source=vocab_source,
                                                                         vocab_target=vocab_target,
-                                                                        vocab_metadata=vocab_metadata,
+                                                                        vocab_edges=vocab_edges,
                                                                         batch_size=args.batch_size,
                                                                         fill_up=args.fill_up,
                                                                         max_seq_len=args.max_seq_len,
