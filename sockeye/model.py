@@ -99,7 +99,7 @@ class SockeyeModel:
         self.rnn_cells = []
         self.built = False
         self.params = None
-
+        
     def save_config(self, folder: str):
         """
         Saves model configuration to <folder>/config
@@ -150,6 +150,62 @@ class SockeyeModel:
         for cell in self.rnn_cells:
             self.params = cell.pack_weights(self.params)
         logger.info('Loaded params from "%s"', fname)
+
+    def load_decoder_lm_from_file(self, fname: str):
+
+        assert self.built
+
+        temp_params, _ = sockeye.utils.load_params(fname)
+
+        rp = {}
+        for key in temp_params.keys():
+            if 'encoder' in key:
+
+                name = '_'.join(key.split('_')[2:])
+                temp = '_'.join(('decoder_lm_target', name))
+                rp[temp]=temp_params[key]
+            
+
+        rp[C.TARGET_NAME + '_embed_weight'] = temp_params[C.SOURCE_NAME + '_embed_weight']
+        rp[C.DECODER_PREFIX + 'cls_weight'] = temp_params['cls_weight']
+        rp[C.DECODER_PREFIX + 'cls_bias'] = temp_params['cls_bias']
+        logger.info('Loaded decoder LM params frpm "%s"', fname)
+        print(list((x,y.shape) for x,y in rp.items()))
+        
+        if self.params is not None:
+        
+            self.params.update(rp)
+        
+        else:
+
+            self.params = rp
+
+    def load_encoder_lm_from_file(self, fname: str):
+
+        assert self.built
+
+        temp_params, _ = sockeye.utils.load_params(fname)
+
+        rp = {}
+
+        for key in temp_params.keys():
+            if 'encoder' in key:
+                temp = '_'.join(('_'.join(key.split('_')[:2]),'lm','source','_'.join(key.split('_')[2:])))
+                rp[temp]=temp_params[key]
+        
+        rp[C.SOURCE_NAME + '_embed_weight'] = temp_params[C.SOURCE_NAME + '_embed_weight']
+        
+        logger.info('Loaded encoder LM params frpm "%s"', fname)
+        print(list((x,y.shape) for x,y in rp.items()))
+        
+        if self.params is not None:
+        
+            self.params.update(rp)
+        
+        else:
+
+            self.params = rp
+
 
     def _build_model_components(self, max_seq_len: int, fused_encoder: bool, rnn_forget_bias: float = 0.0):
         """
