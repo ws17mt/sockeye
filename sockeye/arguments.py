@@ -310,7 +310,18 @@ def add_model_parameters(params):
                                    "It does not normalize RNN cell activations "
                                    "(this can be done using the '%s' or '%s' rnn-cell-type." % (C.LNLSTM_TYPE,
                                                                                                 C.LNGLSTM_TYPE))
-
+    model_params.add_argument('--freeze-lm-embedding', action='store_true',
+                              help='If a LM is loaded, freeze the embedding layer')
+    model_params.add_argument('--freeze-lm-model', action='store_true',
+                              help='If a LM is loaded, freeze the LM layers')
+    model_params.add_argument('--load-decoder-lm',
+                              default=None,
+                              type=str,
+                              help='Load decoder LM from file, must have at least 1 lm_pretrain layer')
+    model_params.add_argument('--load-encoder-lm',
+                              default=None,
+                              type=str,
+                              help='Load encoder LM from file, must have at least 1 lm_pretrain layer')
 
 def add_training_args(params):
     train_params = params.add_argument_group("Training parameters")

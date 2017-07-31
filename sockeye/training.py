@@ -85,12 +85,20 @@ class TrainingModel(sockeye.model.SockeyeModel):
                  bucketing: bool,
                  lr_scheduler,
                  rnn_forget_bias: float,
+                 freeze_lm_embedding: bool,
+                 freeze_lm_model: bool,
+                 decoder_lm_file: str,
+                 encoder_lm_file: str,
                  mono_source_iter: sockeye.data_io.MonoBucketSentenceIter=None,
                  mono_target_iter: sockeye.data_io.MonoBucketSentenceIter=None) -> None:
         super().__init__(model_config)
         self.context = context
         self.lr_scheduler = lr_scheduler
         self.bucketing = bucketing
+        self.freeze_lm_embedding = freeze_lm_embedding
+        self.freeze_lm_model = freeze_lm_model
+        self.freeze_lm_names = self._get_lm_names(encoder_lm_file, decoder_lm_file)
+        print(self.freeze_lm_names)
         self._build_model_components(self.config.max_seq_len, fused, rnn_forget_bias)
         self.module = self._build_module(train_iter, self.config.max_seq_len)
         self.module_list = [self.module]
@@ -187,12 +195,23 @@ class TrainingModel(sockeye.model.SockeyeModel):
 
             return mx.sym.Group(outputs), data_names, label_names
 
+        fixed = []
+        if self.freeze_lm_model:
+          for key in self.freeze_lm_names:
+            if 'lm' in key:
+              fixed.append(key)
+
+        if self.freeze_lm_embedding:
+          fixed.append(C.SOURCE_EMBEDDING_PREFIX + 'weight')
+          fixed.append(C.TARGET_EMBEDDING_PREFIX + 'weight')
+          
         if self.bucketing:
             logger.info("Using bucketing. Default max_seq_len=%s", train_iter.default_bucket_key)
             return mx.mod.BucketingModule(sym_gen=sym_gen,
                                           logger=logger,
                                           default_bucket_key=train_iter.default_bucket_key,
-                                          context=self.context)
+                                          context=self.context,
+                                          fixed_param_names=fixed)
         else:
             logger.info("No bucketing. Unrolled to max_seq_len=%s", max_seq_len)
             symbol, _, __ = sym_gen(train_iter.buckets[0])
@@ -200,7 +219,8 @@ class TrainingModel(sockeye.model.SockeyeModel):
                                  data_names=data_names,
                                  label_names=label_names,
                                  logger=logger,
-                                 context=self.context)
+                                 context=self.context,
+                                 fixed_param_names=fixed)
 
     @staticmethod
     def _create_eval_metric(metric_names: List[AnyStr], prefix: str=C.TM_PREFIX) -> mx.metric.CompositeEvalMetric:
@@ -229,8 +249,9 @@ class TrainingModel(sockeye.model.SockeyeModel):
 
             module.symbol.save(os.path.join(output_folder, prefix+C.SYMBOL_NAME))
 
+            #DANGEROUS allow_missing should be false.
             module.init_params(initializer=initializer, arg_params=self.params, aux_params=None,
-                               allow_missing=False, force_init=False)
+                               allow_missing=True, force_init=False)
 
             module.init_optimizer(kvstore='device', optimizer=optimizer, optimizer_params=optimizer_params)
 
@@ -690,6 +711,30 @@ class TrainingModel(sockeye.model.SockeyeModel):
 
         return states
 
+    def _get_lm_names(self, efile: str, dfile: str):
+
+        names = []
+        #Get Encoder LM names
+        if efile is not None:
+          e_params, _ = sockeye.utils.load_params(efile)
+          for key in e_params.keys():
+              if 'encoder' in key:
+                  temp = '_'.join(('_'.join(key.split('_')[:2]),'lm','source','_'.join(key.split('_')[2:])))
+                  names.append(temp)
+          names.append(C.SOURCE_NAME + '_embed_weight')
+
+        if dfile is not None:
+          d_params, _ = sockeye.utils.load_params(dfile)
+          for key in d_params.keys():
+              if 'encoder' in key:
+                  name = '_'.join(key.split('_')[2:])
+                  temp = '_'.join(('decoder_lm_target', name))
+                  names.append(temp)
+          names.append(C.TARGET_NAME + '_embed_weight')
+          names.append(C.DECODER_PREFIX + 'cls_weight')
+          names.append(C.DECODER_PREFIX + 'cls_bias')
+
+        return names
 
 def cleanup_params_files(output_folder: str, max_to_keep: int, checkpoint: int, best_checkpoint: int):
     """

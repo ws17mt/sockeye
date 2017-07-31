@@ -284,6 +284,10 @@ def main():
                                                bucketing=not args.no_bucketing,
                                                lr_scheduler=lr_scheduler,
                                                rnn_forget_bias=args.rnn_forget_bias,
+                                               freeze_lm_embedding=args.freeze_lm_embedding,
+                                               freeze_lm_model=args.freeze_lm_model,
+                                               decoder_lm_file=args.load_decoder_lm,
+                                               encoder_lm_file=args.load_encoder_lm,
                                                mono_source_iter=mono_source_iter,
                                                mono_target_iter=mono_target_iter)
 
@@ -295,6 +299,11 @@ def main():
         elif args.params:
             logger.info("Training will initialize from parameters loaded from '%s'", args.params)
             model.load_params_from_file(args.params)
+
+        if args.load_decoder_lm is not None:
+            model.load_decoder_lm_from_file(args.load_decoder_lm)
+        if args.load_encoder_lm is not None:
+            model.load_encoder_lm_from_file(args.load_encoder_lm)
 
         lexicon = sockeye.lexicon.initialize_lexicon(args.lexical_bias,
                                                      vocab_source, vocab_target) if args.lexical_bias else None
