@@ -737,6 +737,7 @@ class TrainingModel(sockeye.model.SockeyeModel):
 
         return names
 
+
 def cleanup_params_files(output_folder: str, max_to_keep: int, checkpoint: int, best_checkpoint: int):
     """
     Cleanup the params files in the output folder.
