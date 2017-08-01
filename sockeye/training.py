@@ -197,14 +197,14 @@ class TrainingModel(sockeye.model.SockeyeModel):
 
         fixed = []
         if self.freeze_lm_model:
-          for key in self.freeze_lm_names:
-            if 'lm' in key:
-              fixed.append(key)
+            for key in self.freeze_lm_names:
+                if 'lm' in key:
+                    fixed.append(key)
 
         if self.freeze_lm_embedding:
-          fixed.append(C.SOURCE_EMBEDDING_PREFIX + 'weight')
-          fixed.append(C.TARGET_EMBEDDING_PREFIX + 'weight')
-          
+            fixed.append(C.SOURCE_EMBEDDING_PREFIX + 'weight')
+            fixed.append(C.TARGET_EMBEDDING_PREFIX + 'weight')
+
         if self.bucketing:
             logger.info("Using bucketing. Default max_seq_len=%s", train_iter.default_bucket_key)
             return mx.mod.BucketingModule(sym_gen=sym_gen,
@@ -215,6 +215,7 @@ class TrainingModel(sockeye.model.SockeyeModel):
         else:
             logger.info("No bucketing. Unrolled to max_seq_len=%s", max_seq_len)
             symbol, _, __ = sym_gen(train_iter.buckets[0])
+            print("Fixed: %s" % (fixed))
             return mx.mod.Module(symbol=symbol,
                                  data_names=data_names,
                                  label_names=label_names,
@@ -714,25 +715,25 @@ class TrainingModel(sockeye.model.SockeyeModel):
     def _get_lm_names(self, efile: str, dfile: str):
 
         names = []
-        #Get Encoder LM names
+        # Get Encoder LM names
         if efile is not None:
-          e_params, _ = sockeye.utils.load_params(efile)
-          for key in e_params.keys():
-              if 'encoder' in key:
-                  temp = '_'.join(('_'.join(key.split('_')[:2]),'lm','source','_'.join(key.split('_')[2:])))
-                  names.append(temp)
-          names.append(C.SOURCE_NAME + '_embed_weight')
+            e_params, _ = sockeye.utils.load_params(efile)
+            for key in e_params.keys():
+                if 'encoder' in key:
+                    temp = '_'.join(('_'.join(key.split('_')[:2]), 'lm', 'source', '_'.join(key.split('_')[2:])))
+                    names.append(temp)
+            names.append(C.SOURCE_NAME + '_embed_weight')
 
         if dfile is not None:
-          d_params, _ = sockeye.utils.load_params(dfile)
-          for key in d_params.keys():
-              if 'encoder' in key:
-                  name = '_'.join(key.split('_')[2:])
-                  temp = '_'.join(('decoder_lm_target', name))
-                  names.append(temp)
-          names.append(C.TARGET_NAME + '_embed_weight')
-          names.append(C.DECODER_PREFIX + 'cls_weight')
-          names.append(C.DECODER_PREFIX + 'cls_bias')
+            d_params, _ = sockeye.utils.load_params(dfile)
+            for key in d_params.keys():
+                if 'encoder' in key:
+                    name = '_'.join(key.split('_')[2:])
+                    temp = '_'.join(('decoder_lm_target', name))
+                    names.append(temp)
+            names.append(C.TARGET_NAME + '_embed_weight')
+            names.append(C.DECODER_PREFIX + 'cls_weight')
+            names.append(C.DECODER_PREFIX + 'cls_bias')
 
         return names
 
