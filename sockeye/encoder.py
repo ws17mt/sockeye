@@ -36,6 +36,9 @@ def get_encoder(num_embed: int,
                 residual: bool,
                 dropout: float,
                 use_gcn: bool,
+                use_gcn_gating: bool,
+                gcn_num_layers: int,
+                skip_rnn: bool,
                 gcn_num_hidden: int,
                 gcn_num_tensor: int,
                 forget_bias: float,
@@ -51,6 +54,12 @@ def get_encoder(num_embed: int,
     :param cell_type: RNN cell type.
     :param residual: Whether to add residual connections to multi-layered RNNs.
     :param dropout: Dropout probability for encoders (RNN and embedding).
+    :param use_gcn: Whether to use GCN on top of the embeddings.
+    :param use_gcn_gating: Whether to activate edge gating in the GCN encoder.
+    :param gcn_num_layers: Number of GCN encoder layers.
+    :param skip_rnn: Whether to drop the RNN encoder when using the GCN one.
+    :param gcn_num_hidden: Number of hidden units for GCN encoder.
+    :param gcn_num_tensor: Number of possible edge labels for GCN graphs.
     :param forget_bias: Initial value of RNN forget biases.
     :param fused: Whether to use FusedRNNCell (CuDNN). Only works with GPU context.
     :return: Encoder instance.

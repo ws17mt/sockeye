@@ -92,7 +92,9 @@ def main():
         assert args.source_graphs is not None, "GCN needs graph inputs for training"
         assert args.val_source_graphs is not None, "GCN needs graph inputs for validation"
         assert args.edge_vocab is not None, "GCN needs an explicit edge vocabulary (in JSON format)"
-
+    else:
+        assert args.skip_rnn is False, "Skipping RNN encoder only works if using GCN."
+        assert args.use_gcn_gating is False, "Edge gating should only be used with --use-gcn."
     #####
     
     assert args.optimized_metric == C.BLEU or args.optimized_metric in args.metrics, \
@@ -242,6 +244,9 @@ def main():
                                                  normalize_loss=args.normalize_loss,
                                                  smoothed_cross_entropy_alpha=args.smoothed_cross_entropy_alpha,
                                                  use_gcn=args.use_gcn,
+                                                 use_gcn_gating=args.use_gcn_gating,
+                                                 gcn_num_layers=args.gcn_num_layers,
+                                                 skip_rnn=args.skip_rnn,
                                                  gcn_num_hidden=args.gcn_num_hidden,
                                                  gcn_num_tensor=vocab_edges_size,
                                                  )
