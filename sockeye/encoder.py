@@ -72,25 +72,35 @@ def get_encoder(num_embed: int,
                               dropout=dropout))
     encoders.append(BatchMajor2TimeMajor())
 
-    EncoderClass = FusedRecurrentEncoder if fused else RecurrentEncoder
-    encoders.append(BiDirectionalRNNEncoder(num_hidden=rnn_num_hidden,
-                                            num_layers=1,
-                                            dropout=dropout,
-                                            layout=C.TIME_MAJOR,
-                                            cell_type=cell_type,
-                                            EncoderClass=EncoderClass,
-                                            forget_bias=forget_bias))
+    if use_gcn and not skip_rnn:
+        EncoderClass = FusedRecurrentEncoder if fused else RecurrentEncoder
+        encoders.append(BiDirectionalRNNEncoder(num_hidden=rnn_num_hidden,
+                                                num_layers=1,
+                                                dropout=dropout,
+                                                layout=C.TIME_MAJOR,
+                                                cell_type=cell_type,
+                                                EncoderClass=EncoderClass,
+                                                forget_bias=forget_bias))
 
-    if num_layers > 1:
-        encoders.append(EncoderClass(num_hidden=rnn_num_hidden,
-                                     num_layers=num_layers - 1,
-                                     dropout=0.,
-                                     layout=C.TIME_MAJOR,
-                                     cell_type=cell_type,
-                                     residual=residual,
-                                     forget_bias=forget_bias))
+        if num_layers > 1:
+            encoders.append(EncoderClass(num_hidden=rnn_num_hidden,
+                                         num_layers=num_layers - 1,
+                                         dropout=0.,
+                                         layout=C.TIME_MAJOR,
+                                         cell_type=cell_type,
+                                         residual=residual,
+                                         forget_bias=forget_bias))
     if use_gcn:
-        encoders.append(GraphConvEncoder(rnn_num_hidden, gcn_num_hidden, gcn_num_tensor))
+        if skip_rnn:
+            encoders.append(GraphConvEncoder(num_embed, gcn_num_hidden, 
+                                             gcn_num_tensor, use_gcn_gating))
+        else:
+            encoders.append(GraphConvEncoder(rnn_num_hidden, gcn_num_hidden, 
+                                             gcn_num_tensor, use_gcn_gating))
+        if gcn_num_layers > 1:
+            # TODO: allow different hidden layer sizes.
+            encoders.append(GraphConvEncoder(gcn_num_hidden, gcn_num_hidden, 
+                                             gcn_num_tensor, use_gcn_gating))
 
     logger.info(encoders)    
     return EncoderSequence(encoders)
@@ -445,12 +455,14 @@ class GraphConvEncoder(Encoder):
                  input_dim: int,
                  output_dim: int,
                  tensor_dim: int,
+                 use_gcn_gating: bool,
                  prefix: str = C.GCN_PREFIX,
                  layout: str = C.TIME_MAJOR,
                  fused: bool = False):
         self.layout = layout
         self.fused = fused
-        self.gcn = sockeye.gcn.get_gcn(input_dim, output_dim, tensor_dim, prefix)
+        self.gcn = sockeye.gcn.get_gcn(input_dim, output_dim, tensor_dim,
+                                       use_gcn_gating, prefix)
 
     def encode(self, data: mx.sym.Symbol, 
                data_length: mx.sym.Symbol, seq_len: int, metadata=None):
@@ -458,17 +470,9 @@ class GraphConvEncoder(Encoder):
         Convolve data using adj and the GCN parameters
         """
         adj = metadata
-        #logger.info('adj tensor')
-        #adj = mx.symbol.concat(data, adj, dim=0)
         with mx.AttrScope(__layout__=C.BATCH_MAJOR):
             data = mx.sym.swapaxes(data=data, dim1=0, dim2=1)
-        #outputs = mx.sym.batch_dot(adj, data)
         outputs = self.gcn.convolve(adj, data, seq_len)
-        #print(adj)
-        #logger.info("I am here!")
-        #logger.info(str(adj))
-        #logger.info(str(data))
-        #outputs = data
         with mx.AttrScope(__layout__=C.TIME_MAJOR):
             outputs = mx.sym.swapaxes(data=outputs, dim1=0, dim2=1)
         return outputs

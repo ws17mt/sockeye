@@ -7,8 +7,9 @@ import mxnet as mx
 import sockeye.constants as C
 
 def get_gcn(input_dim: int, output_dim: int, 
-            tensor_dim: int, prefix: str):
-    gcn = GCNCell(input_dim, output_dim, tensor_dim, prefix=prefix)
+            tensor_dim: int, use_gcn_gating: bool, prefix: str):
+    gcn = GCNCell(input_dim, output_dim, tensor_dim, add_gate=use_gcn_gating,
+                  prefix=prefix)
     return gcn
    
 
@@ -47,8 +48,9 @@ class GCNCell(object):
     """GCN cell
     """
     def __init__(self, input_dim, output_dim, tensor_dim,
+                 add_gate=False,
                  prefix='gcn_', params=None, 
-                 activation='tanh', add_gate=True):
+                 activation='relu'):
         #if params is None:
         #    params = GCNParams(prefix)
         #    self._own_params = True
@@ -58,12 +60,12 @@ class GCNCell(object):
         self._input_dim = input_dim
         self._output_dim = output_dim
         self._tensor_dim = tensor_dim
+        self._add_gate = add_gate        
         self._prefix = prefix
         self._params = params
         self._modified = False
         self.reset()
         self._activation = activation
-        self._add_gate = add_gate
         self._W = [mx.symbol.Variable(self._prefix + str(i) + '_weight',
                                       shape=(input_dim, output_dim))
                                       for i in range(tensor_dim)]
