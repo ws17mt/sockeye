@@ -201,6 +201,9 @@ def get_style_training_data_iters(source: str,
                                                                           vocab,
                                                                           vocab,
                                                                           target_bos_symbol=target_bos_symbol)
+
+    length_ratio = sum(len(t) / float(len(s)) for t, s in zip(train_source_sentences, train_target_sentences)) / len(
+        train_target_sentences)
     # define buckets
     buckets = define_parallel_buckets(max_seq_len, bucket_width, length_ratio) if bucketing else [
         (max_seq_len, max_seq_len)]
