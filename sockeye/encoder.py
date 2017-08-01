@@ -99,8 +99,10 @@ def get_encoder(num_embed: int,
                                              gcn_num_tensor, use_gcn_gating))
         if gcn_num_layers > 1:
             # TODO: allow different hidden layer sizes.
-            encoders.append(GraphConvEncoder(gcn_num_hidden, gcn_num_hidden, 
-                                             gcn_num_tensor, use_gcn_gating))
+            for i in range(1, gcn_num_layers):
+                encoders.append(GraphConvEncoder(gcn_num_hidden, gcn_num_hidden, 
+                                                 gcn_num_tensor, use_gcn_gating,
+                                                 prefix=C.GCN_PREFIX + str(i+1) + '_'))
 
     logger.info(encoders)    
     return EncoderSequence(encoders)
@@ -192,7 +194,7 @@ class Embedding(Encoder):
         :param seq_len: Maximum sequence length.
         :return: Encoded input data.
         """
-        logger.info(str(data))
+        #logger.info(str(data))
         embedding = mx.sym.Embedding(data=data,
                                      input_dim=self.vocab_size,
                                      weight=self.embed_weight,
@@ -237,8 +239,6 @@ class EncoderSequence(Encoder):
         :return: Encoded input data.
         """
         for encoder in self.encoders:
-            #logger.info(str(encoder))
-            #metadata = mx.symbol.concat(data, metadata, dim=0)
             data = encoder.encode(data, data_length, seq_len, metadata=metadata)
         return data
 
