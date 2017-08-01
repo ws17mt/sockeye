@@ -166,8 +166,8 @@ class SockeyeModel:
                 rp[temp] = temp_params[key]
 
         rp[C.TARGET_NAME + '_embed_weight'] = temp_params[C.SOURCE_NAME + '_embed_weight']
-        rp['lm_cls_weight'] = temp_params['lm_cls_weight']
-        rp['lm_cls_bias'] = temp_params['lm_cls_bias']
+        rp['decoder_cls_weight'] = temp_params['lm_cls_weight']
+        rp['decoder_cls_bias'] = temp_params['lm_cls_bias']
         logger.info('Loaded decoder LM params frpm "%s"', fname)
         print(list((x, y.shape) for x, y in rp.items()))
 

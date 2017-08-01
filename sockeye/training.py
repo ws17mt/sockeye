@@ -95,11 +95,13 @@ class TrainingModel(sockeye.model.SockeyeModel):
         self.context = context
         self.lr_scheduler = lr_scheduler
         self.bucketing = bucketing
+        self._build_model_components(self.config.max_seq_len, fused, rnn_forget_bias)
         self.freeze_lm_embedding = freeze_lm_embedding
         self.freeze_lm_model = freeze_lm_model
-        self.freeze_lm_names = self._get_lm_names(encoder_lm_file, decoder_lm_file)
-        print(self.freeze_lm_names)
-        self._build_model_components(self.config.max_seq_len, fused, rnn_forget_bias)
+        self.freeze_lm_names = self._get_lm_names(encoder_lm_file, self.encoder,
+                                                  decoder_lm_file, self.decoder)
+        if len(self.freeze_lm_names) > 0:
+            logger.info("Found names: %s" % self.freeze_lm_names)
         self.module = self._build_module(train_iter, self.config.max_seq_len)
         self.module_list = [self.module]
         self.lm_source_module = None
@@ -202,8 +204,10 @@ class TrainingModel(sockeye.model.SockeyeModel):
                     fixed.append(key)
 
         if self.freeze_lm_embedding:
-            fixed.append(C.SOURCE_EMBEDDING_PREFIX + 'weight')
-            fixed.append(C.TARGET_EMBEDDING_PREFIX + 'weight')
+            for key in self.freeze_lm_names:
+                if 'embed' in key:
+                    fixed.append(key)
+        logger.info("Fixed: %s" % (fixed))
 
         if self.bucketing:
             logger.info("Using bucketing. Default max_seq_len=%s", train_iter.default_bucket_key)
@@ -215,7 +219,6 @@ class TrainingModel(sockeye.model.SockeyeModel):
         else:
             logger.info("No bucketing. Unrolled to max_seq_len=%s", max_seq_len)
             symbol, _, __ = sym_gen(train_iter.buckets[0])
-            print("Fixed: %s" % (fixed))
             return mx.mod.Module(symbol=symbol,
                                  data_names=data_names,
                                  label_names=label_names,
@@ -712,28 +715,19 @@ class TrainingModel(sockeye.model.SockeyeModel):
 
         return states
 
-    def _get_lm_names(self, efile: str, dfile: str):
+    def _get_lm_names(self, efile, encoder, dfile, decoder):
 
         names = []
         # Get Encoder LM names
         if efile is not None:
-            e_params, _ = sockeye.utils.load_params(efile)
-            for key in e_params.keys():
-                if 'encoder' in key:
-                    temp = '_'.join(('_'.join(key.split('_')[:2]), 'lm', 'source', '_'.join(key.split('_')[2:])))
-                    names.append(temp)
-            names.append(C.SOURCE_NAME + '_embed_weight')
+            names.append(encoder.embed.embed_weight.name)
+            names.extend(encoder.lm_pre_rnn.rnn.params._params.keys())
 
         if dfile is not None:
-            d_params, _ = sockeye.utils.load_params(dfile)
-            for key in d_params.keys():
-                if 'encoder' in key:
-                    name = '_'.join(key.split('_')[2:])
-                    temp = '_'.join(('decoder_lm_target', name))
-                    names.append(temp)
-            names.append(C.TARGET_NAME + '_embed_weight')
-            names.append(C.DECODER_PREFIX + 'cls_weight')
-            names.append(C.DECODER_PREFIX + 'cls_bias')
+            names.append(decoder.embedding.embed_weight.name)
+            names.extend(decoder.lm_pre_rnn.params._params.keys())
+            names.append(decoder.cls_w.name)
+            names.append(decoder.cls_b.name)
 
         return names
 
