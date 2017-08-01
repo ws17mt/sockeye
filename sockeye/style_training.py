@@ -573,6 +573,27 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
 #            ce_D.update(loss_D_labels, [loss_D]) # TODO: print this
             self.module.update()
 
+            # Compute perplexity over D's decisions
+            loss_D_labels_np = loss_D_labels.asnumpy().astype('int')
+            batch_size = loss_D_labels_np.shape[0]
+            ll_batch = mx.nd.log2(loss_D).asnumpy()[np.arange(batch_size), loss_D_labels_np]
+            D_val = (np.power(2, -1 / batch_size * (np.sum(ll_batch))))
+
+            if np.isnan(D_val):
+                print(ll_batch)
+                print(loss_D.asnumpy())
+                for k, v in self.module.get_params()[0].items():
+                    if k.startswith('disc_'):
+                        print(k, v.asnumpy())
+                import sys; sys.exit()
+            logger.info("D_val=" + str(D_val))
+            # Monitor gradients
+            #param_names = self.module._param_names
+            #grad_norms = [mx.nd.norm(a[0]).asscalar() for a in self.module._exec_group.grad_arrays]
+            #for p, z in zip(param_names, grad_norms):
+                #if z == 0 or z > 100:
+                    #logger.info("WARNING: " + str(p) + " : " + str(z))
+
             # NOTE: batch.label is [label_e, label_f] so we concatenate them
             # TODO is there a better way of doing this so that we can ensure order is the same?
             self.module.update_metric(metric_train, [mx.nd.concat(*batch.label)])
@@ -585,12 +606,6 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
                 self._save_params(output_folder, train_state.checkpoint)
                 self.training_monitor.checkpoint_callback(train_state.checkpoint, metric_train)
 
-                # Monitor gradients
-                param_names = self.module._param_names
-                grad_norms = [mx.nd.norm(a[0]).asscalar() for a in self.module._exec_group.grad_arrays]
-                for p, z in zip(param_names, grad_norms):
-                    if z == 0 or z > 80:
-                        logger.info("WARNING: " + str(p) + " : " + str(z))
 
                 toc = time.time()
                 logger.info("Checkpoint [%d]\tUpdates=%d Epoch=%d Samples=%d Time-cost=%.3f",
@@ -598,11 +613,6 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
                             train_state.samples, (toc - tic))
                 tic = time.time()
 
-                # Compute perplexity over D's decisions
-                loss_D_labels_np = loss_D_labels.asnumpy().astype('int')
-                batch_size = loss_D_labels_np.shape[0]
-                ll_batch = loss_D.asnumpy()[np.arange(batch_size), loss_D_labels_np]
-                D_val = (np.power(2, -1 / batch_size * (np.sum(np.log2(ll_batch)))))
 
                 for name, val in metric_train.get_name_value():
                     logger.info('Checkpoint [%d]\tTrain-%s=%f\tD=%f', train_state.checkpoint, name, val, D_val)

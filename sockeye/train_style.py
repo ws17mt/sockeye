@@ -13,59 +13,73 @@ from sockeye.train import _build_or_load_vocab
 
 logger = setup_main_logger(__name__, file_logging=False, console=True)
 
+#### ANNA ####
 # e_corpus = "/home/acurrey/labs/nmt/JSALT17-NMT-Lab/data/multi30k/train-toy.de.atok"
 # f_corpus = "/home/acurrey/labs/nmt/JSALT17-NMT-Lab/data/multi30k/train-toy.en.atok"
 # Convention: Source (e), Target (f)
-e_corpus = "/Users/gaurav/Dropbox/Projects/JSALT17-NMT-Lab/data/multi30k/train-toy.de.atok"
-f_corpus = "/Users/gaurav/Dropbox/Projects/JSALT17-NMT-Lab/data/multi30k/train-toy.en.atok"
-e_val = "/Users/gaurav/Dropbox/Projects/JSALT17-NMT-Lab/data/multi30k/val.de.atok"
-f_val = "/Users/gaurav/Dropbox/Projects/JSALT17-NMT-Lab/data/multi30k/val.en.atok"
+#### GAURAV #####
+#e_corpus = "/Users/gaurav/Dropbox/Projects/JSALT17-NMT-Lab/data/multi30k/train-toy.de.atok"
+#f_corpus = "/Users/gaurav/Dropbox/Projects/JSALT17-NMT-Lab/data/multi30k/train-toy.en.atok"
+#e_val = "/Users/gaurav/Dropbox/Projects/JSALT17-NMT-Lab/data/multi30k/val.de.atok"
+#f_val = "/Users/gaurav/Dropbox/Projects/JSALT17-NMT-Lab/data/multi30k/val.en.atok"
+#### PSC (de-en) ####
+#e_corpus = "/pylon2/ci560op/gkumar6/code/JSALT17-NMT-Lab/data/multi30k/train-toy.de.atok"
+#f_corpus = "/pylon2/ci560op/gkumar6/code/JSALT17-NMT-Lab/data/multi30k/train-toy.en.atok"
+#e_val = "/pylon2/ci560op/gkumar6/code/JSALT17-NMT-Lab/data/multi30k/val.de.atok"
+#f_val = "/pylon2/ci560op/gkumar6/code/JSALT17-NMT-Lab/data/multi30k/val.en.atok"
+#### PSC (fr-en) ####
+e_corpus = "/pylon2/ci560op/fosterg/data/fr/processed/mono.100k.bpe.fr"
+f_corpus = "/pylon2/ci560op/fosterg/data/fr/processed/mono.100k.bpe.en"
+e_val = "/pylon2/ci560op/fosterg/data/fr/processed/dev1.bpe.fr"
+f_val = "/pylon2/ci560op/fosterg/data/fr/processed/dev1.bpe.en"
+
+external_vocab = "/pylon2/ci560op/fosterg/data/fr/processed/vocab.enfr.json"
 
 output_folder="tmp"
 
 # TODO: hard-coded stuff; remove when user args are back.
-# lr_scheduler = None
-# num_embed = 32
-# attention_type="fixed" # TODO:Fix
-# attention_num_hidden = 32
-# dropout=0.1
-# rnn_cell_type=C.GRU_TYPE
-# rnn_num_layers=1
-# rnn_num_hidden=32
-# num_words = 10000
-# word_min_count = 1
-# batch_size = 20
-# max_seq_len=50
-# disc_num_hidden=50
-# disc_num_layers=1
-# disc_dropout=0.
-# disc_act='relu'
-
 lr_scheduler = None
-num_embed = 4
+num_embed = 500
 attention_type="fixed" # TODO:Fix
-attention_num_hidden = 5
-dropout=0.1
+attention_num_hidden = 1024
+dropout=0.3
 rnn_cell_type=C.GRU_TYPE
-rnn_num_layers=1
-rnn_num_hidden=6
+rnn_num_layers=2
+rnn_num_hidden=500
 num_words = 10000
 word_min_count = 1
-batch_size = 20
+batch_size = 64
 max_seq_len=50
-disc_num_hidden=7
+disc_num_hidden=500
 disc_num_layers=1
 disc_dropout=0.
-disc_act='relu'
+disc_act='softrelu'
+
+#lr_scheduler = None
+#num_embed = 4
+#attention_type="fixed" # TODO:Fix
+#attention_num_hidden = 5
+#dropout=0.1
+#rnn_cell_type=C.GRU_TYPE
+#rnn_num_layers=1
+#rnn_num_hidden=6
+#num_words = 10000
+#word_min_count = 1
+#batch_size = 20
+#max_seq_len=50
+#disc_num_hidden=7
+#disc_num_layers=1
+#disc_dropout=0.
+#disc_act='relu'
 
 # TODO: Device selection hardcoded to use CPU
-context = [mx.cpu()]
+context = [mx.gpu()]
 
 # Build vocab
 # These vocabs are built on the training data.
 # Joint vocab for e and f
 # TODO: Is there a way to reload vocab from somewhere? (E.g., BPE dict)
-vocab = _build_or_load_vocab(None, [e_corpus, f_corpus], num_words, word_min_count)
+vocab = _build_or_load_vocab(external_vocab, [e_corpus, f_corpus], num_words, word_min_count)
 
 vocab_size = len(vocab)
 logger.info("Vocabulary size (merged e, f): %d", vocab_size)
@@ -156,12 +170,11 @@ model_config = sockeye.model.ModelConfig(max_seq_len=max_seq_len,
                                          disc_num_hidden=disc_num_hidden,
                                          disc_num_layers=disc_num_layers,
                                          disc_dropout=disc_dropout,
-                                         loss_lambda=1.0)
+                                         loss_lambda=50000.0)
 
 model = sockeye.style_training.StyleTrainingModel(model_config=model_config,
                                                   context=context,
                                                   train_iter=train_iter,
-
                                                   fused=False,
                                                   bucketing=False,
                                                   lr_scheduler=lr_scheduler,
@@ -180,11 +193,10 @@ optimizer_params = {'wd': 0.0,
 clip_gradient = None
 # Making MXNet module API's default scaling factor explicit
 optimizer_params["rescale_grad"] = 1.0 / batch_size
+optimizer_params["clip_gradient"] = 1.0
 
 logger.info("Optimizer: %s", optimizer)
 logger.info("Optimizer Parameters: %s", optimizer_params)
-
-
 
 model.fit(train_iter=train_iter,
           val_iter=val_iter,
