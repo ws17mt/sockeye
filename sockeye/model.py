@@ -189,6 +189,8 @@ class SockeyeModel:
                                                    rnn_forget_bias,
                                                    emb_decoder,
                                                    fused_encoder)
+        else:
+            self.gcn_encoder = None
 
         self.attention = sockeye.attention.get_attention(self.config.attention_use_prev_word,
                                                          self.config.attention_type,
@@ -206,6 +208,8 @@ class SockeyeModel:
                                                          max_seq_len,
                                                          self.config.attention_coverage_type,
                                                          self.config.attention_coverage_num_hidden)
+        else:
+            self.gcn_attention = None
         
         self.lexicon = sockeye.lexicon.Lexicon(self.config.vocab_source_size,
                                                self.config.vocab_target_size,
@@ -216,6 +220,7 @@ class SockeyeModel:
                                                    self.config.rnn_num_layers,
                                                    self.config.rnn_num_hidden,
                                                    self.attention,
+                                                   self.gcn_attention,
                                                    self.config.rnn_cell_type,
                                                    self.config.rnn_residual_connections,
                                                    rnn_forget_bias,

@@ -33,6 +33,7 @@ def get_decoder(num_embed: int,
                 num_layers: int,
                 rnn_num_hidden: int,
                 attention: sockeye.attention.Attention,
+                gcn_attention,
                 cell_type: str, residual: bool,
                 forget_bias: float,
                 dropout=0.,
@@ -58,6 +59,7 @@ def get_decoder(num_embed: int,
     """
     return StackedRNNDecoder(rnn_num_hidden,
                              attention,
+                             gcn_attention,
                              vocab_size,
                              num_embed,
                              num_layers,
@@ -112,6 +114,7 @@ class StackedRNNDecoder(Decoder):
 
     :param num_hidden: Number of hidden units in decoder RNN.
     :param attention: Attention model.
+    :param gcn_attention: Attention over the GCN outputs (optional: can be None)
     :param target_vocab_size: Size of target vocabulary.
     :param num_target_embed: Size of target word embedding.
     :param num_layers: Number of decoder RNN layers.
@@ -128,6 +131,7 @@ class StackedRNNDecoder(Decoder):
     def __init__(self,
                  num_hidden: int,
                  attention: sockeye.attention.Attention,
+                 gcn_attention,
                  target_vocab_size: int,
                  num_target_embed: int,
                  num_layers=1,
@@ -145,6 +149,7 @@ class StackedRNNDecoder(Decoder):
         self.dropout = dropout
         self.num_hidden = num_hidden
         self.attention = attention
+        self.gcn_attention = gcn_attention
         self.target_vocab_size = target_vocab_size
         self.num_target_embed = num_target_embed
         self.context_gating = context_gating
@@ -252,6 +257,8 @@ class StackedRNNDecoder(Decoder):
               state: DecoderState,
               attention_func: Callable,
               attention_state: sockeye.attention.AttentionState,
+              gcn_attention_func,
+              gcn_attention_state,
               seq_idx: int = 0) -> Tuple[DecoderState, sockeye.attention.AttentionState]:
 
         """
@@ -277,7 +284,13 @@ class StackedRNNDecoder(Decoder):
         attention_input = self.attention.make_input(seq_idx, word_vec_prev, rnn_output)
         attention_state = attention_func(attention_input, attention_state)
 
+        # (2.5) GCN Attention step
+        if gcn_attention_func is not None:
+            gcn_attention_input = self.gcn_attention.make_input(seq_idx, word_vec_prev, rnn_output)
+            gcn_attention_state = gcn_attention_func(gcn_attention_input, gcn_attention_state)
+
         # (3) Combine context with hidden state
+        # TODO: add context gating to GCN attention as well
         if self.context_gating:
             # context: (batch_size, encoder_num_hidden)
             # gate: (batch_size, rnn_num_hidden)
@@ -306,11 +319,20 @@ class StackedRNNDecoder(Decoder):
 
         else:
             # hidden: (batch_size, rnn_num_hidden)
-            hidden = mx.sym.FullyConnected(data=mx.sym.concat(rnn_output, attention_state.context, dim=1),
-                                           # use same number of hidden states as RNN
-                                           num_hidden=self.num_hidden,
-                                           weight=self.hidden_w,
-                                           bias=self.hidden_b)
+            # GCN: everything changes here
+            if self.gcn_attention is not None:
+                hidden = mx.sym.FullyConnected(data=mx.sym.concat(rnn_output, attention_state.context,
+                                                                  gcn_attention_state.context, dim=1),
+                                              # use same number of hidden states as RNN
+                                              num_hidden=self.num_hidden,
+                                              weight=self.hidden_w,
+                                              bias=self.hidden_b)
+            else:
+                hidden = mx.sym.FullyConnected(data=mx.sym.concat(rnn_output, attention_state.context, dim=1),
+                                              # use same number of hidden states as RNN
+                                              num_hidden=self.num_hidden,
+                                              weight=self.hidden_w,
+                                              bias=self.hidden_b)
             # hidden: (batch_size, rnn_num_hidden)
             hidden = mx.sym.Activation(data=hidden, act_type="tanh",
                                        name="%snext_hidden_t%d" % (self.prefix, seq_idx))
@@ -319,6 +341,7 @@ class StackedRNNDecoder(Decoder):
 
     def decode(self,
                source_encoded: mx.sym.Symbol,
+               gcn_source_encoded,
                source_seq_len: int,
                source_length: mx.sym.Symbol,
                target: mx.sym.Symbol,
@@ -328,6 +351,7 @@ class StackedRNNDecoder(Decoder):
         Returns decoder logits with batch size and target sequence length collapsed into a single dimension.
 
         :param source_encoded: Concatenated encoder states. Shape: (source_seq_len, batch_size, encoder_num_hidden).
+        :param gcn_source_encoded: GCN outputs (Optional: can be None)
         :param source_seq_len: Maximum source sequence length.
         :param source_length: Lengths of source sequences. Shape: (batch_size,).
         :param target: Target sequence. Shape: (batch_size, target_seq_len).
@@ -350,6 +374,16 @@ class StackedRNNDecoder(Decoder):
         attention_func = self.attention.on(source_encoded_batch_major, source_length, source_seq_len)
         attention_state = self.attention.get_initial_state(source_length, source_seq_len)
 
+        # GCN attention
+        if self.gcn_attention is not None:
+            gcn_source_encoded_batch_major = mx.sym.swapaxes(gcn_source_encoded, dim1=0, dim2=1, 
+                                                             name='gcn_source_encoded_batch_major')
+            gcn_attention_func = self.attention.on(gcn_source_encoded_batch_major, source_length, source_seq_len)
+            gcn_attention_state = self.attention.get_initial_state(source_length, source_seq_len)
+        else:
+            gcn_attention_func = None
+            gcn_attention_state = None
+        
         # initialize decoder states
         # hidden: (batch_size, rnn_num_hidden)
         # layer_states: List[(batch_size, state_num_hidden]
@@ -370,6 +404,8 @@ class StackedRNNDecoder(Decoder):
                                                 state,
                                                 attention_func,
                                                 attention_state,
+                                                gcn_attention_func,
+                                                gcn_attention_state,
                                                 seq_idx)
 
             # hidden_expanded: (batch_size, 1, rnn_num_hidden)
