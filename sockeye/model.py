@@ -23,6 +23,7 @@ import sockeye.encoder
 import sockeye.lexicon
 import sockeye.utils
 from sockeye import constants as C
+import mxnet as mx
 
 logger = logging.getLogger(__name__)
 
@@ -147,6 +148,7 @@ class SockeyeModel:
         assert self.built
         self.params, _ = sockeye.utils.load_params(fname)
         # pack rnn cell weights
+
         for cell in self.rnn_cells:
             self.params = cell.pack_weights(self.params)
         logger.info('Loaded params from "%s"', fname)
@@ -169,7 +171,6 @@ class SockeyeModel:
         rp['decoder_cls_weight'] = temp_params['lm_cls_weight']
         rp['decoder_cls_bias'] = temp_params['lm_cls_bias']
         logger.info('Loaded decoder LM params frpm "%s"', fname)
-        print(list((x, y.shape) for x, y in rp.items()))
 
         if self.params is not None:
 
@@ -178,6 +179,24 @@ class SockeyeModel:
         else:
 
             self.params = rp
+
+        #literally hard coding the mxnet pack cells
+        for cell in self.rnn_cells:
+
+            for c in cell._cells:
+                if 'decoder_lm_target' in c._prefix and not 'dropout' in c._prefix:
+                    for group_name in ['i2h', 'h2h']:
+
+                        weight = []
+                        bias = []
+                        for gate in c._gate_names:
+                            wname = '%s%s%s_weight'%(c._prefix, group_name, gate)
+                            weight.append(self.params.pop(wname))
+                            bname = '%s%s%s_bias'%(c._prefix, group_name, gate)
+                            bias.append(self.params.pop(bname))
+                        self.params['%s%s_weight'%(c._prefix, group_name)] = mx.ndarray.concatenate(weight)
+                        self.params['%s%s_bias'%(c._prefix, group_name)] = mx.ndarray.concatenate(bias)
+
 
     def load_encoder_lm_from_file(self, fname: str):
 
@@ -195,7 +214,6 @@ class SockeyeModel:
         rp[C.SOURCE_NAME + '_embed_weight'] = temp_params[C.SOURCE_NAME + '_embed_weight']
 
         logger.info('Loaded encoder LM params frpm "%s"', fname)
-        print(list((x, y.shape) for x, y in rp.items()))
 
         if self.params is not None:
 
@@ -204,6 +222,22 @@ class SockeyeModel:
         else:
 
             self.params = rp
+   
+        for cell in self.rnn_cells:
+            for c in cell._cells:
+                if 'encoder_rnn_lm' in c._prefix and not 'dropout' in c._prefix:
+                    for group_name in ['i2h', 'h2h']:
+                        weight = []
+                        bias = []
+
+                        for gate in c._gate_names:
+                            wname = '%s%s%s_weight'%(c._prefix, group_name, gate)
+                            weight.append(self.params.pop(wname))
+                            bname = '%s%s%s_bias'%(c._prefix, group_name, gate)
+                            bias.append(self.params.pop(bname))
+                        self.params['%s%s_weight'%(c._prefix, group_name)] = mx.ndarray.concatenate(weight)
+                        self.params['%s%s_bias'%(c._prefix, group_name)] = mx.ndarray.concatenate(bias)
+
 
     def _build_model_components(self, max_seq_len: int, fused_encoder: bool, rnn_forget_bias: float = 0.0):
         """

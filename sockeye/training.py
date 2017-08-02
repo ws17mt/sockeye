@@ -483,6 +483,7 @@ class TrainingModel(sockeye.model.SockeyeModel):
                 self.training_monitor.checkpoint_callback(train_state.checkpoint, metric_train)
 
                 toc = time.time()
+
                 logger.info("Checkpoint [%d]\tUpdates=%d Epoch=%d Samples=%d Time-cost=%.3f",
                             train_state.checkpoint, train_state.updates, train_state.epoch,
                             train_state.samples, (toc - tic))
