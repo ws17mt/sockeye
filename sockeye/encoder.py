@@ -42,6 +42,7 @@ def get_encoder(num_embed: int,
                 gcn_num_hidden: int,
                 gcn_num_tensor: int,
                 forget_bias: float,
+                emb_encoder,
                 fused: bool = False) -> 'Encoder':
     """
     Returns an encoder with embedding, batch2time-major conversion, and bidirectional RNN encoder.
@@ -62,17 +63,20 @@ def get_encoder(num_embed: int,
     :param gcn_num_tensor: Number of possible edge labels for GCN graphs.
     :param forget_bias: Initial value of RNN forget biases.
     :param fused: Whether to use FusedRNNCell (CuDNN). Only works with GPU context.
+    :param emb_encoder: an Embedding encoder, needed to ensure this layer is shared.
     :return: Encoder instance.
     """
     # TODO give more control on encoder architecture
     encoders = list()
-    encoders.append(Embedding(num_embed=num_embed,
-                              vocab_size=vocab_size,
-                              prefix=C.SOURCE_EMBEDDING_PREFIX,
-                              dropout=dropout))
+    #encoders.append(Embedding(num_embed=num_embed,
+    #                          vocab_size=vocab_size,
+    #                          prefix=C.SOURCE_EMBEDDING_PREFIX,
+    #                          dropout=dropout))
+    encoders.append(emb_encoder)
     encoders.append(BatchMajor2TimeMajor())
 
-    if use_gcn and not skip_rnn:
+    if not use_gcn:
+        # Standard (Bi)RNN encoder
         EncoderClass = FusedRecurrentEncoder if fused else RecurrentEncoder
         encoders.append(BiDirectionalRNNEncoder(num_hidden=rnn_num_hidden,
                                                 num_layers=1,
@@ -90,12 +94,9 @@ def get_encoder(num_embed: int,
                                          cell_type=cell_type,
                                          residual=residual,
                                          forget_bias=forget_bias))
-    if use_gcn:
-        if skip_rnn:
-            encoders.append(GraphConvEncoder(num_embed, gcn_num_hidden, 
-                                             gcn_num_tensor, use_gcn_gating))
-        else:
-            encoders.append(GraphConvEncoder(rnn_num_hidden, gcn_num_hidden, 
+    else:
+        # GCN encoder on top of an embedding layer
+        encoders.append(GraphConvEncoder(rnn_num_hidden, gcn_num_hidden, 
                                              gcn_num_tensor, use_gcn_gating))
         if gcn_num_layers > 1:
             # TODO: allow different hidden layer sizes.

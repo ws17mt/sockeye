@@ -149,7 +149,31 @@ class SockeyeModel:
         :param fused_encoder: Use FusedRNNCells in encoder.
         :param rnn_forget_bias: forget bias initialization for RNNs.
         """
+        # We need this to ensure the Embedding layer is shared between encoders.
+        emb_encoder = sockeye.encoder.Embedding(num_embed=self.config.num_embed_source,
+                                                vocab_size=self.config.vocab_source_size,
+                                                prefix=C.SOURCE_EMBEDDING_PREFIX,
+                                                dropout=self.config.dropout)
+        # TODO: remove the hard-coded use_gcn flag here.
         self.encoder = sockeye.encoder.get_encoder(self.config.num_embed_source,
+                                                   self.config.vocab_source_size,
+                                                   self.config.rnn_num_layers,
+                                                   self.config.rnn_num_hidden,
+                                                   self.config.rnn_cell_type,
+                                                   self.config.rnn_residual_connections,
+                                                   self.config.dropout,
+                                                   False,
+                                                   self.config.use_gcn_gating,
+                                                   self.config.gcn_num_layers,
+                                                   self.config.skip_rnn,
+                                                   self.config.gcn_num_hidden,
+                                                   self.config.gcn_num_tensor,
+                                                   rnn_forget_bias,
+                                                   emb_decoder,
+                                                   fused_encoder)
+        if self.config.use_gcn:
+            # TODO: remove the hard-coded skip_rnn flag here.
+            self.gcn_encoder = sockeye.encoder.get_encoder(self.config.num_embed_source,
                                                    self.config.vocab_source_size,
                                                    self.config.rnn_num_layers,
                                                    self.config.rnn_num_hidden,
@@ -159,10 +183,11 @@ class SockeyeModel:
                                                    self.config.use_gcn,
                                                    self.config.use_gcn_gating,
                                                    self.config.gcn_num_layers,
-                                                   self.config.skip_rnn,
+                                                   True,
                                                    self.config.gcn_num_hidden,
                                                    self.config.gcn_num_tensor,
                                                    rnn_forget_bias,
+                                                   emb_decoder,
                                                    fused_encoder)
 
         self.attention = sockeye.attention.get_attention(self.config.attention_use_prev_word,
@@ -173,6 +198,15 @@ class SockeyeModel:
                                                          self.config.attention_coverage_type,
                                                          self.config.attention_coverage_num_hidden)
 
+        if self.config.use_gcn:
+            self.gcn_attention = sockeye.attention.get_attention(self.config.attention_use_prev_word,
+                                                         self.config.attention_type,
+                                                         self.config.attention_num_hidden,
+                                                         self.config.gcn_num_hidden,
+                                                         max_seq_len,
+                                                         self.config.attention_coverage_type,
+                                                         self.config.attention_coverage_num_hidden)
+        
         self.lexicon = sockeye.lexicon.Lexicon(self.config.vocab_source_size,
                                                self.config.vocab_target_size,
                                                self.config.learn_lexical_bias) if self.config.lexical_bias else None
