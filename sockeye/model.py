@@ -169,7 +169,7 @@ class SockeyeModel:
                                                    self.config.gcn_num_hidden,
                                                    self.config.gcn_num_tensor,
                                                    rnn_forget_bias,
-                                                   emb_decoder,
+                                                   emb_encoder,
                                                    fused_encoder)
         if self.config.use_gcn:
             # TODO: remove the hard-coded skip_rnn flag here.
@@ -187,7 +187,7 @@ class SockeyeModel:
                                                    self.config.gcn_num_hidden,
                                                    self.config.gcn_num_tensor,
                                                    rnn_forget_bias,
-                                                   emb_decoder,
+                                                   emb_encoder,
                                                    fused_encoder)
         else:
             self.gcn_encoder = None
@@ -198,7 +198,8 @@ class SockeyeModel:
                                                          self.config.rnn_num_hidden,
                                                          max_seq_len,
                                                          self.config.attention_coverage_type,
-                                                         self.config.attention_coverage_num_hidden)
+                                                         self.config.attention_coverage_num_hidden,
+                                                         prefix='')
 
         if self.config.use_gcn:
             self.gcn_attention = sockeye.attention.get_attention(self.config.attention_use_prev_word,
@@ -207,7 +208,8 @@ class SockeyeModel:
                                                          self.config.gcn_num_hidden,
                                                          max_seq_len,
                                                          self.config.attention_coverage_type,
-                                                         self.config.attention_coverage_num_hidden)
+                                                         self.config.attention_coverage_num_hidden,
+                                                         prefix='gcn_')
         else:
             self.gcn_attention = None
         

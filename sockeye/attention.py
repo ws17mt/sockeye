@@ -30,7 +30,8 @@ def get_attention(input_previous_word: bool,
                   rnn_num_hidden: int,
                   max_seq_len: int,
                   attention_coverage_type: str,
-                  attention_coverage_num_hidden: int) -> 'Attention':
+                  attention_coverage_num_hidden: int,
+                  prefix: str) -> 'Attention':
     """
     Returns an Attention instance based on attention_type.
 
@@ -55,7 +56,8 @@ def get_attention(input_previous_word: bool,
         return LocationAttention(input_previous_word, max_seq_len)
     elif attention_type == "mlp":
         return MlpAttention(input_previous_word=input_previous_word,
-                            attention_num_hidden=attention_num_hidden)
+                            attention_num_hidden=attention_num_hidden,
+                            prefix=prefix)
     elif attention_type == "coverage":
         if attention_coverage_type == 'count' and attention_coverage_num_hidden != 1:
             logging.warning("Ignoring coverage_num_hidden=%d and setting to 1" % attention_coverage_num_hidden)

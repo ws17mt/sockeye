@@ -113,8 +113,8 @@ class TrainingModel(sockeye.model.SockeyeModel):
             source_encoded = self.encoder.encode(source, source_length, seq_len=source_seq_len,
                                                  metadata=source_graphs)
             if self.config.use_gcn:
-                gcn_source_encoded = self.encoder.encode(source, source_length, seq_len=source_seq_len,
-                                                         metadata=source_graphs)
+                gcn_source_encoded = self.gcn_encoder.encode(source, source_length, seq_len=source_seq_len,
+                                                             metadata=source_graphs)
             else:
                 gcn_source_encoded = None
                 

@@ -378,8 +378,8 @@ class StackedRNNDecoder(Decoder):
         if self.gcn_attention is not None:
             gcn_source_encoded_batch_major = mx.sym.swapaxes(gcn_source_encoded, dim1=0, dim2=1, 
                                                              name='gcn_source_encoded_batch_major')
-            gcn_attention_func = self.attention.on(gcn_source_encoded_batch_major, source_length, source_seq_len)
-            gcn_attention_state = self.attention.get_initial_state(source_length, source_seq_len)
+            gcn_attention_func = self.gcn_attention.on(gcn_source_encoded_batch_major, source_length, source_seq_len)
+            gcn_attention_state = self.gcn_attention.get_initial_state(source_length, source_seq_len)
         else:
             gcn_attention_func = None
             gcn_attention_state = None
