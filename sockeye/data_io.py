@@ -473,6 +473,10 @@ class ParallelBucketSentenceIter(mx.io.DataIter):
         self.nd_target = []
         self.nd_label = []
 
+        # For downsampling
+        self.downsampling = False
+        self.downsampling_threshold = -1
+
         self.reset()
 
     def _assign_to_buckets(self, source_sentences, target_sentences):
@@ -582,6 +586,8 @@ class ParallelBucketSentenceIter(mx.io.DataIter):
         """
         True if iterator can return another batch
         """
+        if self.downsampling:
+            return self.curr_idx != self.downsampling_threshold
         return self.curr_idx != len(self.idx)
 
     def next(self) -> mx.io.DataBatch:

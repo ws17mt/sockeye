@@ -23,8 +23,7 @@ def none_if_negative(val):
 def make_iters_same_length(iter1: sockeye.data_io.ParallelBucketSentenceIter,
                            iter2: sockeye.data_io.ParallelBucketSentenceIter):
     """
-    Takes two iters and ensures that they have the same number of batches
-    This is accomplished by deleting batches from the larger iter to match size
+    Takes two iters and ensures that they have the same number of batches (per epoch)
     This is necessary to make ParallelFetchingIter work since its behavior is
     weird when the two iters are not the same size.
     Equivalent to down-sampling
@@ -34,9 +33,11 @@ def make_iters_same_length(iter1: sockeye.data_io.ParallelBucketSentenceIter,
     :param iter2: Another data iterator
     """
     max_idx_len = min(len(iter1.idx), len(iter2.idx))
-    iter1.idx = iter1.idx[:max_idx_len]
-    iter2.idx = iter1.idx[:max_idx_len]
-    logger.info("Truncated iters to %d batches.", max_idx_len)
+    iter1.downsampling = True
+    iter1.downsampling_threshold = max_idx_len
+    iter2.downsampling = True
+    iter2.downsampling_threshold = max_idx_len
+    logger.info("Set downsampling threshold to %d for iters.", max_idx_len)
 
 
 logger = setup_main_logger(__name__, file_logging=False, console=True)
