@@ -13,6 +13,8 @@ rm -rf ${OUT_FOLDER}/*
 python train_style.py \
     -s ${DATA_HOME}/train.100k.bpe.fr \
     -t ${DATA_HOME}/train.100k.bpe.en \
+    -ms ${DATA_HOME}/train.100k.bpe.fr \
+    -mt ${DATA_HOME}/train.100k.bpe.en \
     -vs ${DATA_HOME}/dev1.bpe.fr \
     -vt ${DATA_HOME}/dev1.bpe.en \
     --joint-vocab ${DATA_HOME}/vocab.enfr.json \

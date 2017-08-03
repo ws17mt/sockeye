@@ -30,6 +30,8 @@ args = params.parse_args()
 
 e_corpus = args.source
 f_corpus = args.target
+e_mono_corpus = args.mono_source
+f_mono_corpus = args.mono_target
 e_val = args.validation_source
 f_val = args.validation_target
 external_vocab = args.joint_vocab
@@ -81,6 +83,8 @@ with ExitStack() as exit_stack:
     # NamedTuple which will keep track of stuff
     data_info = sockeye.data_io.StyleDataInfo(os.path.abspath(e_corpus),
                                               os.path.abspath(f_corpus),
+                                              os.path.abspath(e_mono_corpus),
+                                              os.path.abspath(f_mono_corpus),
                                               os.path.abspath(e_val),
                                               os.path.abspath(f_val),
                                               vocab)
@@ -88,8 +92,9 @@ with ExitStack() as exit_stack:
     # This will return a ParallelBucketIterator
     # For these, target is always = source (autenc target output)
     # Vocabularies are shared across e and f
+    # e->e
     e_train_iter = sockeye.data_io.get_style_training_data_iters(
-                            source=data_info.e,
+                            source=data_info.e_mono,
                             vocab=vocab,
                             batch_size=batch_size,
                             fill_up=args.fill_up,
@@ -100,9 +105,9 @@ with ExitStack() as exit_stack:
                             suffix='_e'
                         )
 
-    # Similar iter for f
+    # Similar iter for f->f
     f_train_iter = sockeye.data_io.get_style_training_data_iters(
-                            source=data_info.f,
+                            source=data_info.f_mono,
                             vocab=vocab,
                             batch_size=batch_size,
                             fill_up=args.fill_up,

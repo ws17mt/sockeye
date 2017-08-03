@@ -84,6 +84,13 @@ def add_io_args(params):
                              required=True,
                              help='Target side of validation data.')
 
+    data_params.add_argument('--mono-source', '-ms',
+                             required=False,
+                             help='Source side of monlolingual data.')
+    data_params.add_argument('--mono-target', '-mt',
+                             required=False,
+                             help='Target side of monolingual data.')
+
     data_params.add_argument('--output', '-o',
                              required=True,
                              help='Folder where model & training results are written to.')

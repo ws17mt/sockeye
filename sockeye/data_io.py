@@ -246,6 +246,8 @@ Tuple to collect data information for training.
 StyleDataInfo = NamedTuple('StyleDataInfo', [
     ('e', str),
     ('f', str),
+    ('e_mono', str),
+    ('f_mono', str),
     ('e_val', str),
     ('f_val', str),
     ('vocab', str),

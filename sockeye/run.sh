@@ -13,6 +13,8 @@ rm -rf ${OUT_FOLDER}/*
 python train_style.py \
     -s ${DATA_HOME}/train-toy.de.atok \
     -t ${DATA_HOME}/train-toy.en.atok \
+    -ms ${DATA_HOME}/train-toy.de.atok \
+    -mt ${DATA_HOME}/train-toy.en.atok \
     -vs ${DATA_HOME}/val.de.atok \
     -vt ${DATA_HOME}/val.en.atok \
     -o  $OUT_FOLDER \
