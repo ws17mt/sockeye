@@ -6,7 +6,6 @@ import mxnet as mx
 import sockeye.data_io
 import sockeye.style_training
 import sockeye.style_pretraining_G
-import sockeye.style_pretraining_D
 import sockeye.inference
 import sockeye.encoder
 import sockeye.constants as C
@@ -36,30 +35,6 @@ f_val = args.validation_target
 external_vocab = args.joint_vocab
 
 output_folder = args.output
-#### PSC (fr-en) ####
-#e_corpus = "/pylon2/ci560op/fosterg/data/fr/processed/mono.100k.bpe.fr"
-#f_corpus = "/pylon2/ci560op/fosterg/data/fr/processed/mono.100k.bpe.en"
-#e_val = "/pylon2/ci560op/fosterg/data/fr/processed/dev1.bpe.fr"
-#f_val = "/pylon2/ci560op/fosterg/data/fr/processed/dev1.bpe.en"
-#external_vocab = "/pylon2/ci560op/fosterg/data/fr/processed/vocab.enfr.json"
-
-# TODO: hard-coded stuff; remove when user args are back.
-#lr_scheduler = None
-#num_embed = 500
-#attention_type="fixed" # TODO:Fix
-#attention_num_hidden = 1024
-#dropout=0.3
-#rnn_cell_type=C.GRU_TYPE
-#rnn_num_layers=2
-#rnn_num_hidden=500
-#num_words = 10000
-#word_min_count = 1
-#batch_size = 64
-#max_seq_len=50
-#disc_num_hidden=500
-#disc_num_layers=1
-#disc_dropout=0.
-#disc_act='softrelu'
 
 lr_scheduler = None
 num_embed = args.num_embed

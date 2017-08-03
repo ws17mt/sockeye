@@ -4,14 +4,18 @@ cd ..
 python setup.py install --user
 cd sockeye
 
-rm -rf tmp/*
+DATA_HOME=/Users/gaurav/Dropbox/Projects/JSALT17-NMT-Lab/data/multi30k
+OUT_FOLDER=tmp
+
+mkdir -p ${OUT_FOLDER}
+rm -rf ${OUT_FOLDER}/*
 
 python train_style.py \
-    -s /Users/gaurav/Dropbox/Projects/JSALT17-NMT-Lab/data/multi30k/train-toy.de.atok \
-    -t /Users/gaurav/Dropbox/Projects/JSALT17-NMT-Lab/data/multi30k/train-toy.en.atok \
-    -vs /Users/gaurav/Dropbox/Projects/JSALT17-NMT-Lab/data/multi30k/val.de.atok \
-    -vt /Users/gaurav/Dropbox/Projects/JSALT17-NMT-Lab/data/multi30k/val.en.atok \
-    -o tmp \
+    -s ${DATA_HOME}/train-toy.de.atok \
+    -t ${DATA_HOME}/train-toy.en.atok \
+    -vs ${DATA_HOME}/val.de.atok \
+    -vt ${DATA_HOME}/val.en.atok \
+    -o  $OUT_FOLDER \
     -b 20 \
     --num-embed 4 \
     --attention-num-hidden 5 \
@@ -19,7 +23,8 @@ python train_style.py \
     --rnn-cell-type gru \
     --rnn-num-layers 1 \
     --rnn-num-hidden 6 \
-    --dropout 0.1 \
+    --dropout 0.2 \
+    --initial-learning-rate 0.0002 \
     --num-words 10000 \
     --word-min-count 1 \
     --max-seq-len 50 \
@@ -38,3 +43,4 @@ python train_style.py \
 
 
 #    --joint_vocab None
+#    --weight-tying \

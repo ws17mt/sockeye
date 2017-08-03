@@ -4,23 +4,28 @@ cd ..
 python setup.py install --user
 cd sockeye
 
-rm -rf tmp/*
+DATA_HOME=/pylon2/ci560op/fosterg/data/fr/processed
+OUT_FOLDER=tmp
+
+mkdir -p ${OUT_FOLDER}
+rm -rf ${OUT_FOLDER}/*
 
 python train_style.py \
-    -s /pylon2/ci560op/fosterg/data/fr/processed/mono.100k.bpe.fr \
-    -t /pylon2/ci560op/fosterg/data/fr/processed/mono.100k.bpe.en \
-    -vs /pylon2/ci560op/fosterg/data/fr/processed/dev1.bpe.fr \
-    -vt /pylon2/ci560op/fosterg/data/fr/processed/dev1.bpe.en \
-    --joint-vocab /pylon2/ci560op/fosterg/data/fr/processed/vocab.enfr.json
-    -o tmp \
-    -b 64 \
-    --num-embed 500 \
+    -s ${DATA_HOME}/train.100k.bpe.fr \
+    -t ${DATA_HOME}/train.100k.bpe.en \
+    -vs ${DATA_HOME}/dev1.bpe.fr \
+    -vt ${DATA_HOME}/dev1.bpe.en \
+    --joint-vocab ${DATA_HOME}/vocab.enfr.json \
+    -o $OUT_FOLDER \
+    -b 128 \
+    --num-embed 512 \
     --attention-num-hidden 1024 \
     --attention-type mlp \
     --rnn-cell-type gru \
     --rnn-num-layers 2 \
-    --rnn-num-hidden 500 \
+    --rnn-num-hidden 512 \
     --dropout 0.3 \
+    --initial-learning-rate 0.0002 \
     --num-words 10000 \
     --word-min-count 1 \
     --max-seq-len 50 \
@@ -34,6 +39,7 @@ python train_style.py \
     --valid-loss cross-entropy \
     --disc-loss-lambda 50000.0 \
     --max-updates -1 \
-    --checkpoint-frequency 1000
+    --checkpoint-frequency 1000 \
+    --no-bucketing
 
-#--use-cpu \
+#   --weight-tying \
