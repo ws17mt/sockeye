@@ -93,7 +93,7 @@ class StylePreTrainingModel_G(sockeye.model.SockeyeModel):
                                                    vocab_size=len(vocab),
                                                    prefix=C.EMBEDDING_PREFIX,
                                                    dropout=self.config.dropout)
-        self._build_model_components(self.config.max_seq_len, fused, rnn_forget_bias, initialize_embedding=False)
+        self._build_model_components(self.config.max_seq_len, fused, rnn_forget_bias, initialize_embedding=False, embedding=self.embedding)
         self.module = self._build_module(train_iter, self.config.max_seq_len)
         self.training_monitor = None
 

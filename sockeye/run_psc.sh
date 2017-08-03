@@ -42,6 +42,5 @@ python train_style.py \
     --disc-loss-lambda 50000.0 \
     --max-updates -1 \
     --checkpoint-frequency 1000 \
-    --no-bucketing
-
-#   --weight-tying \
+    --no-bucketing \
+    --weight-tying

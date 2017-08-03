@@ -150,7 +150,7 @@ class SockeyeModel:
             self.params = cell.pack_weights(self.params)
         logger.info('Loaded params from "%s"', fname)
 
-    def _build_model_components(self, max_seq_len: int, fused_encoder: bool, rnn_forget_bias: float = 0.0, initialize_embedding=True):
+    def _build_model_components(self, max_seq_len: int, fused_encoder: bool, rnn_forget_bias: float = 0.0, initialize_embedding=True, embedding=None):
         """
         Builds and sets model components given maximum sequence length.
         
@@ -193,7 +193,8 @@ class SockeyeModel:
                                                    self.config.weight_tying,
                                                    self.lexicon,
                                                    self.config.context_gating,
-                                                   initialize_embedding)
+                                                   initialize_embedding,
+                                                   embedding)
 
         self.rnn_cells = self.encoder.get_rnn_cells() + self.decoder.get_rnn_cells()
 

@@ -24,7 +24,7 @@ python train_style.py \
     --attention-type mlp \
     --rnn-cell-type gru \
     --rnn-num-layers 1 \
-    --rnn-num-hidden 6 \
+    --rnn-num-hidden 4 \
     --dropout 0.2 \
     --initial-learning-rate 0.0002 \
     --num-words 10000 \
@@ -41,8 +41,8 @@ python train_style.py \
     --valid-loss cross-entropy \
     --disc-loss-lambda 50000.0 \
     --max-updates 100 \
-    --checkpoint-frequency 100
+    --checkpoint-frequency 100 \
+    --weight-tying
 
 
 #    --joint_vocab None
-#    --weight-tying \

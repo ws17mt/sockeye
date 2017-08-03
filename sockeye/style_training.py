@@ -175,7 +175,7 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
                                                    prefix=C.EMBEDDING_PREFIX,
                                                    dropout=self.config.dropout)
         self.vocab = vocab
-        self._build_model_components(self.config.max_seq_len, fused, rnn_forget_bias, initialize_embedding=False)
+        self._build_model_components(self.config.max_seq_len, fused, rnn_forget_bias, initialize_embedding=False, embedding=self.embedding)
         self._build_discriminators(self.config.disc_act, self.config.disc_num_hidden, self.config.disc_num_layers,
                                    self.config.disc_dropout, self.config.loss_lambda)
         self.module = self._build_module(train_iter, self.config.max_seq_len, self.config.max_seq_len, fixed_param_names)

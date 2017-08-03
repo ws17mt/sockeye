@@ -39,7 +39,8 @@ def get_decoder(num_embed: int,
                 weight_tying: bool = False,
                 lexicon: Optional[sockeye.lexicon.Lexicon] = None,
                 context_gating: bool = False,
-                initialize_embedding:bool = True) -> 'Decoder':
+                initialize_embedding:bool = True,
+                embedding = None) -> 'Decoder':
     """
     Returns a StackedRNNDecoder with the following properties.
     
@@ -55,6 +56,8 @@ def get_decoder(num_embed: int,
     :param weight_tying: Whether to share embedding and prediction parameter matrices.
     :param lexicon: Optional Lexicon.
     :param context_gating: Whether to use context gating.
+    :param initialize_embedding: Whether to initialize embedding
+    :param external embedding matrix
     :return: Decoder instance.
     """
     return StackedRNNDecoder(rnn_num_hidden,
@@ -69,7 +72,8 @@ def get_decoder(num_embed: int,
                              forget_bias=forget_bias,
                              lexicon=lexicon,
                              context_gating=context_gating,
-                             initialize_embedding=initialize_embedding)
+                             initialize_embedding=initialize_embedding,
+                             embedding=embedding)
 
 
 class Decoder:
@@ -141,7 +145,8 @@ class StackedRNNDecoder(Decoder):
                  forget_bias: float = 0.0,
                  lexicon: Optional[sockeye.lexicon.Lexicon] = None,
                  context_gating: bool = False,
-                 initialize_embedding: bool = True) -> None:
+                 initialize_embedding: bool = True,
+                 embedding = None) -> None:
         # TODO: implement variant without input feeding
         self.num_layers = num_layers
         self.prefix = prefix
@@ -177,7 +182,10 @@ class StackedRNNDecoder(Decoder):
         if weight_tying:
             assert self.num_hidden == self.num_target_embed, \
                 "Weight tying requires target embedding size and rnn_num_hidden to be equal"
-            self.cls_w = self.embedding.embed_weight
+            if not initialize_embedding:
+                self.cls_w = embedding.embed_weight
+            else:
+                self.cls_w = self.embedding.embed_weight
         else:
             self.cls_w = mx.sym.Variable("%scls_weight" % prefix)
         self.cls_b = mx.sym.Variable("%scls_bias" % prefix)
