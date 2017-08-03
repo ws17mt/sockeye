@@ -22,18 +22,19 @@ import sockeye.constants as C
 import sockeye.model
 
 
-def get_loss(config: sockeye.model.ModelConfig) -> 'Loss':
+def get_loss(loss_type, config: sockeye.model.ModelConfig) -> 'Loss':
     """
     Returns Loss instance given loss_name.
 
+    :param loss_type: which type of loss is to be used
     :param config: Model configuration.
     """
-    if config.loss == C.CROSS_ENTROPY:
+    if loss_type == C.CROSS_ENTROPY:
         return CrossEntropyLoss(config.normalize_loss)
-    elif config.loss == C.SMOOTHED_CROSS_ENTROPY:
+    elif loss_type == C.SMOOTHED_CROSS_ENTROPY:
         return SmoothedCrossEntropyLoss(config.smoothed_cross_entropy_alpha, config.vocab_target_size,
                                         config.normalize_loss)
-    elif config.loss == C.GAN_LOSS:
+    elif loss_type == C.GAN_LOSS:
         return GANLoss(config.normalize_loss)
     else:
         raise ValueError("unknown loss name")
@@ -70,7 +71,7 @@ class CrossEntropyLoss(Loss):
     def __init__(self, normalize: bool = False):
         self._normalize = normalize
 
-    def get_loss(self, logits: mx.sym.Symbol, labels: mx.sym.Symbol) -> mx.sym.Symbol:
+    def get_loss(self, logits: mx.sym.Symbol, labels: mx.sym.Symbol, name) -> mx.sym.Symbol:
         """
         Returns loss and softmax output symbols given logits and integer-coded labels.
 
@@ -87,7 +88,7 @@ class CrossEntropyLoss(Loss):
                                     ignore_label=C.PAD_ID,
                                     use_ignore=True,
                                     normalization=normalization,
-                                    name=C.SOFTMAX_NAME)
+                                    name=name)
 
 
 def _normalize(loss: mx.sym.Symbol, labels: mx.sym.Symbol):
