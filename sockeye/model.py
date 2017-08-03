@@ -49,6 +49,7 @@ ModelConfig = sockeye.utils.namedtuple_with_defaults('ModelConfig',
                                                       "learn_lexical_bias",
                                                       "data_info",
                                                       "loss",
+                                                      "valid_loss",
                                                       "normalize_loss",
                                                       "smoothed_cross_entropy_alpha",
                                                       "disc_act",
@@ -93,6 +94,10 @@ class SockeyeModel:
         self.rnn_cells = []
         self.built = False
         self.params = None
+
+        self.inference_encoder = None
+        self.inference_attention = None
+        self.inference_decoder = None
 
     def save_config(self, folder: str):
         """
@@ -193,3 +198,49 @@ class SockeyeModel:
         self.rnn_cells = self.encoder.get_rnn_cells() + self.decoder.get_rnn_cells()
 
         self.built = True
+
+    def _build_inference_model_components(self, max_seq_len: int, fused_encoder: bool, rnn_forget_bias: float = 0.0,
+                                          initialize_embedding=True):
+        """
+        Builds and sets model components given maximum sequence length.
+
+        :param max_seq_len: Maximum sequence length supported by the model.
+        :param fused_encoder: Use FusedRNNCells in encoder.
+        :param rnn_forget_bias: forget bias initialization for RNNs.
+        """
+        self.inference_encoder = sockeye.encoder.get_encoder(self.config.num_embed_source,
+                                                   self.config.vocab_source_size,
+                                                   self.config.rnn_num_layers,
+                                                   self.config.rnn_num_hidden,
+                                                   self.config.rnn_cell_type,
+                                                   self.config.rnn_residual_connections,
+                                                   self.config.dropout,
+                                                   rnn_forget_bias,
+                                                   fused_encoder,
+                                                   initialize_embedding)
+
+        self.inference_attention = sockeye.attention.get_attention(self.config.attention_use_prev_word,
+                                                         self.config.attention_type,
+                                                         self.config.attention_num_hidden,
+                                                         self.config.rnn_num_hidden,
+                                                         max_seq_len,
+                                                         self.config.attention_coverage_type,
+                                                         self.config.attention_coverage_num_hidden)
+
+        self.inference_lexicon = sockeye.lexicon.Lexicon(self.config.vocab_source_size,
+                                               self.config.vocab_target_size,
+                                               self.config.learn_lexical_bias) if self.config.lexical_bias else None
+
+        self.inference_decoder = sockeye.decoder.get_decoder(self.config.num_embed_target,
+                                                   self.config.vocab_target_size,
+                                                   self.config.rnn_num_layers,
+                                                   self.config.rnn_num_hidden,
+                                                   self.attention,
+                                                   self.config.rnn_cell_type,
+                                                   self.config.rnn_residual_connections,
+                                                   rnn_forget_bias,
+                                                   self.config.dropout,
+                                                   self.config.weight_tying,
+                                                   self.lexicon,
+                                                   self.config.context_gating,
+                                                   initialize_embedding)
