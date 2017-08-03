@@ -19,6 +19,26 @@ from sockeye.utils import acquire_gpus, get_num_gpus, expand_requested_device_id
 def none_if_negative(val):
     return None if val < 0 else val
 
+
+def make_iters_same_length(iter1: sockeye.data_io.ParallelBucketSentenceIter,
+                           iter2: sockeye.data_io.ParallelBucketSentenceIter):
+    """
+    Takes two iters and ensures that they have the same number of batches
+    This is accomplished by deleting batches from the larger iter to match size
+    This is necessary to make ParallelFetchingIter work since its behavior is
+    weird when the two iters are not the same size.
+    Equivalent to down-sampling
+    TODO: Implement up-sampling
+
+    :param iter1: A data iterator
+    :param iter2: Another data iterator
+    """
+    max_idx_len = min(len(iter1.idx), len(iter2.idx))
+    iter1.idx = iter1.idx[:max_idx_len]
+    iter2.idx = iter1.idx[:max_idx_len]
+    logger.info("Truncated iters to %d batches.", max_idx_len)
+
+
 logger = setup_main_logger(__name__, file_logging=False, console=True)
 
 params = argparse.ArgumentParser(description='CLI to train sockeye style transfer models.')
@@ -178,8 +198,13 @@ with ExitStack() as exit_stack:
                         )
 
     # Merge the two iterators to get one.
+    make_iters_same_length(e_train_iter, f_train_iter)
     train_iter = mx.io.PrefetchingIter([e_train_iter, f_train_iter])
+
+    make_iters_same_length(ef_train_iter, fe_train_iter)
     pretrain_iter = mx.io.PrefetchingIter([ef_train_iter, fe_train_iter])
+
+    make_iters_same_length(ef_val_iter, fe_val_iter)
     val_iter = mx.io.PrefetchingIter([ef_val_iter, fe_val_iter])
 
     model_config = sockeye.model.ModelConfig(max_seq_len=max_seq_len,
