@@ -1,5 +1,6 @@
 import os
 import argparse
+import pickle
 from contextlib import ExitStack
 import mxnet as mx
 
@@ -59,7 +60,6 @@ external_vocab = args.joint_vocab
 
 output_folder = args.output
 
-lr_scheduler = None
 num_embed = args.num_embed
 attention_num_hidden = args.rnn_num_hidden if not args.attention_num_hidden else args.attention_num_hidden
 attention_type = args.attention_type
@@ -241,13 +241,14 @@ with ExitStack() as exit_stack:
     # For lexical bias, set to None
     lexicon = None
 
+    # TODO: Resume training
+    resume_training = False
+
     initializer = sockeye.initializer.get_initializer(args.rnn_h2h_init, lexicon=lexicon)
 
     optimizer = args.optimizer
     optimizer_params = {'wd': args.weight_decay,
                         "learning_rate": args.initial_learning_rate}
-    if lr_scheduler is not None:
-        optimizer_params["lr_scheduler"] = lr_scheduler
     clip_gradient = none_if_negative(args.clip_gradient)
     if clip_gradient is not None:
         optimizer_params["clip_gradient"] = clip_gradient
@@ -263,11 +264,29 @@ with ExitStack() as exit_stack:
     logger.info("Optimizer: %s", optimizer)
     logger.info("Optimizer Parameters: %s", optimizer_params)
 
+
+    ####################### PRE_TRAINING G ################################
     # This is a hack to get the pre-training and joint models to write
     # resumption files in different directories
     C.TRAINING_STATE_DIRNAME = "g_pretraining_state"
     C.TRAINING_STATE_TEMP_DIRNAME = "tmp.g_pretraining_state"
     C.TRAINING_STATE_TEMP_DELETENAME = "delete.g_pretraining_state"
+
+    # Learning rate scheduler for pre-training G
+    training_state_dir = os.path.join(output_folder, C.TRAINING_STATE_DIRNAME)
+    learning_rate_half_life = none_if_negative(args.learning_rate_half_life)
+
+    if not resume_training:
+        lr_scheduler = sockeye.lr_scheduler.get_lr_scheduler(args.learning_rate_scheduler_type_pre_g,
+                                                             args.checkpoint_frequency,
+                                                             learning_rate_half_life,
+                                                             args.learning_rate_reduce_factor,
+                                                             args.learning_rate_reduce_num_not_improved)
+    else:
+        with open(os.path.join(training_state_dir, C.SCHEDULER_STATE_NAME), "rb") as fp:
+            lr_scheduler = pickle.load(fp)
+
+    optimizer_params["lr_scheduler"] = lr_scheduler
 
     G_pretrain_model = sockeye.style_pretraining_G.StylePreTrainingModel_G(model_config=model_config,
                                                             context=context,
@@ -301,11 +320,29 @@ with ExitStack() as exit_stack:
     G_params = G_pretrain_model.module.get_params()
     D_fixed_params = list(G_params[0].keys())
 
+    ####################### PRE_TRAINING D ################################
+
     logger.info("Copying pre-trained params (G) and starting pre-training of D")
 
     C.TRAINING_STATE_DIRNAME = "d_pretraining_state"
     C.TRAINING_STATE_TEMP_DIRNAME = "tmp.d_pretraining_state"
     C.TRAINING_STATE_TEMP_DELETENAME = "delete.d_pretraining_state"
+
+    # Learning rate scheduler for pre-training G
+    training_state_dir = os.path.join(output_folder, C.TRAINING_STATE_DIRNAME)
+    learning_rate_half_life = none_if_negative(args.learning_rate_half_life)
+
+    if not resume_training:
+        lr_scheduler = sockeye.lr_scheduler.get_lr_scheduler(args.learning_rate_scheduler_type_pre_d,
+                                                             args.checkpoint_frequency,
+                                                             learning_rate_half_life,
+                                                             args.learning_rate_reduce_factor,
+                                                             args.learning_rate_reduce_num_not_improved)
+    else:
+        with open(os.path.join(training_state_dir, C.SCHEDULER_STATE_NAME), "rb") as fp:
+            lr_scheduler = pickle.load(fp)
+
+    optimizer_params["lr_scheduler"] = lr_scheduler
 
     # Initialize the pre-training model for D
     D_pretrain_model = sockeye.style_training.StyleTrainingModel(model_config=model_config,
@@ -350,9 +387,27 @@ with ExitStack() as exit_stack:
                          monitor_bleu=args.monitor_bleu,
                          use_tensorboard=args.use_tensorboard)
 
+    ####################### JOINT TRAINING ################################
+
     C.TRAINING_STATE_DIRNAME = "training_state"
     C.TRAINING_STATE_TEMP_DIRNAME = "tmp.training_state"
     C.TRAINING_STATE_TEMP_DELETENAME = "delete.training_state"
+
+    # Learning rate scheduler for joint training
+    training_state_dir = os.path.join(output_folder, C.TRAINING_STATE_DIRNAME)
+    learning_rate_half_life = none_if_negative(args.learning_rate_half_life)
+
+    if not resume_training:
+        lr_scheduler = sockeye.lr_scheduler.get_lr_scheduler(args.learning_rate_scheduler_type,
+                                                             args.checkpoint_frequency,
+                                                             learning_rate_half_life,
+                                                             args.learning_rate_reduce_factor,
+                                                             args.learning_rate_reduce_num_not_improved)
+    else:
+        with open(os.path.join(training_state_dir, C.SCHEDULER_STATE_NAME), "rb") as fp:
+            lr_scheduler = pickle.load(fp)
+
+    optimizer_params["lr_scheduler"] = lr_scheduler
 
     model = sockeye.style_training.StyleTrainingModel(model_config=model_config,
                                                       context=context,

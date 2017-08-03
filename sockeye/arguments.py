@@ -366,10 +366,19 @@ def add_training_args(params):
                               help='Clip absolute gradients values greater than this value. '
                                    'Set to negative to disable. Default: %(default)s.')
 
+    train_params.add_argument('--learning-rate-scheduler-type-pre-g',
+                              default='plateau-reduce',
+                              choices=["fixed-rate-inv-sqrt-t", "fixed-rate-inv-t", "plateau-reduce"],
+                              help='Learning rate scheduler type. Default: %(default)s.')
+    train_params.add_argument('--learning-rate-scheduler-type-pre-d',
+                              default='fixed-rate-inv-sqrt-t',
+                              choices=["fixed-rate-inv-sqrt-t", "fixed-rate-inv-t", "plateau-reduce"],
+                              help='Learning rate scheduler type. Default: %(default)s.')
     train_params.add_argument('--learning-rate-scheduler-type',
                               default='plateau-reduce',
                               choices=["fixed-rate-inv-sqrt-t", "fixed-rate-inv-t", "plateau-reduce"],
                               help='Learning rate scheduler type. Default: %(default)s.')
+
     train_params.add_argument('--learning-rate-reduce-factor',
                               type=float,
                               default=0.5,

@@ -41,6 +41,6 @@ python train_style.py \
     --valid-loss cross-entropy \
     --disc-loss-lambda 50000.0 \
     --max-updates -1 \
-    --checkpoint-frequency 1000 \
+    --checkpoint-frequency 400 \
     --no-bucketing \
     --weight-tying
