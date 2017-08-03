@@ -29,95 +29,18 @@ import sockeye.callback
 import sockeye.checkpoint_decoder
 import sockeye.constants as C
 import sockeye.data_io
-import sockeye.discriminator
 import sockeye.inference
 import sockeye.loss
 import sockeye.lr_scheduler
 import sockeye.model
 import sockeye.utils
-import sockeye.decoder
+
+from sockeye.style_training import save_prefetchiter_state, load_prefetchiter_state
 
 logger = logging.getLogger(__name__)
 
-def mask_labels_after_EOS(logits: mx.sym.Symbol,
-                          batch_size: int,
-                          target_seq_len: int) -> mx.sym.Symbol:
-    """
-    Calculate sentence lengths for translated sentences.
-    
-    :param logits: Input data. Shape: (batch_size * target_seq_len, target_vocab_size).
-    :param batch_size: Batch size for the input data.
-    :param target_seq_len: Maximum sequence length for target sentences.
-    :return: Actual sequence lengths for each target sequence. Shape: (batch_size,).
-    """
-    # (batch_size, ) : index of the highest-prob word at each timestep
-    best_tokens = mx.sym.argmax(logits, axis=1)
-    # NOTE rows are word1,sent1 - word2,sent1 - ...
-    # (batch_size, target_seq_len): as above, but reshaped
-    best_tokens = best_tokens.reshape((-1, target_seq_len))
-    eos_index = C.VOCAB_SYMBOLS.index(C.EOS_SYMBOL)
-    eos_sym = mx.sym.ones((1,))
-    # (1, ) : symbol representing the index of EOS
-    eos_sym = eos_sym * eos_index
-    # (batch_size, target_seq_len) : 1 if EOS, 0 else
-    eos_indices = mx.sym.broadcast_equal(lhs=best_tokens, rhs=eos_sym)
-    # add a 1 in the last position of every line -- if no EOS, the last word is EOS
-    # (batch_size, target_len) : zeros in all positions except ones in last column
-    last_word = mx.sym.concat(mx.sym.zeros(shape=(batch_size, target_seq_len-1)),
-                              mx.sym.ones(shape=(batch_size, 1)), dim=1)
-    # if there is a zero in the last column, replace it with a one
-    eos_indices = mx.sym.maximum(eos_indices, last_word)
-    # (batch_size, ) : position of the first EOS in each sentence
-    eos_position = mx.sym.argmax(eos_indices, axis=1)
-    # in fact, we want length, not position
-    sentence_length = mx.sym.broadcast_plus(eos_position, mx.sym.ones(1,))
-    return sentence_length
 
-
-def save_prefetchiter_state(p_iter, fname):
-    """
-    Saves the current state of pre-fetching iterator to a file, so that iteration can be
-    continued. Note that the data is not saved, i.e. the iterator must be
-    initialized with the same parameters as in the first call.
-
-    :param p_iter: A pre-fetching iterator
-    :param fname: File name to save the information to.
-   """
-    with open(fname, "wb") as fp:
-        for iter in p_iter.iters:
-            pickle.dump(iter.idx, fp)
-            pickle.dump(iter.curr_idx, fp)
-            np.save(fp, iter.indices)
-
-
-def load_prefetchiter_state(p_iter, fname):
-    """
-    Loads the state of the pre-fetching iterator from a file.
-
-    :param p_iter: A pre-fetching iterator
-    :param fname: File name to load the information from.
-   """
-    with open(fname, "rb") as fp:
-        for iter in p_iter.iters:
-            iter.idx = pickle.load(fp)
-            iter.curr_idx = pickle.load(fp)
-            iter.indices = np.load(fp)
-
-            # Because of how checkpointing is done (pre-fetching the next batch in
-            # each iteration), curr_idx should be always >= 1
-            assert iter.curr_idx >= 1
-            # Right after loading the iterator state, next() should be called
-            iter.curr_idx -= 1
-
-            iter.nd_source = []
-            iter.nd_length = []
-            iter.nd_target = []
-            iter.nd_label = []
-            for i in range(len(iter.data_source)):
-                iter._append_ndarrays(i, iter.indices[i])
-
-
-class _StyleTrainingState:
+class _TrainingState:
     """
     Stores the state of the training process. These are the variables that will
     be stored to disk when resuming training.
@@ -135,14 +58,11 @@ class _StyleTrainingState:
         self.samples = samples
 
 
-# encoder-generator-discriminator(s)
-class StyleTrainingModel(sockeye.model.SockeyeModel):
+class StylePreTrainingModel_G(sockeye.model.SockeyeModel):
     """
-    Defines an Encoder/Decoder/Discriminators model (with attention).
+    Defines an Encoder/Decoder model (with attention).
     RNN configuration (number of hidden units, number of layers, cell type)
     is shared between encoder & decoder.
-    Discriminator configuration (number of hidden units, number of layers, activation)
-    is shared between discriminators.
 
     :param model_config: Configuration object holding details about the model.
     :param context: The context(s) that MXNet will be run in (GPU(s)/CPU)
@@ -159,63 +79,30 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
                  model_config: sockeye.model.ModelConfig,
                  context: List[mx.context.Context],
                  train_iter: mx.io.PrefetchingIter,
-                 valid_iter: mx.io.PrefetchingIter,
                  fused: bool,
                  bucketing: bool,
                  lr_scheduler,
                  rnn_forget_bias: float,
-                 vocab,
-                 fixed_param_names=None) -> None:
+                 vocab) -> None:
         super().__init__(model_config)
         self.context = context
         self.lr_scheduler = lr_scheduler
         self.bucketing = bucketing
+        self.vocab = vocab
         self.embedding = sockeye.encoder.Embedding(num_embed=self.config.num_embed_source,
                                                    vocab_size=len(vocab),
                                                    prefix=C.EMBEDDING_PREFIX,
                                                    dropout=self.config.dropout)
-        self.vocab = vocab
         self._build_model_components(self.config.max_seq_len, fused, rnn_forget_bias, initialize_embedding=False)
-        self._build_discriminators(self.config.disc_act, self.config.disc_num_hidden, self.config.disc_num_layers,
-                                   self.config.disc_dropout, self.config.loss_lambda)
-        self.module = self._build_module(train_iter, self.config.max_seq_len, self.config.max_seq_len, fixed_param_names)
-        # self._build_inference_model_components(self.config.max_seq_len, fused, rnn_forget_bias, initialize_embedding=False)
-        # self.valid_module = self._build_valid_module(valid_iter, self.config.max_seq_len)
+        self.module = self._build_module(train_iter, self.config.max_seq_len)
         self.training_monitor = None
-
-    def _build_discriminators(self, act: str, num_hidden: int, num_layers: int, dropout: float, loss_lambda: float):
-        """
-        Builds and sets discriminators for style transfer.
-
-        :param act: Activation function for the discriminators.
-        :param num_hidden: Number of hidden units for the discriminators.
-        :param num_layers: Number of layers for the discriminators.
-        :param dropout: Dropout probability for the discriminators.
-        :param loss_lambda: Weight for the discriminator losses.
-        """
-        self.discriminator_e = sockeye.discriminator.get_discriminator(act, num_hidden,
-                                                                       num_layers, dropout,
-                                                                       loss_lambda,
-                                                                       prefix=C.DISCRIMINATOR_E_PREFIX)
-        self.discriminator_f = sockeye.discriminator.get_discriminator(act, num_hidden,
-                                                                       num_layers, dropout,
-                                                                       loss_lambda,
-                                                                       prefix=C.DISCRIMINATOR_F_PREFIX)
 
     def _build_module(self,
                       train_iter: mx.io.PrefetchingIter,
-                      e_max_seq_len: int,
-                      f_max_seq_len: int,
-                      fixed_param_names: List):
+                      max_seq_len: int):
         """
         Initializes model components, creates training symbol and module, and binds it.
-
-        :param train_iter: The training iterator; this contains the data for e and f
-        :param e_max_seq_len: The max length of the e encoder/decoders
-        :param f_max_seq_len: The max length of the f encoder/decoders
-        :param fixed_param_names: A list of network params to keep fixed during training
         """
-
         # The symbol for the source/target and their lengths
         # source_e: (bs, seq_len)
         e_source = mx.sym.Variable(C.SOURCE_NAME + '_e')
@@ -235,13 +122,14 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
         # target_label_e: (bs, seq_len) -> (bs*seq_len,)
         f_labels = mx.sym.reshape(data=mx.sym.Variable(C.TARGET_LABEL_NAME + '_f'), shape=(-1,))
 
-        # Returns loss_G, loss_D
-        # loss_G ;
-        loss = sockeye.loss.get_loss(C.GAN_LOSS, self.config)
+        # source = mx.sym.Variable(C.SOURCE_NAME)
+        # source_length = mx.sym.Variable(C.SOURCE_LENGTH_NAME)
+        # target = mx.sym.Variable(C.TARGET_NAME)
+        # labels = mx.sym.reshape(data=mx.sym.Variable(C.TARGET_LABEL_NAME), shape=(-1,))
 
-        # ['source_e', 'source_length_e', 'target_e', 'source_f', 'source_length_f', 'target_f']
+        loss = sockeye.loss.get_loss(C.CROSS_ENTROPY, self.config)
+
         data_names = [x[0] for x in train_iter.provide_data]
-        # ['target_label_e', 'target_label_f']
         label_names = [x[0] for x in train_iter.provide_label]
 
         def sym_gen(e_seq_len, f_seq_len):
@@ -254,9 +142,6 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
             :param f_seq_len: The maximum length of the f encoder/decoder
             """
 
-            # (int)
-            vocab_size = len(self.vocab)
-
             ##### ENCODER FOR E and F #####
             # Add the embedding "encoder" to the list of encoders.
             self.encoder.encoders = [self.embedding] + self.encoder.encoders
@@ -268,203 +153,58 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
 
             # The autoencoders for e and f
             # e_logits_autoencoder, f_logits_autoencoder: (bs * seq_len, vocab_size)
-            e_logits_autoencoder = self.decoder.decode(source_encoded=e_encoded,
+            ee_logits_autoencoder = self.decoder.decode(source_encoded=e_encoded,
                                                        source_seq_len=e_seq_len,
                                                        source_length=e_source_length,
                                                        target=e_target,
                                                        target_seq_len=e_seq_len,
                                                        embedding=self.embedding)
 
-            f_logits_autoencoder = self.decoder.decode(source_encoded=f_encoded,
+            ff_logits_autoencoder = self.decoder.decode(source_encoded=f_encoded,
                                                        source_seq_len=f_seq_len,
                                                        source_length=f_source_length,
                                                        target=f_target,
                                                        target_seq_len=f_seq_len,
                                                        embedding=self.embedding)
 
-            #####################
-            def sym_gen_transfer(source_encoded, source_length, seq_len, word_id_initial):
-                """
-                Creates the computation graph for the transfer generators
+            # The transfer generators for e and f
+            # ef_logits_transfer, fe_logits_transfer: (bs * seq_len, vocab_size)
+            ef_logits_transfer = self.decoder.decode(source_encoded=e_encoded,
+                                                       source_seq_len=e_seq_len,
+                                                       source_length=e_source_length,
+                                                       target=f_target,
+                                                       target_seq_len=f_seq_len,
+                                                       embedding=self.embedding)
 
-                :param source_encoded: The symbol for the output of the encoders
-                :param source_length: The length of the source
-                :param seq_len: The maximum length to unroll the transfer generators to
-                :param word_id_initial: The id of the word to be fed as input at time=0
-                :return: The logits of the transfer RNN.
-                """
-                source_encoded_batch_major = mx.sym.swapaxes(source_encoded, dim1=0, dim2=1,
-                                                             name='source_encoded_batch_major')
+            fe_logits_transfer = self.decoder.decode(source_encoded=f_encoded,
+                                                       source_seq_len=f_seq_len,
+                                                       source_length=f_source_length,
+                                                       target=e_target,
+                                                       target_seq_len=e_seq_len,
+                                                       embedding=self.embedding)
 
-                # Initialize attention
-                attention_func = self.attention.on(source_encoded_batch_major, source_length, seq_len)
-                attention_state = self.attention.get_initial_state(source_length, seq_len)
+            # outputs = loss.get_loss(mx.sym.concat(ef_logits_transfer, fe_logits_transfer, dim=0),
+            #                         mx.sym.concat(f_labels, e_labels, dim=0))
+            loss_ef = loss.get_loss(ef_logits_transfer, f_labels, name=C.SOFTMAX_NAME + "_ef")
+            loss_fe = loss.get_loss(fe_logits_transfer, e_labels, name=C.SOFTMAX_NAME + "_fe")
 
-                # Embedding for first lang specific word
-                # word_id_prev: (bs,)
-                word_id_prev = word_id_initial
+            return mx.sym.Group((loss_ef, loss_fe)), data_names, label_names
 
-                # source_encoded: (seq_len, bs, num_hidden)
-                # Decoder state is a tuple of hidden and layer states
-                decoder_state = self.decoder.compute_init_states(source_encoded, source_length)
+        if self.bucketing:
+            logger.info("Using bucketing. Default max_seq_len=%s", train_iter.default_bucket_key)
+            return mx.mod.BucketingModule(sym_gen=sym_gen,
+                                          logger=logger,
+                                          default_bucket_key=train_iter.default_bucket_key,
+                                          context=self.context)
+        else:
+            logger.info("No bucketing. Unrolled to max_seq_len=%s", max_seq_len)
+            symbol, _, __ = sym_gen(max_seq_len, max_seq_len)
+            return mx.mod.Module(symbol=symbol,
+                                 data_names=data_names,
+                                 label_names=label_names,
+                                 logger=logger,
+                                 context=self.context)
 
-                # We'll accumulate the pre-softmax logits for each timestep here
-                transfer_logits_list = []
-
-                # Used to bypass embedding the input word when it is an
-                # expected word (and embedding of)
-                input_is_embedding = False
-
-                for seq_idx in range(seq_len):
-                    # softmax_out : (bs, vocab_size)
-                    # logits : (bs, vocab_size)
-                    (softmax_out, decoder_state, attention_state, local_logits) \
-                        = self.decoder.predict(
-                                                word_id_prev=word_id_prev,
-                                                state_prev=decoder_state,
-                                                attention_func=attention_func,
-                                                attention_state_prev=attention_state,
-                                                embedding=self.embedding,
-                                                word_is_embedding=input_is_embedding
-                                              )
-                    # Expand logits to : (bs, 1, vocab_size) : to concat later along axis 1
-                    transfer_logits_list.append(mx.sym.expand_dims(local_logits, axis=1))
-
-                    # The input to the next time step will be the expected word
-                    # (bs, vocab_size) * (vocab_size, num_embed)
-                    # This will be an 'embedded' word and not a one hot vector
-                    # Its embedding will have to be bypassed by the decoder.
-                    word_id_prev = mx.sym.dot(softmax_out, self.embedding.embed_weight)
-                    input_is_embedding = True
-
-                # (bs * seq_len) x vocab_size
-                transfer_logits = mx.sym.reshape(mx.sym.concat(*transfer_logits_list, dim=1),
-                                                 shape=(-1, vocab_size))
-                return transfer_logits
-            ################
-
-            # Initialize the first words for the two generators
-            # (bs,)
-            # TODO: Not sure if dtype is required
-            f_first_word = mx.sym.BlockGrad(mx.sym.Variable(name='f_bos_transfer_input',
-                                           init=mx.init.Constant(value=self.vocab[C.F_BOS_SYMBOL]),
-                                           shape=(train_iter.batch_size,),
-                                           dtype=np.float32))
-            e_first_word = mx.sym.BlockGrad(mx.sym.Variable(name='e_bos_transfer_input',
-                                           init=mx.init.Constant(value=self.vocab[C.E_BOS_SYMBOL]),
-                                           shape=(train_iter.batch_size,),
-                                           dtype=np.float32))
-
-            # f_logits_transfer: (bs * seq_len, vocab_size)
-            #TODO: Only send the last input to e_encoded
-            f_logits_transfer = sym_gen_transfer(e_encoded, e_source_length, e_seq_len, f_first_word)
-            e_logits_transfer = sym_gen_transfer(f_encoded, f_source_length, f_seq_len, e_first_word)
-            #f_logits_transfer = e_logits_autoencoder
-            #e_logits_transfer = f_logits_autoencoder
-            
-            # feed the autoencoder output to the discriminator
-            # f_D_autoencoder, e_D_autoencoder: (bs, 2) (2 = binary decisions)
-            f_D_autoencoder = self.discriminator_f.discriminate(f_logits_autoencoder, f_seq_len,
-                                                                vocab_size, f_source_length)
-
-            e_D_autoencoder = self.discriminator_e.discriminate(e_logits_autoencoder, e_seq_len,
-                                                                vocab_size, e_source_length)
-
-            # Logits_transfer keeps generating to max_seq_len since there's no stopping condition
-            # We post-process to determine EOS and pad the output after an EOS appears
-            # This happens for the entire batch
-            # The following operation will determine where the EOS occurs (greedy) and pad
-            # (Deepak's work)
-            # Note that the batch sizes are switched because we care about the input batch size.
-            # f_transfer_length, e_transfer_length: (bs,)
-            f_transfer_length = mask_labels_after_EOS(f_logits_transfer, train_iter.batch_size, e_seq_len)
-            e_transfer_length = mask_labels_after_EOS(e_logits_transfer, train_iter.batch_size, f_seq_len)
-
-            # e_logits_transfer come from f->e, so we use f_batch_size, etc. for e_D_transfer
-            # f_D_transfer, e_D_transfer: (bs, 2) (2 = binary decisions)
-            e_D_transfer = self.discriminator_e.discriminate(e_logits_transfer, f_seq_len, vocab_size,
-                                                             e_transfer_length)
-            f_D_transfer = self.discriminator_f.discriminate(f_logits_transfer, e_seq_len, vocab_size,
-                                                             f_transfer_length)
-
-            # get labels to train the discriminators
-            # for autoencoders (all ones) and transfers (all zeros)
-            e_disc_labels_autoencoder = mx.symbol.ones(shape=(train_iter.batch_size,), name='e_disc_labels_ae')
-            f_disc_labels_autoencoder = mx.symbol.ones(shape=(train_iter.batch_size,), name='f_disc_labels_ae')
-            e_disc_labels_transfer = mx.symbol.zeros(shape=(train_iter.batch_size,), name='e_disc_labels_tr')
-            f_disc_labels_transfer = mx.symbol.zeros(shape=(train_iter.batch_size,), name='f_disc_labels_tr')
-
-            # logits_ae_e and logits_tr_f are originally in e
-            loss_G, loss_D = loss.get_loss(e_logits_autoencoder, f_logits_autoencoder, e_labels, f_labels,
-                                    e_D_autoencoder, e_D_transfer, e_disc_labels_autoencoder, e_disc_labels_transfer,
-                                    f_D_autoencoder, f_D_transfer, f_disc_labels_autoencoder, f_disc_labels_transfer)
-            return mx.sym.Group([loss_G, loss_D]), data_names, label_names
-
-        # TODO: Add bucketing later
-
-        logger.info("No bucketing. Unrolled to max_seq_len=%s or %s :(", e_max_seq_len, f_max_seq_len)
-        # TODO don't know why the e_train_iter.buckets[0] didn't work..
-        symbol, _, _ = sym_gen(e_max_seq_len, f_max_seq_len)
-        #symbol, _, __ = sym_gen(e_train_iter.buckets[0], f_train_iter.buckets[0])
-        return mx.mod.Module(symbol=symbol,
-                             data_names=data_names,
-                             label_names=label_names,
-                             logger=logger,
-                             context=self.context,
-                             fixed_param_names=fixed_param_names)
-
-    def _build_valid_module(self,
-                      valid_iter: mx.io.PrefetchingIter,
-                      max_seq_len: int):
-        """
-        Initializes model components, creates training symbol and module, and binds it.
-        """
-        source = mx.sym.Variable(C.SOURCE_NAME)
-        source_length = mx.sym.Variable(C.SOURCE_LENGTH_NAME)
-        target = mx.sym.Variable(C.TARGET_NAME)
-        labels = mx.sym.reshape(data=mx.sym.Variable(C.TARGET_LABEL_NAME), shape=(-1,))
-
-        loss = sockeye.loss.get_loss(C.CROSS_ENTROPY, self.config)
-
-        data_names = [x[0] for x in valid_iter.provide_data]
-        label_names = [x[0] for x in valid_iter.provide_label]
-
-        def sym_gen(seq_lens):
-            """
-            Returns a (grouped) loss symbol given source & target input lengths.
-            Also returns data and label names for the BucketingModule.
-            """
-            source_seq_len, target_seq_len = seq_lens
-
-            self.inference_encoder.encoders = [self.embedding] + self.encoder.encoders
-
-            source_encoded = self.inference_encoder.encode(source, source_length, seq_len=source_seq_len)
-            source_lexicon = self.inference_lexicon.lookup(source) if self.lexicon else None
-
-            logits = self.inference_decoder.decode(source_encoded, source_seq_len, source_length,
-                                         target, target_seq_len, source_lexicon, embedding=self.embedding)
-
-            outputs = loss.get_loss(logits, labels)
-
-            return mx.sym.Group(outputs), data_names, label_names
-
-        # if self.bucketing:
-        #     logger.info("Using bucketing. Default max_seq_len=%s", train_iter.default_bucket_key)
-        #     return mx.mod.BucketingModule(sym_gen=sym_gen,
-        #                                   logger=logger,
-        #                                   default_bucket_key=train_iter.default_bucket_key,
-        #                                   context=self.context)
-        # else:
-        logger.info("No bucketing. Unrolled to max_seq_len=%s", max_seq_len)
-        symbol, _, __ = sym_gen(valid_iter.buckets[0])
-        return mx.mod.Module(symbol=symbol,
-                             data_names=data_names,
-                             label_names=label_names,
-                             logger=logger,
-                             context=self.context)
-
-
-    # TODO redo this so it makes more sense for our case (ex. we will never use accuracy)
     @staticmethod
     def _create_eval_metric(metric_names: List[AnyStr]) -> mx.metric.CompositeEvalMetric:
         """
@@ -474,11 +214,10 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
         # output_names refers to the list of outputs this metric should use to update itself, e.g. the softmax output
         for metric_name in metric_names:
             if metric_name == C.ACCURACY:
-                metrics.append(sockeye.utils.Accuracy(ignore_label=C.PAD_ID, output_names=[C.SOFTMAX_OUTPUT_NAME]))
+                metrics.append(sockeye.utils.Accuracy(ignore_label=C.PAD_ID, output_names=[C.SOFTMAX_NAME + "_ef_output", C.SOFTMAX_NAME + "_fe_output"]))
             elif metric_name == C.PERPLEXITY:
-                # TODO for now we will just use the autoencoder loss for style transfer..
-                # TODO change this because it makes no sense -- want equilibrium
-                metrics.append(mx.metric.Perplexity(ignore_label=C.PAD_ID, output_names=[C.GAN_LOSS + '_g_output']))
+                metrics.append(mx.metric.Perplexity(ignore_label=C.PAD_ID, output_names=[C.SOFTMAX_NAME + "_ef_output", C.SOFTMAX_NAME + "_fe_output"]))
+                # metrics.append(mx.metric.Perplexity(ignore_label=C.PAD_ID, output_names=[C.SOFTMAX_NAME + "_fe_output"]))
             else:
                 raise ValueError("unknown metric name")
         return mx.metric.create(metrics)
@@ -502,7 +241,7 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
         Fits model to data given by train_iter using early-stopping w.r.t data given by val_iter.
         Saves all intermediate and final output to output_folder
 
-        :param train_iter: The training data iterator for language e and f.
+        :param train_iter: The training data iterator.
         :param val_iter: The validation data iterator.
         :param output_folder: The folder in which all model artifacts will be stored in (parameters, checkpoints, etc.).
         :param metrics: The metrics that will be evaluated during training.
@@ -522,7 +261,12 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
         """
         self.save_config(output_folder)
 
+        self.module.bind(data_shapes=train_iter.provide_data, label_shapes=train_iter.provide_label,
+                         for_training=True, force_rebind=True, grad_req='write')
         self.module.symbol.save(os.path.join(output_folder, C.SYMBOL_NAME))
+
+        self.module.init_params(initializer=initializer, arg_params=self.params, aux_params=None,
+                                allow_missing=False, force_init=False)
 
         self.module.init_optimizer(kvstore='device', optimizer=optimizer, optimizer_params=optimizer_params)
 
@@ -538,7 +282,6 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
                                                                  optimized_metric=optimized_metric,
                                                                  use_tensorboard=use_tensorboard,
                                                                  checkpoint_decoder=checkpoint_decoder)
-        val_iter = None
         self._fit(train_iter, val_iter, output_folder,
                   metrics=metrics,
                   max_updates=max_updates,
@@ -552,7 +295,6 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
                     self.training_monitor.get_best_validation_score())
         return self.training_monitor.get_best_validation_score()
 
-    # TODO: There's no val iter here.
     def _fit(self,
              train_iter: mx.io.PrefetchingIter,
              val_iter: mx.io.PrefetchingIter,
@@ -565,8 +307,7 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
         """
         Internal fit method. Runtime determined by early stopping.
 
-        :param e_train_iter: Training data iterator for language e.
-        :param f_train_iter: Training data iterator for language f.
+        :param train_iter: Training data iterator.
         :param val_iter: Validation data iterator.
         :param output_folder: Model output folder.
         :param metrics: List of metric names to track on training and validation data.
@@ -575,22 +316,15 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
         :param max_num_not_improved: Maximum number of checkpoints until fitting is stopped if model does not improve.
         :param min_num_epochs: Minimum number of epochs to train, even if validation scores did not improve.
         """
-        # cross-entropy metric (and labels) for the discriminators TODO move this with the other metric..
-        ce_D = mx.metric.create('ce')
-        # labels are (4*batch_size,) and are 111...000...111...000...
-        # TODO not sure if there is a better place to put this (esp. to guarantee that order is correct)
-        loss_D_labels = mx.nd.concat(mx.nd.ones((train_iter.batch_size,)), mx.nd.zeros((train_iter.batch_size,)),
-                                     mx.nd.ones((train_iter.batch_size,)), mx.nd.zeros((train_iter.batch_size,)),
-                                     dim=0)
-
         metric_train = self._create_eval_metric(metrics)
+        metric_val = self._create_eval_metric(metrics)
         tic = time.time()
 
         training_state_dir = os.path.join(output_folder, C.TRAINING_STATE_DIRNAME)
         if os.path.exists(training_state_dir):
             train_state = self.load_checkpoint(training_state_dir, train_iter)
         else:
-            train_state = _StyleTrainingState(
+            train_state = _TrainingState(
                 num_not_improved=0,
                 epoch=0,
                 checkpoint=0,
@@ -598,16 +332,9 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
                 samples=0
             )
 
-        # batch details
-        # bs = 20, max_seq_len=50
-        # source_e, (20, 50), source_length_e, (20, ), target_e, (20, 50)
-        # source_f, (20, 50), source_length_f, (20, ), target_f, (20, 50)
-        # target_label_e, (20, 50), target_label_f, (20, 50)
         next_data_batch = train_iter.next()
 
         while max_updates == -1 or train_state.updates < max_updates:
-            # If any of these iterators runs out of things to produce
-            # we call it an event and reset both iterators
             if not train_iter.iter_next():
                 train_state.epoch += 1
                 train_iter.reset()
@@ -616,38 +343,12 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
             batch = next_data_batch
             self.module.forward_backward(batch)
             self.module.update()
-            loss_G, loss_D = self.module.get_outputs()
-#            ce_D.update(loss_D_labels, [loss_D]) # TODO: print this
-            self.module.update()
 
             # The next batch was pre-created by iter_next. Use this.
             next_data_batch = train_iter.current_batch
             self.module.prepare(next_data_batch)
 
-            # Compute perplexity over D's decisions
-            loss_D_labels_np = loss_D_labels.asnumpy().astype('int')
-            batch_size = loss_D_labels_np.shape[0]
-            ll_batch = mx.nd.log2(loss_D).asnumpy()[np.arange(batch_size), loss_D_labels_np]
-            D_val = (np.power(2, -1 / batch_size * (np.sum(ll_batch))))
-
-            if np.isnan(D_val):
-                print(ll_batch)
-                print(loss_D.asnumpy())
-                for k, v in self.module.get_params()[0].items():
-                    if k.startswith('disc_'):
-                        print(k, v.asnumpy())
-                import sys; sys.exit()
-            logger.info("D_val=" + str(D_val))
-            # Monitor gradients
-            #param_names = self.module._param_names
-            #grad_norms = [mx.nd.norm(a[0]).asscalar() for a in self.module._exec_group.grad_arrays]
-            #for p, z in zip(param_names, grad_norms):
-                #if z == 0 or z > 100:
-                    #logger.info("WARNING: " + str(p) + " : " + str(z))
-
-            # NOTE: batch.label is [label_e, label_f] so we concatenate them
-            # TODO is there a better way of doing this so that we can ensure order is the same?
-            self.module.update_metric(metric_train, [mx.nd.concat(*batch.label)])
+            self.module.update_metric(metric_train, batch.label)
             self.training_monitor.batch_end_callback(train_state.epoch, train_state.updates, metric_train)
             train_state.updates += 1
             train_state.samples += train_iter.batch_size
@@ -657,23 +358,18 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
                 self._save_params(output_folder, train_state.checkpoint)
                 self.training_monitor.checkpoint_callback(train_state.checkpoint, metric_train)
 
-
                 toc = time.time()
                 logger.info("Checkpoint [%d]\tUpdates=%d Epoch=%d Samples=%d Time-cost=%.3f",
                             train_state.checkpoint, train_state.updates, train_state.epoch,
                             train_state.samples, (toc - tic))
                 tic = time.time()
 
-
                 for name, val in metric_train.get_name_value():
-                    logger.info('Checkpoint [%d]\tTrain-%s=%f\tD=%f', train_state.checkpoint, name, val, D_val)
+                    logger.info('Checkpoint [%d]\tTrain-%s=%f', train_state.checkpoint, name, val)
                 metric_train.reset()
 
-                # TODO:evaluation on validation set
-                has_improved = True
-                best_checkpoint = True
-                # TODO will need to fix the lr_scheduler instead of always saying has_improved=True
-                # has_improved, best_checkpoint = self._evaluate(train_state, val_iter, metric_val)
+                # evaluation on validation set
+                has_improved, best_checkpoint = self._evaluate(train_state, val_iter, metric_val)
                 if self.lr_scheduler is not None:
                     self.lr_scheduler.new_evaluation_result(has_improved)
 
@@ -735,9 +431,7 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
 
         return self.training_monitor.eval_end_callback(training_state.checkpoint, val_metric)
 
-    def _checkpoint(self, training_state: _StyleTrainingState,
-                    output_folder: str,
-                    train_iter: mx.io.PrefetchingIter):
+    def _checkpoint(self, training_state: _TrainingState, output_folder: str, train_iter: mx.io.PrefetchingIter):
         """
         Saves checkpoint. Note that the parameters are saved in _save_params.
         """
@@ -795,7 +489,7 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
         if os.path.exists(delete_training_state_dirname):
             shutil.rmtree(delete_training_state_dirname)
 
-    def save_state(self, training_state: _StyleTrainingState, fname: str):
+    def save_state(self, training_state: _TrainingState, fname: str):
         """
         Saves the state (of the TrainingModel class) to disk.
 
@@ -804,7 +498,7 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
         with open(fname, "wb") as fp:
             pickle.dump(training_state, fp)
 
-    def load_state(self, fname: str) -> _StyleTrainingState:
+    def load_state(self, fname: str) -> _TrainingState:
         """
         Loads the training state (of the TrainingModel class) from disk.
 
@@ -815,8 +509,7 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
             training_state = pickle.load(fp)
         return training_state
 
-    def load_checkpoint(self, directory: str,
-                        train_iter: mx.io.PrefetchingIter) -> _StyleTrainingState:
+    def load_checkpoint(self, directory: str, train_iter: mx.io.PrefetchingIter) -> _TrainingState:
         """
         Loads the full training state from disk. This includes optimizer,
         random number generators and everything needed.  Note that params

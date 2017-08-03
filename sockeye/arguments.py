@@ -99,6 +99,10 @@ def add_io_args(params):
                              required=False,
                              default=None,
                              help='Existing target vocabulary (JSON)')
+    data_params.add_argument('--joint-vocab',
+                             required=False,
+                             default=None,
+                             help='Existing joint vocabulary (JSON)')
 
     data_params.add_argument('--use-tensorboard',
                              action='store_true',
@@ -170,6 +174,27 @@ def add_model_parameters(params):
                               default=False,
                               help="Add residual connections to stacked RNNs if --rnn-num-layers > 3. "
                                    "(see Wu ETAL'16). Default: %(default)s.")
+
+    # For the discriminator in style transfer
+    model_params.add_argument('--disc-num-hidden',
+                              type=int_greater_or_equal(1),
+                              default=1024,
+                              help='Number of discriminator hidden units for encoder and decoder. Default: %(default)s.')
+    model_params.add_argument('--disc-num-layers',
+                              type=int_greater_or_equal(1),
+                              default=1,
+                              help='Number of layers for the discriminator. Default: %(default)s.')
+    model_params.add_argument('--disc-dropout',
+                              type=float,
+                              default=0.,
+                              help='Dropout probability for the style discriminator. '
+                                   'Default: %(default)s.')
+    model_params.add_argument('--disc-act',
+                              choices=["tanh", "sigmoid", "relu", "softrelu"],
+                              default="softrelu",
+                              help="The kind of activation the discriminator MLP should use.")
+
+
 
     model_params.add_argument('--num-embed',
                               type=int_greater_or_equal(1),
@@ -255,6 +280,15 @@ def add_training_args(params):
                               default=C.CROSS_ENTROPY,
                               choices=[C.CROSS_ENTROPY, C.SMOOTHED_CROSS_ENTROPY, C.GAN_LOSS],
                               help='Loss to optimize. Default: %(default)s.')
+    train_params.add_argument('--valid-loss',
+                              default=C.CROSS_ENTROPY,
+                              choices=[C.CROSS_ENTROPY, C.SMOOTHED_CROSS_ENTROPY, C.GAN_LOSS],
+                              help='Validation Loss to measure. Default: %(default)s.')
+    train_params.add_argument('--disc-loss-lambda',
+                              default=1.0,
+                              type=float,
+                              help='Interpolation factor for reconstruction and gan loss in style transfer')
+
     train_params.add_argument('--smoothed-cross-entropy-alpha',
                               default=0.3,
                               type=float,
