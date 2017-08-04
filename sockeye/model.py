@@ -180,23 +180,22 @@ class SockeyeModel:
 
             self.params = rp
 
-        #literally hard coding the mxnet pack cells
+        # literally hard coding the mxnet pack cells
         for cell in self.rnn_cells:
 
             for c in cell._cells:
-                if 'decoder_lm_target' in c._prefix and not 'dropout' in c._prefix:
+                if 'decoder_lm_target' in c._prefix and 'dropout' not in c._prefix:
                     for group_name in ['i2h', 'h2h']:
 
                         weight = []
                         bias = []
                         for gate in c._gate_names:
-                            wname = '%s%s%s_weight'%(c._prefix, group_name, gate)
+                            wname = '%s%s%s_weight' % (c._prefix, group_name, gate)
                             weight.append(self.params.pop(wname))
-                            bname = '%s%s%s_bias'%(c._prefix, group_name, gate)
+                            bname = '%s%s%s_bias' % (c._prefix, group_name, gate)
                             bias.append(self.params.pop(bname))
-                        self.params['%s%s_weight'%(c._prefix, group_name)] = mx.ndarray.concatenate(weight)
-                        self.params['%s%s_bias'%(c._prefix, group_name)] = mx.ndarray.concatenate(bias)
-
+                        self.params['%s%s_weight' % (c._prefix, group_name)] = mx.ndarray.concatenate(weight)
+                        self.params['%s%s_bias' % (c._prefix, group_name)] = mx.ndarray.concatenate(bias)
 
     def load_encoder_lm_from_file(self, fname: str):
 
@@ -222,22 +221,21 @@ class SockeyeModel:
         else:
 
             self.params = rp
-   
+
         for cell in self.rnn_cells:
             for c in cell._cells:
-                if 'encoder_rnn_lm' in c._prefix and not 'dropout' in c._prefix:
+                if 'encoder_rnn_lm' in c._prefix and 'dropout' not in c._prefix:
                     for group_name in ['i2h', 'h2h']:
                         weight = []
                         bias = []
 
                         for gate in c._gate_names:
-                            wname = '%s%s%s_weight'%(c._prefix, group_name, gate)
+                            wname = '%s%s%s_weight' % (c._prefix, group_name, gate)
                             weight.append(self.params.pop(wname))
-                            bname = '%s%s%s_bias'%(c._prefix, group_name, gate)
+                            bname = '%s%s%s_bias' % (c._prefix, group_name, gate)
                             bias.append(self.params.pop(bname))
-                        self.params['%s%s_weight'%(c._prefix, group_name)] = mx.ndarray.concatenate(weight)
-                        self.params['%s%s_bias'%(c._prefix, group_name)] = mx.ndarray.concatenate(bias)
-
+                        self.params['%s%s_weight' % (c._prefix, group_name)] = mx.ndarray.concatenate(weight)
+                        self.params['%s%s_bias' % (c._prefix, group_name)] = mx.ndarray.concatenate(bias)
 
     def _build_model_components(self, max_seq_len: int, fused_encoder: bool, rnn_forget_bias: float = 0.0):
         """
