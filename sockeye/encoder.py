@@ -465,6 +465,7 @@ class GraphConvEncoder(Encoder):
                  fused: bool = False):
         self.layout = layout
         self.fused = fused
+        self._num_hidden = output_dim
         self.gcn = sockeye.gcn.get_gcn(input_dim, output_dim, tensor_dim,
                                        use_gcn_gating, dropout, prefix)
 

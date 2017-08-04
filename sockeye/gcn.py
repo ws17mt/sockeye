@@ -106,7 +106,11 @@ class GCNCell(object):
                 output = mx.symbol.broadcast_mul(output, gate_val)
             # convolution
             adji = mx.symbol.slice_axis(adj, axis=1, begin=i, end=i+1)
+            #import logging
+            #logger = logging.getLogger(__name__)
+            #logger.info('BEFORE RESHAPE')
             adji = mx.symbol.reshape(adji, shape=(-1, seq_len, seq_len))
+            #logger.info('AFTER RESHAPE')
             output = mx.symbol.batch_dot(adji, output)
             output = mx.symbol.expand_dims(output, axis=1)
             output_list.append(output)
@@ -114,6 +118,7 @@ class GCNCell(object):
         outputs = mx.symbol.sum(outputs, axis=1)
         final_output = mx.symbol.Activation(outputs, act_type=self._activation)
         final_output = mx.symbol.Dropout(final_output, p=self._dropout)
+        #logger.info('FINAL OUTPUT')
         return final_output
 
         # inputs go through linear transformation
