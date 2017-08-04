@@ -97,12 +97,13 @@ def get_encoder(num_embed: int,
     else:
         # GCN encoder on top of an embedding layer
         encoders.append(GraphConvEncoder(rnn_num_hidden, gcn_num_hidden, 
-                                             gcn_num_tensor, use_gcn_gating))
+                                             gcn_num_tensor, use_gcn_gating,
+                                             dropout))
         if gcn_num_layers > 1:
             # TODO: allow different hidden layer sizes.
             for i in range(1, gcn_num_layers):
                 encoders.append(GraphConvEncoder(gcn_num_hidden, gcn_num_hidden, 
-                                                 gcn_num_tensor, use_gcn_gating,
+                                                 gcn_num_tensor, use_gcn_gating, 0.0,
                                                  prefix=C.GCN_PREFIX + str(i+1) + '_'))
 
     logger.info(encoders)    
@@ -457,13 +458,14 @@ class GraphConvEncoder(Encoder):
                  output_dim: int,
                  tensor_dim: int,
                  use_gcn_gating: bool,
+                 dropout: float,
                  prefix: str = C.GCN_PREFIX,
                  layout: str = C.TIME_MAJOR,
                  fused: bool = False):
         self.layout = layout
         self.fused = fused
         self.gcn = sockeye.gcn.get_gcn(input_dim, output_dim, tensor_dim,
-                                       use_gcn_gating, prefix)
+                                       use_gcn_gating, dropout, prefix)
 
     def encode(self, data: mx.sym.Symbol, 
                data_length: mx.sym.Symbol, seq_len: int, metadata=None):
