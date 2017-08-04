@@ -106,7 +106,7 @@ class GCNCell(object):
                 output = mx.symbol.broadcast_mul(output, gate_val)
             # convolution
             adji = mx.symbol.slice_axis(adj, axis=1, begin=i, end=i+1)
-            adji = mx.symbol.reshape(adji, (-1, seq_len, seq_len))
+            adji = mx.symbol.reshape(adji, shape=(-1, seq_len, seq_len))
             output = mx.symbol.batch_dot(adji, output)
             output = mx.symbol.expand_dims(output, axis=1)
             output_list.append(output)
