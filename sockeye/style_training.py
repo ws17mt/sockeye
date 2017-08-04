@@ -575,8 +575,7 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
         :param max_num_not_improved: Maximum number of checkpoints until fitting is stopped if model does not improve.
         :param min_num_epochs: Minimum number of epochs to train, even if validation scores did not improve.
         """
-        # cross-entropy metric (and labels) for the discriminators TODO move this with the other metric..
-        ce_D = mx.metric.create('ce')
+
         # labels are (4*batch_size,) and are 111...000...111...000...
         # TODO not sure if there is a better place to put this (esp. to guarantee that order is correct)
         loss_D_labels = mx.nd.concat(mx.nd.ones((train_iter.batch_size,)), mx.nd.zeros((train_iter.batch_size,)),
@@ -584,6 +583,11 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
                                      dim=0)
 
         metric_train = self._create_eval_metric(metrics)
+        # cross-entropy metric (and labels) for the discriminators TODO move this with the other metric..
+        metric_train_D = mx.metric.create('ce')
+        metric_comp = mx.metric.CompositeEvalMetric()
+        metric_comp.add(metric_train)
+        metric_comp.add(metric_train_D)
         tic = time.time()
 
         training_state_dir = os.path.join(output_folder, C.TRAINING_STATE_DIRNAME)
@@ -617,27 +621,16 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
             self.module.forward_backward(batch)
             self.module.update()
             loss_G, loss_D = self.module.get_outputs()
-#            ce_D.update(loss_D_labels, [loss_D]) # TODO: print this
             self.module.update()
+
+            # Manually update the loss_D metric
+            metric_train_D.update([loss_D_labels], [loss_D])
+            # print(ce_D.get())
 
             # The next batch was pre-created by iter_next. Use this.
             next_data_batch = train_iter.current_batch
             self.module.prepare(next_data_batch)
 
-            # Compute perplexity over D's decisions
-            loss_D_labels_np = loss_D_labels.asnumpy().astype('int')
-            batch_size = loss_D_labels_np.shape[0]
-            ll_batch = mx.nd.log2(loss_D).asnumpy()[np.arange(batch_size), loss_D_labels_np]
-            D_val = (np.power(2, -1 / batch_size * (np.sum(ll_batch))))
-
-            if np.isnan(D_val):
-                print(ll_batch)
-                print(loss_D.asnumpy())
-                for k, v in self.module.get_params()[0].items():
-                    if k.startswith('disc_'):
-                        print(k, v.asnumpy())
-                import sys; sys.exit()
-            logger.info("D_val=" + str(D_val))
             # Monitor gradients
             #param_names = self.module._param_names
             #grad_norms = [mx.nd.norm(a[0]).asscalar() for a in self.module._exec_group.grad_arrays]
@@ -648,14 +641,14 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
             # NOTE: batch.label is [label_e, label_f] so we concatenate them
             # TODO is there a better way of doing this so that we can ensure order is the same?
             self.module.update_metric(metric_train, [mx.nd.concat(*batch.label)])
-            self.training_monitor.batch_end_callback(train_state.epoch, train_state.updates, metric_train)
+            self.training_monitor.batch_end_callback(train_state.epoch, train_state.updates, metric_comp)
             train_state.updates += 1
             train_state.samples += train_iter.batch_size
 
             if train_state.updates > 0 and train_state.updates % checkpoint_frequency == 0:
                 train_state.checkpoint += 1
                 self._save_params(output_folder, train_state.checkpoint)
-                self.training_monitor.checkpoint_callback(train_state.checkpoint, metric_train)
+                self.training_monitor.checkpoint_callback(train_state.checkpoint, metric_comp)
 
 
                 toc = time.time()
@@ -664,10 +657,10 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
                             train_state.samples, (toc - tic))
                 tic = time.time()
 
-
-                for name, val in metric_train.get_name_value():
-                    logger.info('Checkpoint [%d]\tTrain-%s=%f\tD=%f', train_state.checkpoint, name, val, D_val)
+                for name, val in metric_comp.get_name_value():
+                    logger.info('Checkpoint [%d]\tTrain-%s=%f', train_state.checkpoint, name, val)
                 metric_train.reset()
+                metric_train_D.reset()
 
                 # TODO:evaluation on validation set
                 has_improved = True
