@@ -497,7 +497,8 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
             max_num_not_improved: int = 3,
             min_num_epochs: Optional[int] = None,
             monitor_bleu: int = 0,
-            use_tensorboard: bool = False):
+            use_tensorboard: bool = False,
+            metric_threshold: float = None):
         """
         Fits model to data given by train_iter using early-stopping w.r.t data given by val_iter.
         Saves all intermediate and final output to output_folder
@@ -538,13 +539,17 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
                                                                  optimized_metric=optimized_metric,
                                                                  use_tensorboard=use_tensorboard,
                                                                  checkpoint_decoder=checkpoint_decoder)
+        if metric_threshold is not None:
+            logger.info("Early stopping by thresholding %s at %f", optimized_metric, metric_threshold)
+
         val_iter = None
         self._fit(train_iter, val_iter, output_folder,
                   metrics=metrics,
                   max_updates=max_updates,
                   checkpoint_frequency=checkpoint_frequency,
                   max_num_not_improved=max_num_not_improved,
-                  min_num_epochs=min_num_epochs)
+                  min_num_epochs=min_num_epochs,
+                  metric_threshold=metric_threshold)
 
         logger.info("Training finished. Best checkpoint: %d. Best validation %s: %.6f",
                     self.training_monitor.get_best_checkpoint(),
@@ -561,7 +566,8 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
              max_updates: int,
              checkpoint_frequency: int,
              max_num_not_improved: int,
-             min_num_epochs: Optional[int] = None):
+             min_num_epochs: Optional[int] = None,
+             metric_threshold: float = None):
         """
         Internal fit method. Runtime determined by early stopping.
 
@@ -659,14 +665,15 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
 
                 for name, val in metric_comp.get_name_value():
                     logger.info('Checkpoint [%d]\tTrain-%s=%f', train_state.checkpoint, name, val)
-                metric_train.reset()
-                metric_train_D.reset()
 
                 # TODO:evaluation on validation set
-                has_improved = True
-                best_checkpoint = True
+                has_improved = False
+                best_checkpoint = False
                 # TODO will need to fix the lr_scheduler instead of always saying has_improved=True
-                # has_improved, best_checkpoint = self._evaluate(train_state, val_iter, metric_val)
+                has_improved, best_checkpoint = self._evaluate(train_state, metric_train_D)
+
+
+
                 if self.lr_scheduler is not None:
                     self.lr_scheduler.new_evaluation_result(has_improved)
 
@@ -700,6 +707,21 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
                             shutil.rmtree(final_training_state_dirname)
                         break
 
+                # Cross Entropy thresholding
+                if metric_threshold is not None:
+                    # This is not general enough
+                    if metric_train_D.get()[1] <= metric_threshold:
+                        logger.info("Stopping fit (xent thresholding)")
+                        self.training_monitor.stop_fit_callback()
+                        final_training_state_dirname = os.path.join(output_folder, C.TRAINING_STATE_DIRNAME)
+                        if os.path.exists(final_training_state_dirname):
+                            shutil.rmtree(final_training_state_dirname)
+                        break
+
+                # don't call reset before _evaluate in case we need to threshold on train results.
+                metric_train.reset()
+                metric_train_D.reset()
+
                 self._checkpoint(train_state, output_folder, train_iter)
 
     def _save_params(self, output_folder: str, checkpoint: int):
@@ -712,17 +734,10 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
         params_base_fname = C.PARAMS_NAME % checkpoint
         self.save_params_to_file(os.path.join(output_folder, params_base_fname))
 
-    def _evaluate(self, training_state, val_iter, val_metric):
+    def _evaluate(self, training_state, val_metric):
         """
         Computes val_metric on val_iter. Returns whether model improved or not.
         """
-        val_iter.reset()
-        val_metric.reset()
-
-        for nbatch, eval_batch in enumerate(val_iter):
-            self.module.forward(eval_batch, is_train=False)
-            self.module.update_metric(val_metric, eval_batch.label)
-
         for name, val in val_metric.get_name_value():
             logger.info('Checkpoint [%d]\tValidation-%s=%f', training_state.checkpoint, name, val)
 

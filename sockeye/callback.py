@@ -87,6 +87,9 @@ class TrainingMonitor(object):
         elif self.optimized_metric == C.ACCURACY:
             self.minimize = False
             self.validation_best = -np.inf
+        elif self.optimized_metric == C.CROSS_ENTROPY:
+            self.minimize = True
+            self.validation_best = np.inf
         elif self.optimized_metric == C.BLEU:
             assert self.checkpoint_decoder is not None, "BLEU requires CheckpointDecoder"
             self.minimize = False

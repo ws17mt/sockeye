@@ -18,7 +18,7 @@ python train_style.py \
     -vs ${DATA_HOME}/val.de.atok \
     -vt ${DATA_HOME}/val.en.atok \
     -o  $OUT_FOLDER \
-    -b 20 \
+    -b 5 \
     --num-embed 4 \
     --attention-num-hidden 5 \
     --attention-type mlp \
@@ -40,8 +40,8 @@ python train_style.py \
     --loss gan-loss \
     --valid-loss cross-entropy \
     --disc-loss-lambda 50000.0 \
-    --max-updates 100 \
-    --checkpoint-frequency 100 \
+    --max-updates 10 \
+    --checkpoint-frequency 10 \
     --weight-tying
 
 
