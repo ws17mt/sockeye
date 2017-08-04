@@ -498,7 +498,9 @@ class Translator:
         # GCN
         new_graph = mx.nd.zeros((1, self.edge_vocab_size, bucket_key, bucket_key))
         for tup in graph:
-            new_graph[0][tup[2]][tup[0]][tup[1]] = 1.0
+            if (tup[0] < bucket_key) and (tup[1] < bucket_key):
+                # Stripping for graphs as well
+                new_graph[0][tup[2]][tup[0]][tup[1]] = 1.0
         ########
         return source, length, new_graph, bucket_key
 
