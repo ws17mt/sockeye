@@ -253,11 +253,18 @@ class TrainingModel(sockeye.model.SockeyeModel):
 
             module.symbol.save(os.path.join(output_folder, prefix+C.SYMBOL_NAME))
 
-            #DANGEROUS allow_missing should be false.
+            # DANGEROUS allow_missing should be false.
             module.init_params(initializer=initializer, arg_params=self.params, aux_params=None,
                                allow_missing=True, force_init=False)
 
             module.init_optimizer(kvstore='device', optimizer=optimizer, optimizer_params=optimizer_params)
+
+    def _check_no_extra_params(self, module, params):
+        if module is not None and params is not None:
+            module_params, _ = module.get_params()
+            for key in params:
+                sockeye.utils.check_condition(key in module_params,
+                                              "%s provided in self.params but not found in module" % (key))
 
     def fit(self,
             train_iter: sockeye.data_io.ParallelBucketSentenceIter,
@@ -305,6 +312,7 @@ class TrainingModel(sockeye.model.SockeyeModel):
 
         self._prime_module(self.module, train_iter, output_folder,
                            C.TM_PREFIX, initializer, optimizer, optimizer_params)
+        self._check_no_extra_params(self.module, self.params)
         self._prime_module(self.lm_source_module, mono_source_iter, output_folder,
                            C.LM_SOURCE_PREFIX, initializer, optimizer, optimizer_params)
         self._prime_module(self.lm_target_module, mono_target_iter, output_folder,
