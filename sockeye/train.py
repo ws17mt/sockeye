@@ -291,6 +291,13 @@ def main():
                                                mono_source_iter=mono_source_iter,
                                                mono_target_iter=mono_target_iter)
 
+        # Moving this to above the TM load, so if we restart an LM-trained job
+        # we don't reset to LM parameters
+        if args.load_decoder_lm is not None:
+            model.load_decoder_lm_from_file(args.load_decoder_lm)
+        if args.load_encoder_lm is not None:
+            model.load_encoder_lm_from_file(args.load_encoder_lm)
+
         # We may consider loading the params in TrainingModule, for consistency
         # with the training state saving
         if resume_training:
@@ -299,11 +306,6 @@ def main():
         elif args.params:
             logger.info("Training will initialize from parameters loaded from '%s'", args.params)
             model.load_params_from_file(args.params)
-
-        if args.load_decoder_lm is not None:
-            model.load_decoder_lm_from_file(args.load_decoder_lm)
-        if args.load_encoder_lm is not None:
-            model.load_encoder_lm_from_file(args.load_encoder_lm)
 
         lexicon = sockeye.lexicon.initialize_lexicon(args.lexical_bias,
                                                      vocab_source, vocab_target) if args.lexical_bias else None
