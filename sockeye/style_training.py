@@ -174,13 +174,20 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
                                                    vocab_size=len(vocab),
                                                    prefix=C.EMBEDDING_PREFIX,
                                                    dropout=self.config.dropout)
+        self.valid_embedding = sockeye.encoder.Embedding(num_embed=self.config.num_embed_source,
+                                                         vocab_size=len(vocab),
+                                                         prefix=C.EMBEDDING_PREFIX,
+                                                         dropout=self.config.dropout)
         self.vocab = vocab
         self._build_model_components(self.config.max_seq_len, fused, rnn_forget_bias, initialize_embedding=False, embedding=self.embedding)
         self._build_discriminators(self.config.disc_act, self.config.disc_num_hidden, self.config.disc_num_layers,
                                    self.config.disc_dropout, self.config.loss_lambda)
         self.module = self._build_module(train_iter, self.config.max_seq_len, self.config.max_seq_len, fixed_param_names)
-        # self._build_inference_model_components(self.config.max_seq_len, fused, rnn_forget_bias, initialize_embedding=False)
-        # self.valid_module = self._build_valid_module(valid_iter, self.config.max_seq_len)
+
+        self._build_inference_model_components(self.config.max_seq_len, fused, rnn_forget_bias, initialize_embedding=False, embedding=self.valid_embedding)
+        self.valid_module = self._build_valid_module(valid_iter, self.config.max_seq_len)
+
+        self.initializer = None
         self.training_monitor = None
 
     def _build_discriminators(self, act: str, num_hidden: int, num_layers: int, dropout: float, loss_lambda: float):
@@ -405,7 +412,6 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
         logger.info("No bucketing. Unrolled to max_seq_len=%s or %s :(", e_max_seq_len, f_max_seq_len)
         # TODO don't know why the e_train_iter.buckets[0] didn't work..
         symbol, _, _ = sym_gen(e_max_seq_len, f_max_seq_len)
-        #symbol, _, __ = sym_gen(e_train_iter.buckets[0], f_train_iter.buckets[0])
         return mx.mod.Module(symbol=symbol,
                              data_names=data_names,
                              label_names=label_names,
@@ -419,34 +425,64 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
         """
         Initializes model components, creates training symbol and module, and binds it.
         """
-        source = mx.sym.Variable(C.SOURCE_NAME)
-        source_length = mx.sym.Variable(C.SOURCE_LENGTH_NAME)
-        target = mx.sym.Variable(C.TARGET_NAME)
-        labels = mx.sym.reshape(data=mx.sym.Variable(C.TARGET_LABEL_NAME), shape=(-1,))
+        # The symbol for the source/target and their lengths
+        # source_e: (bs, seq_len)
+        e_source = mx.sym.Variable(C.SOURCE_NAME + '_val_e')
+        # source_length_e: (bs,)
+        e_source_length = mx.sym.Variable(C.SOURCE_LENGTH_NAME + '_val_e')
+        # target_e: (bs, seq_len)
+        e_target = mx.sym.Variable(C.TARGET_NAME + '_val_e')
+        # target_label_e: (bs, seq_len) -> (bs*seq_len,)
+        e_labels = mx.sym.reshape(data=mx.sym.Variable(C.TARGET_LABEL_NAME + '_val_e'), shape=(-1,))
+
+        # source_f: (bs, seq_len)
+        f_source = mx.sym.Variable(C.SOURCE_NAME + '_val_f')
+        # source_length_f: (bs,)
+        f_source_length = mx.sym.Variable(C.SOURCE_LENGTH_NAME + '_val_f')
+        # target_e: (bs, seq_len)
+        f_target = mx.sym.Variable(C.TARGET_NAME + '_val_f')
+        # target_label_e: (bs, seq_len) -> (bs*seq_len,)
+        f_labels = mx.sym.reshape(data=mx.sym.Variable(C.TARGET_LABEL_NAME + '_val_f'), shape=(-1,))
 
         loss = sockeye.loss.get_loss(C.CROSS_ENTROPY, self.config)
 
         data_names = [x[0] for x in valid_iter.provide_data]
         label_names = [x[0] for x in valid_iter.provide_label]
 
-        def sym_gen(seq_lens):
+        def sym_gen(e_seq_len, f_seq_len):
             """
             Returns a (grouped) loss symbol given source & target input lengths.
             Also returns data and label names for the BucketingModule.
             """
-            source_seq_len, target_seq_len = seq_lens
+            # TODO: Should the embedding be shared between two modules
+            self.inference_encoder.encoders = [self.valid_embedding] + self.inference_encoder.encoders
 
-            self.inference_encoder.encoders = [self.embedding] + self.encoder.encoders
+            e_encoded = self.inference_encoder.encode(data=e_source, data_length=e_source_length, seq_len=e_seq_len)
+            f_encoded = self.inference_encoder.encode(data=f_source, data_length=f_source_length, seq_len=f_seq_len)
 
-            source_encoded = self.inference_encoder.encode(source, source_length, seq_len=source_seq_len)
-            source_lexicon = self.inference_lexicon.lookup(source) if self.lexicon else None
+            # The autoencoders for e and f
+            # e_logits_autoencoder, f_logits_autoencoder: (bs * seq_len, vocab_size)
+            ef_logits = self.inference_decoder.decode(source_encoded=e_encoded,
+                                            source_seq_len=e_seq_len,
+                                            source_length=e_source_length,
+                                            target=f_target,
+                                            target_seq_len=f_seq_len,
+                                            embedding=self.valid_embedding)
 
-            logits = self.inference_decoder.decode(source_encoded, source_seq_len, source_length,
-                                         target, target_seq_len, source_lexicon, embedding=self.embedding)
+            fe_logits = self.inference_decoder.decode(source_encoded=f_encoded,
+                                            source_seq_len=f_seq_len,
+                                            source_length=f_source_length,
+                                            target=e_target,
+                                            target_seq_len=e_seq_len,
+                                            embedding=self.valid_embedding)
 
-            outputs = loss.get_loss(logits, labels)
+            logits_val = mx.sym.concat(ef_logits, fe_logits, dim=0, name="logits_val")
+            labels_val = mx.sym.concat(f_labels, e_labels, dim=0, name="labels_val")
 
-            return mx.sym.Group(outputs), data_names, label_names
+            loss_ef = loss.get_loss(ef_logits, f_labels, name=C.SOFTMAX_NAME + "_val_ef")
+            loss_fe = loss.get_loss(fe_logits, e_labels, name=C.SOFTMAX_NAME + "_val_fe")
+
+            return mx.sym.Group((loss_ef, loss_fe)), data_names, label_names
 
         # if self.bucketing:
         #     logger.info("Using bucketing. Default max_seq_len=%s", train_iter.default_bucket_key)
@@ -456,7 +492,7 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
         #                                   context=self.context)
         # else:
         logger.info("No bucketing. Unrolled to max_seq_len=%s", max_seq_len)
-        symbol, _, __ = sym_gen(valid_iter.buckets[0])
+        symbol, _, __ = sym_gen(max_seq_len, max_seq_len)
         return mx.mod.Module(symbol=symbol,
                              data_names=data_names,
                              label_names=label_names,
@@ -479,6 +515,8 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
                 # TODO for now we will just use the autoencoder loss for style transfer..
                 # TODO change this because it makes no sense -- want equilibrium
                 metrics.append(mx.metric.Perplexity(ignore_label=C.PAD_ID, output_names=[C.GAN_LOSS + '_g_output']))
+            elif metric_name == C.PERPLEXITY + "_val":
+                metrics.append(mx.metric.Perplexity(ignore_label=C.PAD_ID, output_names=[C.SOFTMAX_NAME + "_val_ef_output", C.SOFTMAX_NAME + "_val_fe_output"]))
             else:
                 raise ValueError("unknown metric name")
         return mx.metric.create(metrics)
@@ -521,6 +559,7 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
                validation metrics.
         :return: Best score on validation data observed during training.
         """
+        self.initializer = initializer
         self.save_config(output_folder)
 
         self.module.symbol.save(os.path.join(output_folder, C.SYMBOL_NAME))
@@ -542,7 +581,6 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
         if metric_threshold is not None:
             logger.info("Early stopping by thresholding %s at %f", optimized_metric, metric_threshold)
 
-        val_iter = None
         self._fit(train_iter, val_iter, output_folder,
                   metrics=metrics,
                   max_updates=max_updates,
@@ -557,7 +595,6 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
                     self.training_monitor.get_best_validation_score())
         return self.training_monitor.get_best_validation_score()
 
-    # TODO: There's no val iter here.
     def _fit(self,
              train_iter: mx.io.PrefetchingIter,
              val_iter: mx.io.PrefetchingIter,
@@ -589,6 +626,7 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
                                      dim=0)
 
         metric_train = self._create_eval_metric(metrics)
+        metric_val = self._create_eval_metric([C.PERPLEXITY + "_val"])
         # cross-entropy metric (and labels) for the discriminators TODO move this with the other metric..
         metric_train_D = mx.metric.create('ce')
         metric_comp = mx.metric.CompositeEvalMetric()
@@ -670,9 +708,10 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
                 has_improved = False
                 best_checkpoint = False
                 # TODO will need to fix the lr_scheduler instead of always saying has_improved=True
-                has_improved, best_checkpoint = self._evaluate(train_state, metric_train_D)
-
-
+                if metric_threshold is not None:
+                    has_improved, best_checkpoint = self._evaluate(train_state, metric_train_D)
+                else:
+                    has_improved, best_checkpoint = self._evaluate_val(train_state, val_iter, metric_val)
 
                 if self.lr_scheduler is not None:
                     self.lr_scheduler.new_evaluation_result(has_improved)
@@ -741,6 +780,54 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
         for name, val in val_metric.get_name_value():
             logger.info('Checkpoint [%d]\tValidation-%s=%f', training_state.checkpoint, name, val)
 
+        return self.training_monitor.eval_end_callback(training_state.checkpoint, val_metric)
+
+    def _evaluate_val(self, training_state, val_iter, val_metric):
+        """
+        Computes val_metric on val_iter. Returns whether model improved or not.
+        Val iters are not shuffled
+        """
+        if not self.valid_module.binded:
+            # This is a hack to make sure that the gradient arrays
+            # for these params never get initialized
+            # This can happen pre-bind
+            # We will always copy these params over from the trained module
+            self.valid_module._fixed_param_names = self.valid_module._param_names
+
+            # initialize memory for params
+            self.valid_module.bind(data_shapes=val_iter.provide_data,
+                                         label_shapes=val_iter.provide_label,
+                                         for_training=True,
+                                         force_rebind=True,
+                                         grad_req='write')
+            # Initialize params
+            assert self.initializer is not None
+
+            self.valid_module.init_params(initializer=self.initializer,
+                                          arg_params=None,
+                                          aux_params=None,
+                                          allow_missing=False,
+                                          force_init=False)
+
+        # Copy params from module to valid_module
+        trained_params = self.module.get_params()
+
+        # Copy params from D to joint model
+        self.valid_module.set_params(trained_params[0], trained_params[1], allow_missing=False)
+
+        # This iter is never shuffled
+        # TODO: filling is not a good strat here
+        val_iter.reset()
+        val_metric.reset()
+
+        for nbatch, eval_batch in enumerate(val_iter):
+            self.valid_module.forward(eval_batch, is_train=False)
+            self.valid_module.update_metric(val_metric, eval_batch.label)
+
+        for name, val in val_metric.get_name_value():
+            logger.info('Checkpoint [%d]\tValidation-%s=%f', training_state.checkpoint, name, val)
+
+        # Ensure that this gets counted as validation score!
         return self.training_monitor.eval_end_callback(training_state.checkpoint, val_metric)
 
     def _checkpoint(self, training_state: _StyleTrainingState,

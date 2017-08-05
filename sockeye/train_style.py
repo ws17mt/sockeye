@@ -169,7 +169,33 @@ with ExitStack() as exit_stack:
                             target_suffix='_e'
                         )
 
-    # Validation iter
+    # Validation iters
+    e_val_iter = sockeye.data_io.get_style_training_data_iters(
+        source=data_info.e_val,
+        vocab=vocab,
+        batch_size=batch_size,
+        fill_up=args.fill_up,
+        max_seq_len=max_seq_len,
+        bucketing=not args.no_bucketing,
+        bucket_width=args.bucket_width,
+        target_bos_symbol=C.E_BOS_SYMBOL,
+        suffix='_val_e',
+        do_not_shuffle=True
+    )
+
+    f_val_iter = sockeye.data_io.get_style_training_data_iters(
+        source=data_info.f_val,
+        vocab=vocab,
+        batch_size=batch_size,
+        fill_up=args.fill_up,
+        max_seq_len=max_seq_len,
+        bucketing=not args.no_bucketing,
+        bucket_width=args.bucket_width,
+        target_bos_symbol=C.F_BOS_SYMBOL,
+        suffix='_val_f',
+        do_not_shuffle=True
+    )
+
     ef_val_iter = sockeye.data_io.get_style_training_data_iters(
                             source=data_info.e_val,
                             target=data_info.f_val,
@@ -205,8 +231,11 @@ with ExitStack() as exit_stack:
     make_iters_same_length(ef_train_iter, fe_train_iter)
     pretrain_iter = mx.io.PrefetchingIter([ef_train_iter, fe_train_iter])
 
+    make_iters_same_length(e_val_iter, f_val_iter)
+    val_iter = mx.io.PrefetchingIter([e_val_iter, f_val_iter])
+
     make_iters_same_length(ef_val_iter, fe_val_iter)
-    val_iter = mx.io.PrefetchingIter([ef_val_iter, fe_val_iter])
+    pretrain_val_iter = mx.io.PrefetchingIter([ef_val_iter, fe_val_iter])
 
     model_config = sockeye.model.ModelConfig(max_seq_len=max_seq_len,
                                              vocab_source_size=vocab_size,
@@ -301,7 +330,7 @@ with ExitStack() as exit_stack:
 
     # Pre-train G
     G_pretrain_model.fit(train_iter=pretrain_iter,
-              val_iter=val_iter,
+              val_iter=pretrain_val_iter,
               output_folder=output_folder,
               metrics=args.metrics,
               initializer=initializer,
@@ -374,7 +403,7 @@ with ExitStack() as exit_stack:
 
     # Pre-train D
     D_pretrain_model.fit(train_iter=train_iter,
-                         val_iter=val_iter,
+                         val_iter=None,
                          output_folder=output_folder,
                          metrics=args.metrics,
                          initializer=initializer,

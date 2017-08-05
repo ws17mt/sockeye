@@ -217,7 +217,6 @@ class StylePreTrainingModel_G(sockeye.model.SockeyeModel):
                 metrics.append(sockeye.utils.Accuracy(ignore_label=C.PAD_ID, output_names=[C.SOFTMAX_NAME + "_ef_output", C.SOFTMAX_NAME + "_fe_output"]))
             elif metric_name == C.PERPLEXITY:
                 metrics.append(mx.metric.Perplexity(ignore_label=C.PAD_ID, output_names=[C.SOFTMAX_NAME + "_ef_output", C.SOFTMAX_NAME + "_fe_output"]))
-                # metrics.append(mx.metric.Perplexity(ignore_label=C.PAD_ID, output_names=[C.SOFTMAX_NAME + "_fe_output"]))
             else:
                 raise ValueError("unknown metric name")
         return mx.metric.create(metrics)

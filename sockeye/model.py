@@ -201,7 +201,7 @@ class SockeyeModel:
         self.built = True
 
     def _build_inference_model_components(self, max_seq_len: int, fused_encoder: bool, rnn_forget_bias: float = 0.0,
-                                          initialize_embedding=True):
+                                          initialize_embedding=True, embedding=None):
         """
         Builds and sets model components given maximum sequence length.
 
@@ -236,7 +236,7 @@ class SockeyeModel:
                                                    self.config.vocab_target_size,
                                                    self.config.rnn_num_layers,
                                                    self.config.rnn_num_hidden,
-                                                   self.attention,
+                                                   self.inference_attention,
                                                    self.config.rnn_cell_type,
                                                    self.config.rnn_residual_connections,
                                                    rnn_forget_bias,
@@ -244,4 +244,5 @@ class SockeyeModel:
                                                    self.config.weight_tying,
                                                    self.lexicon,
                                                    self.config.context_gating,
-                                                   initialize_embedding)
+                                                   initialize_embedding,
+                                                   embedding)
