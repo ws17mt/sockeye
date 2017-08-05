@@ -544,6 +544,20 @@ class ParallelBucketSentenceIter(mx.io.DataIter):
                 rest = self.batch_size - n % self.batch_size
                 if self.fill_up == 'pad':
                     raise NotImplementedError
+                elif self.fill_up == "replicate_first":
+                    logger.info(
+                        "Replicating first %d examples from bucket %s to size it to multiple of batch size %d", rest,
+                        buck_shape, self.batch_size)
+                    replicate_indices = np.arange(rest)
+
+                    self.data_source[i] = np.concatenate((self.data_source[i], self.data_source[i][replicate_indices, :]),
+                                                         axis=0)
+                    self.data_length[i] = np.concatenate((self.data_length[i], self.data_length[i][replicate_indices]),
+                                                         axis=0)
+                    self.data_target[i] = np.concatenate((self.data_target[i], self.data_target[i][replicate_indices, :]),
+                                                         axis=0)
+                    self.data_label[i] = np.concatenate((self.data_label[i], self.data_label[i][replicate_indices, :]),
+                                                        axis=0)
                 elif self.fill_up == 'replicate':
                     logger.info(
                         "Replicating %d random examples from bucket %s to size it to multiple of batch size %d", rest,
