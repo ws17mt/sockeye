@@ -415,4 +415,12 @@ def add_inference_args(params):
                                default=0.9,
                                type=float,
                                help='Threshold to consider a soft alignment a sure alignment. Default: %(default)s')
+    #########
+    # Optional source metadata inputs
+    
+    decode_params.add_argument('--edge-vocab',
+                             required=False,
+                             default=None,
+                             help='Existing target vocabulary for graph edges (JSON)')
+    #########
     return params

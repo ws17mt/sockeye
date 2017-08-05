@@ -97,8 +97,8 @@ def get_encoder(num_embed: int,
     else:
         # GCN encoder on top of an embedding layer
         encoders.append(GraphConvEncoder(rnn_num_hidden, gcn_num_hidden, 
-                                             gcn_num_tensor, use_gcn_gating,
-                                             dropout))
+                                         gcn_num_tensor, use_gcn_gating,
+                                         dropout))
         if gcn_num_layers > 1:
             # TODO: allow different hidden layer sizes.
             for i in range(1, gcn_num_layers):
@@ -464,6 +464,7 @@ class GraphConvEncoder(Encoder):
                  fused: bool = False):
         self.layout = layout
         self.fused = fused
+        self._num_hidden = output_dim
         self.gcn = sockeye.gcn.get_gcn(input_dim, output_dim, tensor_dim,
                                        use_gcn_gating, dropout, prefix)
 

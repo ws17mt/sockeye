@@ -65,18 +65,27 @@ def main():
                 gpu_id = exit_stack.enter_context(acquire_gpu())
             context = mx.gpu(gpu_id)
 
+        edge_vocab = sockeye.vocab.vocab_from_json(args.edge_vocab)
         translator = sockeye.inference.Translator(context,
                                                   args.ensemble_mode,
+                                                  len(edge_vocab),
                                                   *sockeye.inference.load_models(context,
                                                                                  args.max_input_len,
                                                                                  args.beam_size,
                                                                                  args.models,
+                                                                                 len(edge_vocab),
                                                                                  args.checkpoints,
                                                                                  args.softmax_temperature))
         total_time = 0
         i = 0
+        
         for i, line in enumerate(sys.stdin, 1):
-            trans_input = translator.make_input(i, line)
+            #########
+            # GCN - This is an ugly hack: we concatenate the surface sentence
+            # and the graph into a single line
+            surface, graph = line.split('\t')
+            #########
+            trans_input = translator.make_input(i, surface, graph, edge_vocab)
             logger.debug(" IN: %s", trans_input)
 
             tic = time.time()
