@@ -56,9 +56,11 @@ TARGET_LABEL_NAME = "target_label"
 LEXICON_NAME = "lexicon"
 
 SOURCE_ENCODED_NAME = "encoded_source"
+GCN_SOURCE_ENCODED_NAME = "gcn_encoded_source"
 TARGET_PREVIOUS_NAME = "prev_target_word_id"
 HIDDEN_PREVIOUS_NAME = "prev_hidden"
 SOURCE_DYNAMIC_PREVIOUS_NAME = "prev_dynamic_source"
+GCN_SOURCE_DYNAMIC_PREVIOUS_NAME = "gcn_prev_dynamic_source"
 
 LOGITS_NAME = "logits"
 SOFTMAX_NAME = "softmax"

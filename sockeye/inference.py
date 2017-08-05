@@ -106,17 +106,33 @@ class InferenceModel(sockeye.model.SockeyeModel):
                                                  metadata=source_graphs)
             source_encoded_batch_major = mx.sym.swapaxes(source_encoded, dim1=0, dim2=1)
 
+            #########
+            if self.config.use_gcn:
+                gcn_source_encoded = self.gcn_encoder.encode(source, source_length, seq_len=source_seq_len,
+                                                             metadata=source_graphs)
+                gcn_source_encoded_batch_major = mx.sym.swapaxes(gcn_source_encoded, dim1=0, dim2=1)
+            else:
+                gcn_source_encoded = None
+            #########
+
             # initial decoder states
             decoder_hidden_init, decoder_init_states = self.decoder.compute_init_states(source_encoded,
                                                                                         source_length)
             # initial attention state
             attention_state = self.attention.get_initial_state(source_length, source_seq_len)
 
+            # GCN attention
+            if self.gcn_attention is not None:
+                gcn_attention_state = self.gcn_attention.get_initial_state(source_length, source_seq_len)
+                #########
+
             data_names = [C.SOURCE_NAME, C.SOURCE_LENGTH_NAME, C.SOURCE_GRAPHS_NAME]
             label_names = []
 
             symbol_group = [source_encoded_batch_major,
+                            gcn_source_encoded_batch_major,
                             attention_state.dynamic_source,
+                            gcn_attention_state.dynamic_source,
                             decoder_hidden_init] + decoder_init_states
             return mx.sym.Group(symbol_group), data_names, label_names
 
@@ -126,33 +142,49 @@ class InferenceModel(sockeye.model.SockeyeModel):
 
         # Decoder symbol & module
         source_encoded = mx.sym.Variable(C.SOURCE_ENCODED_NAME)
+        gcn_source_encoded = mx.sym.Variable(C.GCN_SOURCE_ENCODED_NAME)
         dynamic_source_prev = mx.sym.Variable(C.SOURCE_DYNAMIC_PREVIOUS_NAME)
+        gcn_dynamic_source_prev = mx.sym.Variable(C.GCN_SOURCE_DYNAMIC_PREVIOUS_NAME)
         word_id_prev = mx.sym.Variable(C.TARGET_PREVIOUS_NAME)
         hidden_prev = mx.sym.Variable(C.HIDDEN_PREVIOUS_NAME)
         layer_states, self.layer_shapes, layer_names = self.decoder.create_layer_input_variables(self.beam_size)
         state = DecoderState(hidden_prev, layer_states)
         attention_state = AttentionState(context=None, probs=None, dynamic_source=dynamic_source_prev)
+        gcn_attention_state = AttentionState(context=None, probs=None, dynamic_source=gcn_dynamic_source_prev)
 
         def decoder_sym_gen(source_seq_len: int):
             data_names = [C.SOURCE_ENCODED_NAME,
+                          C.GCN_SOURCE_ENCODED_NAME,
                           C.SOURCE_DYNAMIC_PREVIOUS_NAME,
+                          C.GCN_SOURCE_DYNAMIC_PREVIOUS_NAME,
                           C.SOURCE_LENGTH_NAME,
                           C.TARGET_PREVIOUS_NAME,
                           C.HIDDEN_PREVIOUS_NAME] + layer_names
             label_names = []
 
             attention_func = self.attention.on(source_encoded, source_length, source_seq_len)
+            
+            # GCN attention
+            if self.gcn_attention is not None:
+                gcn_attention_func = self.gcn_attention.on(gcn_source_encoded, source_length, source_seq_len)
+            else:
+                gcn_attention_func = None
+            ########
 
-            softmax_out, next_state, next_attention_state = \
+            softmax_out, next_state, next_attention_state, next_gcn_attention_state = \
                 self.decoder.predict(word_id_prev,
                                      state,
                                      attention_func,
                                      attention_state,
+                                     gcn_attention_func,
+                                     gcn_attention_state,
                                      softmax_temperature=self.softmax_temperature)
 
             symbol_group = [softmax_out,
                             next_attention_state.probs,
                             next_attention_state.dynamic_source,
+                            next_gcn_attention_state.probs,
+                            next_gcn_attention_state.dynamic_source,
                             next_state.hidden] + next_state.layer_states
             return mx.sym.Group(symbol_group), data_names, label_names
 
@@ -210,11 +242,19 @@ class InferenceModel(sockeye.model.SockeyeModel):
         :param input_length: The maximal source sentence length 
         :return: A list of input shapes
         """
+        #print(self.attention.dynamic_source_num_hidden)
+        #print(self.gcn_attention.dynamic_source_num_hidden)
         shapes = [mx.io.DataDesc(C.SOURCE_ENCODED_NAME,
                                  (self.beam_size, input_length, self.encoder.get_num_hidden()),
                                  layout=C.BATCH_MAJOR),
+                  mx.io.DataDesc(C.GCN_SOURCE_ENCODED_NAME,
+                                 (self.beam_size, input_length, self.gcn_encoder.get_num_hidden()),
+                                 layout=C.BATCH_MAJOR),
                   mx.io.DataDesc(C.SOURCE_DYNAMIC_PREVIOUS_NAME,
                                  (self.beam_size, input_length, self.attention.dynamic_source_num_hidden),
+                                 layout=C.BATCH_MAJOR),
+                  mx.io.DataDesc(C.GCN_SOURCE_DYNAMIC_PREVIOUS_NAME,
+                                 (self.beam_size, input_length, self.gcn_attention.dynamic_source_num_hidden),
                                  layout=C.BATCH_MAJOR),
                   mx.io.DataDesc(C.SOURCE_LENGTH_NAME,
                                  (self.beam_size,),
@@ -258,19 +298,23 @@ class InferenceModel(sockeye.model.SockeyeModel):
                        layout=C.BATCH_MAJOR)])
 
         self.encoder_module.forward(data_batch=batch, is_train=False)
-        encoded_source, source_dynamic_init, decoder_hidden_init, *decoder_states = self.encoder_module.get_outputs()
+        encoded_source, gcn_encoded_source, source_dynamic_init, gcn_source_dynamic_init, decoder_hidden_init, *decoder_states = self.encoder_module.get_outputs()
         # replicate encoder/init module results beam size times
         encoded_source = mx.nd.tile(encoded_source, reps=(self.beam_size, 1, 1))
+        gcn_encoded_source = mx.nd.tile(gcn_encoded_source, reps=(self.beam_size, 1, 1))
         source_dynamic_init = mx.nd.tile(source_dynamic_init, reps=(self.beam_size, 1, 1))
+        gcn_source_dynamic_init = mx.nd.tile(gcn_source_dynamic_init, reps=(self.beam_size, 1, 1))
         decoder_hidden_init = mx.nd.tile(decoder_hidden_init, reps=(self.beam_size, 1))
         decoder_states = [mx.nd.tile(state, reps=(self.beam_size, 1)) for state in decoder_states]
         source_length = mx.nd.tile(source_length, reps=(self.beam_size,))
 
-        return encoded_source, source_dynamic_init, source_length, decoder_hidden_init, decoder_states
+        return encoded_source, gcn_encoded_source, source_dynamic_init, gcn_source_dynamic_init, source_length, decoder_hidden_init, decoder_states
 
     def run_decoder(self,
                     encoded_source: mx.nd.NDArray,
+                    gcn_encoded_source: mx.nd.NDArray,
                     dynamic_source: mx.nd.NDArray,
+                    gcn_dynamic_source: mx.nd.NDArray,
                     source_length: mx.nd.NDArray,
                     previous_word_id: mx.nd.NDArray,
                     previous_hidden: mx.nd.NDArray,
@@ -293,7 +337,9 @@ class InferenceModel(sockeye.model.SockeyeModel):
         """
 
         data = [encoded_source,
+                gcn_encoded_source,
                 dynamic_source,
+                gcn_dynamic_source,
                 source_length,
                 previous_word_id.as_in_context(self.context),
                 previous_hidden] + decoder_states
@@ -302,12 +348,16 @@ class InferenceModel(sockeye.model.SockeyeModel):
             data=data,
             label=None, bucket_key=bucket_key, provide_data=self._get_decoder_data_shapes(bucket_key))
         # run forward pass
+        #print(data)
+        #print(decoder_batch)
         self.decoder_module.forward(data_batch=decoder_batch, is_train=False)
         # collect outputs
-        softmax_out, attention_probs, dynamic_source, next_hidden, *next_layer_states = \
+        softmax_out, attention_probs, dynamic_source, gcn_attention_probs, gcn_dynamic_source, next_hidden, *next_layer_states = \
             self.decoder_module.get_outputs()
 
-        return softmax_out, attention_probs, dynamic_source, next_hidden, next_layer_states
+        #print(dynamic_source)
+        #print(gcn_dynamic_source)
+        return softmax_out, attention_probs, dynamic_source, gcn_attention_probs, gcn_dynamic_source, next_hidden, next_layer_states
 
 
 def load_models(context: mx.context.Context,
@@ -549,19 +599,21 @@ class Translator:
 
     def _combine_predictions(self,
                              predictions: List[mx.nd.NDArray],
-                             attention_prob_scores: List[mx.nd.NDArray]) -> Tuple[mx.nd.NDArray, np.ndarray]:
+                             attention_prob_scores: List[mx.nd.NDArray],
+                             gcn_attention_prob_scores: List[mx.nd.NDArray]) -> Tuple[mx.nd.NDArray, np.ndarray]:
         """
         Returns combined predictions of models as negative log probabilities, as well as averaged attention prob scores.
         """
         # average attention prob scores. TODO: is there a smarter way to do this?
         attention_prob_score = sockeye.utils.average_arrays(attention_prob_scores).asnumpy()
+        gcn_attention_prob_score = sockeye.utils.average_arrays(gcn_attention_prob_scores).asnumpy()
 
         # combine model predictions and convert to neg log probs
         if len(self.models) == 1:
             neg_logprobs = -mx.nd.log(predictions[0])
         else:
             neg_logprobs = self.interpolation_func(predictions)
-        return neg_logprobs, attention_prob_score
+        return neg_logprobs, attention_prob_score, gcn_attention_prob_score
 
     def _beam_search(self,
                      source: mx.nd.NDArray,
@@ -575,19 +627,22 @@ class Translator:
 
         # encode source and initialize decoder states for each model
         model_encoded_source, model_dynamic_source, model_source_length, model_decoder_states = [], [], [], []
+        model_gcn_encoded_source, model_gcn_dynamic_source = [], []
         model_prev_hidden = []
 
         for model in self.models:
             # encode input sentence and initialize decoder states
             # encoded_source: (self.beam_size, bucket_key, rnn_num_hidden)
             # decoder_states: [(self.beam_size, rnn_num_hidden),...]
-            encoded_source, source_dynamic_init, source_length, prev_hidden, decoder_states = \
+            encoded_source, gcn_encoded_source, source_dynamic_init, gcn_source_dynamic_init, source_length, prev_hidden, decoder_states = \
                 model.run_encoder(source,
                                   source_length,
                                   source_graph,
                                   bucket_key)
             model_encoded_source.append(encoded_source)
+            model_gcn_encoded_source.append(gcn_encoded_source)
             model_dynamic_source.append(source_dynamic_init)
+            model_gcn_dynamic_source.append(gcn_source_dynamic_init)
             model_source_length.append(source_length)
             model_decoder_states.append(decoder_states)
             model_prev_hidden.append(prev_hidden)
@@ -609,10 +664,13 @@ class Translator:
             # decode one step for each model
             model_probs, model_attention_prob_score, model_next_hidden = [], [], []
             model_next_dynamic_source, model_next_decoder_states = [], []
+            model_gcn_attention_prob_score, model_next_gcn_dynamic_source = [], []
             for model_index, model in enumerate(self.models):
-                probs, attention_prob_score, next_dynamic_source, next_hidden, next_decoder_states = model.run_decoder(
+                probs, attention_prob_score, next_dynamic_source, gcn_attention_prob_score, next_gcn_dynamic_source, next_hidden, next_decoder_states = model.run_decoder(
                     model_encoded_source[model_index],
+                    model_gcn_encoded_source[model_index],
                     model_dynamic_source[model_index],
+                    model_gcn_dynamic_source[model_index],
                     model_source_length[model_index],
                     prev_target_word_id,
                     model_prev_hidden[model_index],
@@ -620,12 +678,14 @@ class Translator:
                     bucket_key)
                 model_probs.append(probs)
                 model_attention_prob_score.append(attention_prob_score)
+                model_gcn_attention_prob_score.append(gcn_attention_prob_score)
                 model_next_hidden.append(next_hidden)
                 model_next_dynamic_source.append(next_dynamic_source)
+                model_next_gcn_dynamic_source.append(next_gcn_dynamic_source)
                 model_next_decoder_states.append(next_decoder_states)
 
             # combine predictions
-            hyp_scores, attention_prob_score = self._combine_predictions(model_probs, model_attention_prob_score)
+            hyp_scores, attention_prob_score, gcn_attention_prob_score = self._combine_predictions(model_probs, model_attention_prob_score, model_gcn_attention_prob_score)
 
             for hyp_idx in range(self.beam_size):
                 if not finished[hyp_idx]:
@@ -645,6 +705,7 @@ class Translator:
 
             # select attention according to hypothesis
             attention_prob_score = attention_prob_score[prev_hyp_indices, :]
+            gcn_attention_prob_score = gcn_attention_prob_score[prev_hyp_indices, :]
 
             # list of new hypothesis that are now finished
             new_hyp_finished = [word_id in self.stop_ids for word_id in next_word_ids]
@@ -673,6 +734,8 @@ class Translator:
             model_prev_hidden = [mx.nd.take(next_hidden, prev_hyp_indices_nd) for next_hidden in model_next_hidden]
             model_dynamic_source = [mx.nd.take(next_dynamic_source, prev_hyp_indices_nd) for
                                     next_dynamic_source in model_next_dynamic_source]
+            model_gcn_dynamic_source = [mx.nd.take(next_gcn_dynamic_source, prev_hyp_indices_nd) for
+                                        next_gcn_dynamic_source in model_next_gcn_dynamic_source]
             model_decoder_states = [[mx.nd.take(state, prev_hyp_indices_nd) for state in decoder_states] for
                                     decoder_states in model_next_decoder_states]
 

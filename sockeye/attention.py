@@ -537,7 +537,8 @@ class MlpAttention(Attention):
                                               shape=(-1, source_seq_len, 1),
                                               name="%sraw_att_score_fc" % self.prefix)
 
-            context, attention_probs = get_context_and_attention_probs(source, source_length, attention_scores)
+            context, attention_probs = get_context_and_attention_probs(source, source_length, attention_scores,
+                                                                       prefix=self.prefix)
 
             dynamic_source = att_state.dynamic_source
             if self.coverage:
@@ -557,7 +558,8 @@ class MlpAttention(Attention):
 
 def get_context_and_attention_probs(source: mx.sym.Symbol,
                                     source_length: mx.sym.Symbol,
-                                    attention_scores: mx.sym.Symbol) -> Tuple[mx.sym.Symbol, mx.sym.Symbol]:
+                                    attention_scores: mx.sym.Symbol,
+                                    prefix='') -> Tuple[mx.sym.Symbol, mx.sym.Symbol]:
     """
     Returns context vector and attention probs via a weighted sum over the masked, softmaxed attention scores.
     
@@ -582,7 +584,7 @@ def get_context_and_attention_probs(source: mx.sym.Symbol,
     attention_scores = mx.sym.reshape(data=attention_scores, shape=(0, 0))
 
     # (batch_size, seq_len)
-    attention_probs = mx.sym.softmax(attention_scores, name='attention_softmax')
+    attention_probs = mx.sym.softmax(attention_scores, name='%sattention_softmax' % prefix)
 
     # (batch_size, seq_len, 1)
     attention_probs_expanded = mx.sym.expand_dims(data=attention_probs, axis=2)

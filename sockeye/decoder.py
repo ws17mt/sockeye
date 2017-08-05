@@ -337,7 +337,7 @@ class StackedRNNDecoder(Decoder):
             hidden = mx.sym.Activation(data=hidden, act_type="tanh",
                                        name="%snext_hidden_t%d" % (self.prefix, seq_idx))
 
-        return DecoderState(hidden, layer_states), attention_state
+        return DecoderState(hidden, layer_states), attention_state, gcn_attention_state
 
     def decode(self,
                source_encoded: mx.sym.Symbol,
@@ -400,13 +400,13 @@ class StackedRNNDecoder(Decoder):
 
         for seq_idx in range(target_seq_len):
             # hidden: (batch_size, rnn_num_hidden)
-            state, attention_state = self._step(target_embed[seq_idx],
-                                                state,
-                                                attention_func,
-                                                attention_state,
-                                                gcn_attention_func,
-                                                gcn_attention_state,
-                                                seq_idx)
+            state, attention_state, gcn_attention_state = self._step(target_embed[seq_idx],
+                                                                     state,
+                                                                     attention_func,
+                                                                     attention_state,
+                                                                     gcn_attention_func,
+                                                                     gcn_attention_state,
+                                                                     seq_idx)
 
             # hidden_expanded: (batch_size, 1, rnn_num_hidden)
             hidden_all.append(mx.sym.expand_dims(data=state.hidden, axis=1))
@@ -440,6 +440,8 @@ class StackedRNNDecoder(Decoder):
                 state_prev: DecoderState,
                 attention_func: Callable,
                 attention_state_prev: sockeye.attention.AttentionState,
+                gcn_attention_func: Callable,
+                gcn_attention_state_prev: sockeye.attention.AttentionState,              
                 source_lexicon: Optional[mx.sym.Symbol] = None,
                 softmax_temperature: Optional[float] = None) -> Tuple[mx.sym.Symbol,
                                                                       DecoderState,
@@ -464,10 +466,12 @@ class StackedRNNDecoder(Decoder):
         # state.hidden: (batch_size, rnn_num_hidden)
         # attention_state.dynamic_source: (batch_size, source_seq_len, coverage_num_hidden)
         # attention_state.probs: (batch_size, source_seq_len)
-        state, attention_state = self._step(word_vec_prev,
-                                            state_prev,
-                                            attention_func,
-                                            attention_state_prev)
+        state, attention_state, gcn_attention_state = self._step(word_vec_prev,
+                                                                 state_prev,
+                                                                 attention_func,
+                                                                 attention_state_prev,
+                                                                 gcn_attention_func,
+                                                                 gcn_attention_state_prev)
 
         # logits: (batch_size, target_vocab_size)
         logits = mx.sym.FullyConnected(data=state.hidden, num_hidden=self.target_vocab_size,
@@ -485,4 +489,4 @@ class StackedRNNDecoder(Decoder):
             logits /= softmax_temperature
 
         softmax_out = mx.sym.softmax(data=logits, name=C.SOFTMAX_NAME)
-        return softmax_out, state, attention_state
+        return softmax_out, state, attention_state, gcn_attention_state
