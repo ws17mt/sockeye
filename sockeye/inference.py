@@ -427,6 +427,7 @@ TranslatorOutput = NamedTuple('TranslatorOutput', [
     ('translation', str),
     ('tokens', List[str]),
     ('attention_matrix', np.ndarray),
+    ('gcn_attention_matrix', np.ndarray),
     ('score', float),
 ])
 """
@@ -558,6 +559,7 @@ class Translator:
                      trans_input: TranslatorInput,
                      target_ids: List[int],
                      attention_matrix: np.ndarray,
+                     gcn_attention_matrix: np.ndarray,
                      neg_logprob: float) -> TranslatorOutput:
         """
         Returns a translator result from generated target-side word ids, attention matrix, and score.
@@ -566,6 +568,7 @@ class Translator:
         :param trans_input: Translator input.
         :param target_ids: List of translated ids.
         :param attention_matrix: Attention matrix.
+        :param gcn_attention_matrix: GCN attention matrix.
         :return: TranslatorOutput.
         """
         target_tokens = [self.vocab_target_inv[target_id] for target_id in target_ids]
@@ -573,10 +576,12 @@ class Translator:
             target_token for target_id, target_token in zip(target_ids, target_tokens) if
             target_id not in self.stop_ids)
         attention_matrix = attention_matrix[:, :len(trans_input.tokens)]
+        gcn_attention_matrix = gcn_attention_matrix[:, :len(trans_input.tokens)]
         return TranslatorOutput(id=trans_input.id,
                                 translation=target_string,
                                 tokens=target_tokens,
                                 attention_matrix=attention_matrix,
+                                gcn_attention_matrix=gcn_attention_matrix,
                                 score=neg_logprob)
 
     def translate_nd(self, source: mx.nd.NDArray, source_length: mx.nd.NDArray, 
@@ -657,6 +662,7 @@ class Translator:
         sequences = [[] for _ in range(self.beam_size)]
         # one list of source word attention vectors per hypothesis
         attention_lists = [[] for _ in range(self.beam_size)]
+        gcn_attention_lists = [[] for _ in range(self.beam_size)]
         prev_hyp_indices = None
 
         for t in range(0, max_output_length):
@@ -711,19 +717,24 @@ class Translator:
             new_hyp_finished = [word_id in self.stop_ids for word_id in next_word_ids]
             new_sequences = [None for _ in range(self.beam_size)]
             new_attention_lists = [None for _ in range(self.beam_size)]
+            new_gcn_attention_lists = [None for _ in range(self.beam_size)]
             for new_hyp_idx, prev_hyp_idx in enumerate(prev_hyp_indices):
                 if not finished[prev_hyp_idx]:
                     new_sequences[new_hyp_idx] = sequences[prev_hyp_idx] + [next_word_ids[new_hyp_idx]]
                     new_attention_lists[new_hyp_idx] = attention_lists[prev_hyp_idx] + [
                         attention_prob_score[new_hyp_idx, :]]
+                    new_gcn_attention_lists[new_hyp_idx] = gcn_attention_lists[prev_hyp_idx] + [
+                        gcn_attention_prob_score[new_hyp_idx, :]]
                 else:
                     new_sequences[new_hyp_idx] = sequences[prev_hyp_idx]
                     new_attention_lists[new_hyp_idx] = attention_lists[prev_hyp_idx]
+                    new_gcn_attention_lists[new_hyp_idx] = gcn_attention_lists[prev_hyp_idx]
                 lengths[new_hyp_idx] = len(new_sequences[new_hyp_idx])
 
             finished = new_hyp_finished
             sequences = new_sequences
             attention_lists = new_attention_lists
+            gcn_attention_lists = new_gcn_attention_lists
 
             if all(new_hyp_finished):
                 break
@@ -743,4 +754,5 @@ class Translator:
         best = 0
         # attention_matrix: (target_seq_len, source_seq_len)
         attention_matrix = np.stack(attention_lists[best], axis=0)
-        return sequences[best], attention_matrix, accumulated_scores[best]
+        gcn_attention_matrix = np.stack(gcn_attention_lists[best], axis=0)
+        return sequences[best], attention_matrix, gcn_attention_matrix, accumulated_scores[best]
