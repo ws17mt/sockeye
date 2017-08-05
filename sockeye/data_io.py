@@ -179,7 +179,8 @@ def get_style_training_data_iters(source: str,
                                   target_bos_symbol,
                                   suffix: str,
                                   target=None,
-                                  target_suffix=None) -> 'ParallelBucketSentenceIter':
+                                  target_suffix=None,
+                                  do_not_shuffle=False) -> 'ParallelBucketSentenceIter':
     """
     Returns data iterators for training and validation data.
 
@@ -196,6 +197,9 @@ def get_style_training_data_iters(source: str,
     logger.info("Creating train data iterator")
     # Assuming an autoencoder like setup where the output sequence
     # is the same as the input sequence
+    if target is None:
+        logger.info("No target specified; using source as target (autoencoder mode)")
+
     train_source_sentences, train_target_sentences = read_parallel_corpus(source,
                                                                           source if target is None else target,
                                                                           vocab,
@@ -209,7 +213,7 @@ def get_style_training_data_iters(source: str,
         (max_seq_len, max_seq_len)]
 
     train_iter = ParallelBucketSentenceIter(train_source_sentences,
-                                            train_source_sentences if target is None else train_target_sentences,
+                                            train_target_sentences,
                                             buckets,
                                             batch_size,
                                             vocab[C.EOS_SYMBOL],
@@ -219,7 +223,8 @@ def get_style_training_data_iters(source: str,
                                             source_data_name=C.SOURCE_NAME + suffix,
                                             source_data_length_name=C.SOURCE_LENGTH_NAME + suffix,
                                             target_data_name=C.TARGET_NAME + (suffix if target_suffix is None else target_suffix),
-                                            label_name=C.TARGET_LABEL_NAME + (suffix if target_suffix is None else target_suffix))
+                                            label_name=C.TARGET_LABEL_NAME + (suffix if target_suffix is None else target_suffix),
+                                            do_not_shuffle=do_not_shuffle)
 
     return train_iter
 
@@ -417,7 +422,8 @@ class ParallelBucketSentenceIter(mx.io.DataIter):
                  source_data_length_name=C.SOURCE_LENGTH_NAME,
                  target_data_name=C.TARGET_NAME,
                  label_name=C.TARGET_LABEL_NAME,
-                 dtype='float32'):
+                 dtype='float32',
+                 do_not_shuffle=False):
         super(ParallelBucketSentenceIter, self).__init__()
 
         self.buckets = list(buckets)
@@ -433,6 +439,8 @@ class ParallelBucketSentenceIter(mx.io.DataIter):
         self.target_data_name = target_data_name
         self.label_name = label_name
         self.fill_up = fill_up
+
+        self.do_not_shuffle = do_not_shuffle
 
         # TODO: consider avoiding explicitly creating length and label arrays to save host memory
         self.data_source = [[] for _ in self.buckets]
@@ -557,7 +565,8 @@ class ParallelBucketSentenceIter(mx.io.DataIter):
         """
         self.curr_idx = 0
         # shuffle indices
-        random.shuffle(self.idx)
+        if not self.do_not_shuffle:
+            random.shuffle(self.idx)
 
         self.nd_source = []
         self.nd_length = []
@@ -566,7 +575,10 @@ class ParallelBucketSentenceIter(mx.io.DataIter):
         self.indices = []
         for i in range(len(self.data_source)):
             # shuffle indices within each bucket
-            self.indices.append(np.random.permutation(len(self.data_source[i])))
+            if not self.do_not_shuffle:
+                self.indices.append(np.random.permutation(len(self.data_source[i])))
+            else:
+                self.indices.append(np.arange(len(self.data_source[i])))
             self._append_ndarrays(i, self.indices[-1])
 
     def _append_ndarrays(self, bucket: int, shuffled_indices: np.array):
