@@ -7,9 +7,6 @@ cd sockeye
 DATA_HOME=/Users/gaurav/Dropbox/Projects/JSALT17-NMT-Lab/data/multi30k
 OUT_FOLDER=tmp
 
-mkdir -p ${OUT_FOLDER}
-rm -rf ${OUT_FOLDER}/*
-
 python train_style.py \
     -s ${DATA_HOME}/train-toy.de.atok \
     -t ${DATA_HOME}/train-toy.en.atok \

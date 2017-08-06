@@ -7,9 +7,6 @@ cd sockeye
 DATA_HOME=/pylon2/ci560op/fosterg/data/fr/processed
 OUT_FOLDER=tmp
 
-mkdir -p ${OUT_FOLDER}
-rm -rf ${OUT_FOLDER}/*
-
 python train_style.py \
     -s ${DATA_HOME}/train.100k.bpe.fr \
     -t ${DATA_HOME}/train.100k.bpe.en \

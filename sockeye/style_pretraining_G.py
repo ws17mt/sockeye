@@ -260,12 +260,7 @@ class StylePreTrainingModel_G(sockeye.model.SockeyeModel):
         """
         self.save_config(output_folder)
 
-        self.module.bind(data_shapes=train_iter.provide_data, label_shapes=train_iter.provide_label,
-                         for_training=True, force_rebind=True, grad_req='write')
         self.module.symbol.save(os.path.join(output_folder, C.SYMBOL_NAME))
-
-        self.module.init_params(initializer=initializer, arg_params=self.params, aux_params=None,
-                                allow_missing=False, force_init=False)
 
         self.module.init_optimizer(kvstore='device', optimizer=optimizer, optimizer_params=optimizer_params)
 
