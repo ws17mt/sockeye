@@ -77,7 +77,12 @@ class InferenceModel(sockeye.model.SockeyeModel):
         self.encoder_batch_size = 1
         self.context = context
 
-        self._build_model_components(self.max_input_len, fused)
+        self.embedding = sockeye.encoder.Embedding(num_embed=self.config.num_embed_source,
+                                                   vocab_size=self.config.vocab_target_size,
+                                                   prefix=C.EMBEDDING_PREFIX,
+                                                   dropout=self.config.dropout)
+
+        self._build_model_components(self.max_input_len, fused, initialize_embedding=False, embedding=self.embedding)
         self.encoder_module, self.decoder_module = self._build_modules()
 
         self.decoder_data_shapes_cache = dict()  # bucket_key -> shape cache
@@ -97,6 +102,9 @@ class InferenceModel(sockeye.model.SockeyeModel):
         source_length = mx.sym.Variable(C.SOURCE_LENGTH_NAME)
 
         def encoder_sym_gen(source_seq_len: int):
+            # Add the embedding layer
+            self.encoder.encoders = [self.embedding] + self.encoder.encoders
+
             source_encoded = self.encoder.encode(source, source_length, seq_len=source_seq_len)
             source_encoded_batch_major = mx.sym.swapaxes(source_encoded, dim1=0, dim2=1)
 
@@ -137,12 +145,13 @@ class InferenceModel(sockeye.model.SockeyeModel):
 
             attention_func = self.attention.on(source_encoded, source_length, source_seq_len)
 
-            softmax_out, next_state, next_attention_state = \
+            softmax_out, next_state, next_attention_state, _ = \
                 self.decoder.predict(word_id_prev,
                                      state,
                                      attention_func,
                                      attention_state,
-                                     softmax_temperature=self.softmax_temperature)
+                                     softmax_temperature=self.softmax_temperature,
+                                     embedding=self.embedding)
 
             symbol_group = [softmax_out,
                             next_attention_state.probs,
