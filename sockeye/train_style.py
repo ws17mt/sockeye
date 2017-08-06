@@ -171,6 +171,8 @@ def main():
         # These vocabs are built on the training data.
         # Joint vocab for e and f
         vocab = _build_or_load_vocab(external_vocab, [e_corpus, f_corpus], num_words, word_min_count)
+        sockeye.vocab.vocab_to_json(vocab, os.path.join(output_folder, C.VOCAB_SRC_NAME) + C.JSON_SUFFIX)
+        sockeye.vocab.vocab_to_json(vocab, os.path.join(output_folder, C.VOCAB_TRG_NAME) + C.JSON_SUFFIX)
 
         vocab_size = len(vocab)
         logger.info("Vocabulary size (merged e, f): %d", vocab_size)
@@ -425,8 +427,7 @@ def main():
                       output_folder=output_folder,
                       metrics=args.metrics,
                       initializer=initializer,
-                      # max_updates=args.max_updates,
-                      max_updates=20,
+                      max_updates=args.max_updates,
                       checkpoint_frequency=args.checkpoint_frequency,
                       optimizer=optimizer, optimizer_params=optimizer_params,
                       optimized_metric=args.optimized_metric,
