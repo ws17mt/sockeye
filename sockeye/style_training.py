@@ -404,7 +404,8 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
             # logits_ae_e and logits_tr_f are originally in e
             loss_G, loss_D = loss.get_loss(e_logits_autoencoder, f_logits_autoencoder, e_labels, f_labels,
                                     e_D_autoencoder, e_D_transfer, e_disc_labels_autoencoder, e_disc_labels_transfer,
-                                    f_D_autoencoder, f_D_transfer, f_disc_labels_autoencoder, f_disc_labels_transfer)
+                                    f_D_autoencoder, f_D_transfer, f_disc_labels_autoencoder, f_disc_labels_transfer,
+                                    self.config.g_loss_weight)
             return mx.sym.Group([loss_G, loss_D]), data_names, label_names
 
         # TODO: Add bucketing later

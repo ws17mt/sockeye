@@ -339,7 +339,8 @@ def main():
                                                  disc_num_hidden=disc_num_hidden,
                                                  disc_num_layers=disc_num_layers,
                                                  disc_dropout=disc_dropout,
-                                                 loss_lambda=args.disc_loss_lambda)
+                                                 loss_lambda=args.disc_loss_lambda,
+                                                 g_loss_weight=args.g_loss_weight)
 
         # For lexical bias, set to None
         lexicon = None

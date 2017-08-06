@@ -165,7 +165,8 @@ class GANLoss(Loss):
                  e_D_autoencoder: mx.sym.Symbol, e_D_transfer: mx.sym.Symbol,
                  e_labels_autoencoder: mx.sym.Symbol, e_labels_transfer: mx.sym.Symbol,
                  f_D_autoencoder: mx.sym.Symbol, f_D_transfer: mx.sym.Symbol,
-                 f_labels_autoencoder: mx.sym.Symbol, f_labels_transfer: mx.sym.Symbol) -> mx.sym.Symbol:
+                 f_labels_autoencoder: mx.sym.Symbol, f_labels_transfer: mx.sym.Symbol,
+                 g_loss_weight: float) -> mx.sym.Symbol:
         """
         Returns generator and discriminator loss for GAN assuming gradient reversal layer.
 
@@ -181,6 +182,7 @@ class GANLoss(Loss):
         :param f_D_transfer: Logits from discriminating transferred f (from e). Shape: (e_batch_size, 2).
         :param f_labels_autoencoder: Labels from discriminating autoencoded f. Shape: (f_batch_size, ).
         :param f_labels_transfer: Labels from discriminating transferred f. Shape(e_batch_size, ).
+        :param g_loss_weight: weight for loss_G.
         """
         if self._normalize:
             normalization = 'valid'
@@ -203,5 +205,7 @@ class GANLoss(Loss):
 
         # now combine them
         loss_D = mx.sym.concat(e_loss_D, f_loss_D, dim=0, name=C.GAN_LOSS + '_d')
+        # weight loss_G
+        loss_G = mx.sym.broadcast_mul(loss_G, g_loss_weight)
         # NOTE: the GRL reverses the gradients and adds the lambda, so we add the three losses here
         return loss_G, loss_D

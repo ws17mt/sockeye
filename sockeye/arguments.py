@@ -295,6 +295,10 @@ def add_training_args(params):
                               default=1.0,
                               type=float,
                               help='Interpolation factor for reconstruction and gan loss in style transfer')
+    train_params.add_argument('--g-loss-weight',
+                              default=1.0,
+                              type=float,
+                              help='Weight for autoencoder loss in style transfer')
 
     train_params.add_argument('--smoothed-cross-entropy-alpha',
                               default=0.3,
