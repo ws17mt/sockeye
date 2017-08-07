@@ -194,7 +194,7 @@ class GANLoss(Loss):
         loss_G = mx.sym.SoftmaxOutput(data=mx.sym.concat(e_logits_autoencoder, f_logits_autoencoder, dim=0),
                                       label=mx.sym.concat(e_labels, f_labels, dim=0),
                                       ignore_label=C.PAD_ID, use_ignore=True, normalization=normalization,
-                                      name=C.GAN_LOSS + '_g')
+                                      name=C.GAN_LOSS + '_g_unweighted')
         # TODO should e_loss_D and f_loss_D have ignore_label?
         e_loss_D = mx.sym.SoftmaxOutput(data=mx.sym.concat(e_D_autoencoder, e_D_transfer, dim=0),
                                         label=mx.sym.concat(e_labels_autoencoder, e_labels_transfer, dim=0),
@@ -206,6 +206,7 @@ class GANLoss(Loss):
         # now combine them
         loss_D = mx.sym.concat(e_loss_D, f_loss_D, dim=0, name=C.GAN_LOSS + '_d')
         # weight loss_G
-        loss_G = g_loss_weight * loss_G
+        loss_weight_sym = mx.sym.ones((1,)) * g_loss_weight
+        loss_G = mx.symbol.broadcast_mul(loss_G, loss_weight_sym, name=C.GAN_LOSS + '_g')
         # NOTE: the GRL reverses the gradients and adds the lambda, so we add the three losses here
         return loss_G, loss_D
