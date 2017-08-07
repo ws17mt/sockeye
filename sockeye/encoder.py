@@ -96,7 +96,7 @@ def get_encoder(num_embed: int,
                                          forget_bias=forget_bias))
     else:
         # GCN encoder on top of an embedding layer
-        encoders.append(GraphConvEncoder(rnn_num_hidden, gcn_num_hidden, 
+        encoders.append(GraphConvEncoder(num_embed, gcn_num_hidden, 
                                          gcn_num_tensor, use_gcn_gating,
                                          dropout))
         if gcn_num_layers > 1:
