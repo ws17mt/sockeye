@@ -8,36 +8,32 @@ DATA_HOME=/pylon2/ci560op/fosterg/data/fr/processed
 OUT_FOLDER=tmp
 
 python train_style.py \
-    -s ${DATA_HOME}/train.100k.bpe.fr \
-    -t ${DATA_HOME}/train.100k.bpe.en \
-    -ms ${DATA_HOME}/train.100k.bpe.fr \
-    -mt ${DATA_HOME}/train.100k.bpe.en \
+    -s ${DATA_HOME}/train.10k.bpe.fr \
+    -t ${DATA_HOME}/train.10k.bpe.en \
+    -ms ${DATA_HOME}/train.10k.bpe.fr \
+    -mt ${DATA_HOME}/train.10k.bpe.en \
     -vs ${DATA_HOME}/dev1.bpe.fr \
     -vt ${DATA_HOME}/dev1.bpe.en \
     --joint-vocab ${DATA_HOME}/vocab.enfr.json \
     -o $OUT_FOLDER \
-    -b 128 \
-    --num-embed 512 \
-    --attention-num-hidden 1024 \
-    --attention-type mlp \
     --rnn-cell-type gru \
-    --rnn-num-layers 2 \
     --rnn-num-hidden 512 \
-    --dropout 0.3 \
-    --initial-learning-rate 0.0002 \
-    --num-words 10000 \
-    --word-min-count 1 \
-    --max-seq-len 50 \
+    --dropout 0.5 \
+    --max-seq-len 80 \
     --disc-num-hidden 500 \
     --disc-num-layers 2 \
     --disc-dropout 0.0 \
     --disc-act softrelu \
     --no-bucketing \
-    --bucket-width 100 \
     --loss gan-loss \
     --valid-loss cross-entropy \
-    --disc-loss-lambda 50000.0 \
+    --disc-loss-lambda 10.0 \
     --max-updates -1 \
     --checkpoint-frequency 400 \
     --no-bucketing \
-    --weight-tying
+    --weight-tying \
+    --seed 1
+    --normalize-loss \
+    --disc-batch-norm \
+    --g-loss-weight 100.0
+
