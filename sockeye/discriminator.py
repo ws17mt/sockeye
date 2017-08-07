@@ -94,24 +94,32 @@ class MLPDiscriminator(Discriminator):
         if self.batch_norm:
             self.in_gamma = mx.sym.Variable('%sin_gamma' % self.prefix)
             self.in_beta = mx.sym.Variable('%sin_beta' % self.prefix)
+            self.in_mm = mx.sym.Variable('%sin_mm' % self.prefix)
+            self.in_mv = mx.sym.Variable('%sin_mv' % self.prefix)
         # hidden layers
         self.weight_dict = {}
         self.bias_dict = {}
         if self.batch_norm:
             self.gamma_dict = {}
             self.beta_dict = {}
+            self.mm_dict = {}
+            self.mv_dict = {}
         for layer in range(self.num_layers):
             self.weight_dict[layer] = mx.sym.Variable('%slayer%d_weight' % (self.prefix, layer))
             self.bias_dict[layer] = mx.sym.Variable('%slayer%d_bias' % (self.prefix, layer))
             if self.batch_norm:
                 self.gamma_dict[layer] = mx.sym.Variable('%slayer%d_gamma' % (self.prefix, layer))
                 self.beta_dict[layer] = mx.sym.Variable('%slayer%d_beta' % (self.prefix, layer))
+                self.mm_dict[layer] = mx.sym.Variable('%slayer%d_mm' % (self.prefix, layer))
+                self.mv_dict[layer] = mx.sym.Variable('%slayer%d_mv' % (self.prefix, layer))
         # output layer
         self.out_w = mx.sym.Variable('%sout_weight' % prefix)
         self.out_b = mx.sym.Variable('%sout_bias' % prefix)
         if self.batch_norm:
             self.out_gamma = mx.sym.Variable('%sout_gamma' % self.prefix)
             self.out_beta = mx.sym.Variable('%sout_beta' % self.prefix)
+            self.out_mm = mx.sym.Variable('%sout_mm' % self.prefix)
+            self.out_mv = mx.sym.Variable('%sout_mv' % self.prefix)
 
     def discriminate(self,
                      data: mx.sym.Symbol,
@@ -141,19 +149,22 @@ class MLPDiscriminator(Discriminator):
         logits = mx.sym.FullyConnected(data=reverse_grad, num_hidden=self.num_hidden,
                                        weight=self.in_w, bias=self.in_b)
         if self.batch_norm:
-            logits = mx.sym.BatchNorm(data=logits, gamma=self.in_gamma, beta=self.in_beta)
+            logits = mx.sym.BatchNorm(data=logits, gamma=self.in_gamma, beta=self.in_beta,
+                                      moving_mean=self.in_mm, moving_var=self.in_mv)
         logits = mx.sym.Activation(data=logits, act_type=self.act)
         # hidden layers
         for layer in range(self.num_layers):
             logits = mx.sym.FullyConnected(data=logits, num_hidden=self.num_hidden, weight=self.weight_dict[layer],
                                            bias=self.bias_dict[layer])
             if self.batch_norm:
-                logits = mx.sym.BatchNorm(data=logits, gamma=self.gamma_dict[layer], beta=self.beta_dict[layer])
+                logits = mx.sym.BatchNorm(data=logits, gamma=self.gamma_dict[layer], beta=self.beta_dict[layer],
+                                          moving_mean=self.mm_dict[layer], moving_var=self.mv_dict[layer])
             logits = mx.sym.Activation(data=logits, act_type=self.act)
         # output layer
         logits = mx.sym.FullyConnected(data=logits, num_hidden=2, weight=self.out_w, bias=self.out_b)
         if self.batch_norm:
-            logits = mx.sym.BatchNorm(data=logits, gamma=self.out_gamma, beta=self.out_beta)
+            logits = mx.sym.BatchNorm(data=logits, gamma=self.out_gamma, beta=self.out_beta,
+                                      moving_mean=self.out_mm, moving_var=self.out_mv)
         logits = mx.sym.sigmoid(data=logits)
         return logits
     
