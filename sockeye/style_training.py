@@ -772,6 +772,8 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
         arg_params, aux_params = self.module.get_params()  # sync aux params across devices
         self.module.set_params(arg_params, aux_params)
         self.params = arg_params
+        self.params[C.SOURCE_EMBEDDING_PREFIX + "weight"] = self.params[C.EMBEDDING_PREFIX + "weight"]
+        self.params[C.TARGET_EMBEDDING_PREFIX + "weight"] = self.params[C.EMBEDDING_PREFIX + "weight"]
         params_base_fname = C.PARAMS_NAME % checkpoint
         self.save_params_to_file(os.path.join(output_folder, params_base_fname))
 
