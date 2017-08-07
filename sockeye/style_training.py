@@ -181,7 +181,7 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
         self.vocab = vocab
         self._build_model_components(self.config.max_seq_len, fused, rnn_forget_bias, initialize_embedding=False, embedding=self.embedding)
         self._build_discriminators(self.config.disc_act, self.config.disc_num_hidden, self.config.disc_num_layers,
-                                   self.config.disc_dropout, self.config.loss_lambda)
+                                   self.config.disc_dropout, self.config.loss_lambda, self.config.disc_batch_norm)
         self.module = self._build_module(train_iter, self.config.max_seq_len, self.config.max_seq_len, fixed_param_names)
 
         self._build_inference_model_components(self.config.max_seq_len, fused, rnn_forget_bias, initialize_embedding=False, embedding=self.valid_embedding)
@@ -190,7 +190,7 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
         self.initializer = None
         self.training_monitor = None
 
-    def _build_discriminators(self, act: str, num_hidden: int, num_layers: int, dropout: float, loss_lambda: float):
+    def _build_discriminators(self, act: str, num_hidden: int, num_layers: int, dropout: float, loss_lambda: float, batch_norm: bool):
         """
         Builds and sets discriminators for style transfer.
 
@@ -199,14 +199,15 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
         :param num_layers: Number of layers for the discriminators.
         :param dropout: Dropout probability for the discriminators.
         :param loss_lambda: Weight for the discriminator losses.
+        :param batch_norm: Whether to use batch normalization.
         """
         self.discriminator_e = sockeye.discriminator.get_discriminator(act, num_hidden,
                                                                        num_layers, dropout,
-                                                                       loss_lambda,
+                                                                       loss_lambda, batch_norm,
                                                                        prefix=C.DISCRIMINATOR_E_PREFIX)
         self.discriminator_f = sockeye.discriminator.get_discriminator(act, num_hidden,
                                                                        num_layers, dropout,
-                                                                       loss_lambda,
+                                                                       loss_lambda, batch_norm,
                                                                        prefix=C.DISCRIMINATOR_F_PREFIX)
 
     def _build_module(self,

@@ -57,7 +57,8 @@ ModelConfig = sockeye.utils.namedtuple_with_defaults('ModelConfig',
                                                       "disc_num_layers",
                                                       "disc_dropout",
                                                       "loss_lambda",
-                                                      "g_loss_weight"
+                                                      "g_loss_weight",
+                                                      "disc_batch_norm"
                                                   ],
                                                      default_values={
                                                       "attention_use_prev_word": False,
@@ -69,7 +70,8 @@ ModelConfig = sockeye.utils.namedtuple_with_defaults('ModelConfig',
                                                       "disc_num_layers": 1,
                                                       "disc_dropout": 0.,
                                                       "loss_lambda": 1.,
-                                                      "g_loss_weight": 1.
+                                                      "g_loss_weight": 1.,
+                                                      "disc_batch_norm": False
                                                   })
 """
 ModelConfig defines model parameters defined at training time which are relevant to model inference.

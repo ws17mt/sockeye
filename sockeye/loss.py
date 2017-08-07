@@ -206,6 +206,6 @@ class GANLoss(Loss):
         # now combine them
         loss_D = mx.sym.concat(e_loss_D, f_loss_D, dim=0, name=C.GAN_LOSS + '_d')
         # weight loss_G
-        loss_G = mx.sym.broadcast_mul(loss_G, g_loss_weight)
+        loss_G = g_loss_weight * loss_G
         # NOTE: the GRL reverses the gradients and adds the lambda, so we add the three losses here
         return loss_G, loss_D
