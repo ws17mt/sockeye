@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 # TODO break out EncoderConfig to allow use without populating options for full translation model
 def get_encoder(config: "ModelConfig",
                 forget_bias: float,
+                residual_encoder: bool,
                 fused: bool = False) -> 'Encoder':
     """
     Returns an encoder with embedding, batch2time-major conversion, and bidirectional RNN encoder.

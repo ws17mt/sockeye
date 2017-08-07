@@ -237,7 +237,11 @@ class SockeyeModel:
                         self.params['%s%s_weight' % (c._prefix, group_name)] = mx.ndarray.concatenate(weight)
                         self.params['%s%s_bias' % (c._prefix, group_name)] = mx.ndarray.concatenate(bias)
 
-    def _build_model_components(self, max_seq_len: int, fused_encoder: bool, rnn_forget_bias: float = 0.0):
+    def _build_model_components(self, max_seq_len: int,
+                                fused_encoder: bool,
+                                residual_encoder: bool, 
+                                residual_decoder: bool,
+                                rnn_forget_bias: float = 0.0):
         """
         Builds and sets model components given maximum sequence length.
 
@@ -247,6 +251,7 @@ class SockeyeModel:
         """
         self.encoder = sockeye.encoder.get_encoder(self.config,
                                                    rnn_forget_bias,
+                                                   residual_encoder,
                                                    fused_encoder)
 
         self.attention = sockeye.attention.get_attention(self.config.attention_use_prev_word,
@@ -270,6 +275,7 @@ class SockeyeModel:
                                                    self.config.rnn_cell_type,
                                                    self.config.rnn_residual_connections,
                                                    rnn_forget_bias,
+                                                   residual_decoder,
                                                    self.config.dropout,
                                                    self.config.weight_tying,
                                                    self.lexicon,

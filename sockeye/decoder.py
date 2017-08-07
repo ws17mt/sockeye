@@ -37,6 +37,7 @@ def get_decoder(num_embed: int,
                 attention: sockeye.attention.Attention,
                 cell_type: str, residual: bool,
                 forget_bias: float,
+                residual_decoder: bool,
                 dropout=0.,
                 weight_tying: bool = False,
                 lexicon: Optional[sockeye.lexicon.Lexicon] = None,
@@ -65,6 +66,7 @@ def get_decoder(num_embed: int,
                              attention,
                              vocab_size,
                              num_embed,
+                             residual_decoder,
                              num_layers,
                              weight_tying=weight_tying,
                              dropout=dropout,
@@ -140,6 +142,7 @@ class StackedRNNDecoder(Decoder):
                  attention: sockeye.attention.Attention,
                  target_vocab_size: int,
                  num_target_embed: int,
+                 residual_decoder: bool,
                  num_layers=1,
                  prefix=C.DECODER_PREFIX,
                  weight_tying=False,
@@ -160,6 +163,7 @@ class StackedRNNDecoder(Decoder):
         self.target_vocab_size = target_vocab_size
         self.num_target_embed = num_target_embed
         self.context_gating = context_gating
+        self.residual_decoder = residual_decoder
         if self.context_gating:
             self.gate_w = mx.sym.Variable("%sgate_weight" % prefix)
             self.gate_b = mx.sym.Variable("%sgate_bias" % prefix)
@@ -178,7 +182,7 @@ class StackedRNNDecoder(Decoder):
 
         # Decoder stacked RNN
         self.rnn = sockeye.rnn.get_stacked_rnn(cell_type, num_hidden, num_layers, dropout, prefix, residual,
-                                               forget_bias)
+                                               forget_bias, all_residual=self.residual_decoder)
 
         # Decoder parameters
         # RNN init state parameters
