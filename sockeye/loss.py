@@ -198,10 +198,10 @@ class GANLoss(Loss):
         # TODO should e_loss_D and f_loss_D have ignore_label?
         e_loss_D = mx.sym.SoftmaxOutput(data=mx.sym.concat(e_D_autoencoder, e_D_transfer, dim=0),
                                         label=mx.sym.concat(e_labels_autoencoder, e_labels_transfer, dim=0),
-                                        normalization=normalization, name=C.GAN_LOSS + '_e')
+                                        name=C.GAN_LOSS + '_e')
         f_loss_D = mx.sym.SoftmaxOutput(data=mx.sym.concat(f_D_autoencoder, f_D_transfer, dim=0),
                                         label=mx.sym.concat(f_labels_autoencoder, f_labels_transfer, dim=0),
-                                        normalization=normalization, name=C.GAN_LOSS + '_f')
+                                        name=C.GAN_LOSS + '_f')
 
         # now combine them
         loss_D = mx.sym.concat(e_loss_D, f_loss_D, dim=0, name=C.GAN_LOSS + '_d')

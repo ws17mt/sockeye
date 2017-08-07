@@ -301,7 +301,7 @@ def add_training_args(params):
                               help='Weight for autoencoder loss in style transfer')
     train_params.add_argument('--disc-batch-norm',
                               default=False,
-                              type=bool,
+                              action="store_true",
                               help='Whether to use batch normalization in the discriminators')
 
     train_params.add_argument('--smoothed-cross-entropy-alpha',
