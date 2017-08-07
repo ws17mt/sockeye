@@ -27,8 +27,7 @@ def get_stacked_rnn(cell_type: str,
                     prefix: str,
                     residual: bool = False,
                     forget_bias: float = 0.0,
-                    params: mx.rnn.RNNParams = None,
-                    all_residual: bool = False) -> mx.rnn.SequentialRNNCell:
+                    params: mx.rnn.RNNParams = None) -> mx.rnn.SequentialRNNCell:
     """
     Returns (stacked) RNN cell given parameters.
 
@@ -62,7 +61,7 @@ def get_stacked_rnn(cell_type: str,
             cell = LayerNormPerGateGRUCell(num_hidden=num_hidden, prefix=cell_prefix)
         else:
             raise NotImplementedError()
-        if (residual and layer > 0) or all_residual:
+        if residual and layer > 0:
             cell = mx.rnn.ResidualCell(cell)
         cell._own_params = True  # TODO: Hack around mxnet bug
         rnn.add(cell)

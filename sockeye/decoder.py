@@ -182,7 +182,7 @@ class StackedRNNDecoder(Decoder):
 
         # Decoder stacked RNN
         self.rnn = sockeye.rnn.get_stacked_rnn(cell_type, num_hidden, num_layers, dropout, prefix, residual,
-                                               forget_bias, all_residual=self.residual_decoder)
+                                               forget_bias)
 
         # Decoder parameters
         # RNN init state parameters
@@ -338,6 +338,8 @@ class StackedRNNDecoder(Decoder):
         # rnn_output: (batch_size, rnn_num_hidden)
         # next_layer_states: num_layers * [batch_size, rnn_num_hidden]
         rnn_output, layer_states = self.rnn(rnn_input, state.layer_states)
+        if self.residual_decoder:
+            rnn_output = mx.symbol.elemwise_add(rnn_output, word_vec_prev)
 
         # (2) Attention step
         attention_input = self.attention.make_input(seq_idx, word_vec_prev, rnn_output)

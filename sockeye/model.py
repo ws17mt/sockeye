@@ -239,7 +239,7 @@ class SockeyeModel:
 
     def _build_model_components(self, max_seq_len: int,
                                 fused_encoder: bool,
-                                residual_encoder: bool, 
+                                residual_encoder: bool,
                                 residual_decoder: bool,
                                 rnn_forget_bias: float = 0.0):
         """

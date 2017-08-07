@@ -324,11 +324,12 @@ def add_model_parameters(params):
                               help='Load encoder LM from file, must have at least 1 lm_pretrain layer')
     model_params.add_argument('--residual-encoder',
                               action="store_true",
-                              help='Add residual between LM layer and Output on Encoder')
+                              help='Add residual between LM layer and Output on Encoder **NOT IMPLEMENTED**')
     model_params.add_argument('--residual-decoder',
                               action="store_true",
                               help='Add residual between LM layer and Output on Decoder')
-    
+
+
 def add_training_args(params):
     train_params = params.add_argument_group("Training parameters")
 
