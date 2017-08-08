@@ -338,8 +338,6 @@ class StackedRNNDecoder(Decoder):
         # rnn_output: (batch_size, rnn_num_hidden)
         # next_layer_states: num_layers * [batch_size, rnn_num_hidden]
         rnn_output, layer_states = self.rnn(rnn_input, state.layer_states)
-        if self.residual_decoder:
-            rnn_output = mx.symbol.elemwise_add(rnn_output, word_vec_prev)
 
         # (2) Attention step
         attention_input = self.attention.make_input(seq_idx, word_vec_prev, rnn_output)
@@ -386,6 +384,10 @@ class StackedRNNDecoder(Decoder):
             # hidden: (batch_size, rnn_num_hidden)
             hidden = mx.sym.Activation(data=hidden, act_type="tanh",
                                        name="%snext_hidden_t%d" % (self.prefix, seq_idx))
+
+        # Shortcut lm_pretrain directly to the softmax layer, as proposed by Ramachandran et al 2016
+        if self.residual_decoder:
+            hidden = hidden + word_vec_prev
 
         return DecoderState(hidden, layer_states, lm_pre_states), attention_state
 
