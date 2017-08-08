@@ -770,6 +770,10 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
         Saves the parameters to disk.
         """
         arg_params, aux_params = self.module.get_params()  # sync aux params across devices
+        if C.SOURCE_EMBEDDING_PREFIX + "weight" in arg_params:
+            del arg_params[C.SOURCE_EMBEDDING_PREFIX + "weight"]
+        if C.TARGET_EMBEDDING_PREFIX + "weight" in arg_params:
+            del arg_params[C.TARGET_EMBEDDING_PREFIX + "weight"]
         self.module.set_params(arg_params, aux_params)
         self.params = arg_params
         self.params[C.SOURCE_EMBEDDING_PREFIX + "weight"] = self.params[C.EMBEDDING_PREFIX + "weight"]
