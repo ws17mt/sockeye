@@ -260,6 +260,12 @@ def main():
                                                  rnn_num_layers=args.rnn_num_layers,
                                                  rnn_num_hidden=args.rnn_num_hidden,
                                                  rnn_residual_connections=args.rnn_residual_connections,
+                                                 lm_pretrain_layers_source=(args.lm_pretrain_layers
+                                                                            if args.lm_pretrain_layers_source is None
+                                                                            else args.lm_pretrain_layers_source),
+                                                 lm_pretrain_layers_target=(args.lm_pretrain_layers
+                                                                            if args.lm_pretrain_layers_target is None
+                                                                            else args.lm_pretrain_layers_target),
                                                  weight_tying=args.weight_tying,
                                                  context_gating=args.context_gating,
                                                  lexical_bias=args.lexical_bias,
@@ -278,7 +284,6 @@ def main():
                                                bucketing=not args.no_bucketing,
                                                lr_scheduler=lr_scheduler,
                                                rnn_forget_bias=args.rnn_forget_bias,
-                                               lm_pre_layers=args.lm_pretrain_layers,
                                                mono_source_iter=mono_source_iter,
                                                mono_target_iter=mono_target_iter)
 
@@ -328,7 +333,9 @@ def main():
                   max_num_not_improved=args.max_num_checkpoint_not_improved,
                   min_num_epochs=args.min_num_epochs,
                   monitor_bleu=args.monitor_bleu,
-                  use_tensorboard=args.use_tensorboard)
+                  use_tensorboard=args.use_tensorboard,
+                  mono_source_iter=mono_source_iter,
+                  mono_target_iter=mono_target_iter)
 
 
 if __name__ == "__main__":

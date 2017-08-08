@@ -16,55 +16,63 @@ logger = logging.getLogger(__name__)
 
 
 def get_lm_from_encoder(config: sockeye.model.ModelConfig,
-                        lm_pre_layers,
                         encoder,
                         fused,
                         rnn_forget_bias) -> 'SharedLanguageModel':
     """
     Language model that shares weights with an encoder
     """
-    assert lm_pre_layers > 0
+    assert config.lm_pretrain_layers_source > 0
     assert encoder.embed.embed_weight is not None
-    assert encoder.lm_pre_rnn.params is not None
+    assert encoder.lm_pre_rnn.rnn.params is not None
+    # Also tie source LM output weights if we are doing tying
+    cls_w = None
+    if config.weight_tying:
+        cls_w = encoder.embed.embed_weight
     return SharedLanguageModel(
         num_embed=config.num_embed_source,
         vocab_size=config.vocab_source_size,
         dropout=config.dropout,
-        rnn_num_layers=lm_pre_layers,
+        rnn_num_layers=config.lm_pretrain_layers_source,
         rnn_num_hidden=config.rnn_num_hidden,
-        rnn_cell_type=config.cell_type,
+        rnn_cell_type=config.rnn_cell_type,
         rnn_residual_connections=config.rnn_residual_connections,
         rnn_forget_bias=rnn_forget_bias,
+        embedding_prefix=C.SOURCE_EMBEDDING_PREFIX,
+        rnn_prefix=C.STACKEDRNN_PREFIX+C.LM_SOURCE_PREFIX,
         embedding_params=encoder.embed.embed_weight,
-        rnn_params=encoder.lm_pre_rnn.params
+        rnn_params=encoder.lm_pre_rnn.rnn.params,
+        cls_w_params=cls_w
         )
 
 
 def get_lm_from_decoder(config,
-                        lm_pre_layers,
                         decoder,
                         rnn_forget_bias) -> 'SharedLanguageModel':
     """
     Language model that shares weights with a decoder
     """
-    assert lm_pre_layers > 0
+    assert config.lm_pretrain_layers_target > 0
     assert decoder.embedding.embed_weight is not None
     assert decoder.lm_pre_rnn is not None
-    return SharedLanguageModel(
+    lmodel = SharedLanguageModel(
         num_embed=config.num_embed_target,
         vocab_size=config.vocab_target_size,
         dropout=config.dropout,
-        rnn_num_layers=lm_pre_layers,
+        rnn_num_layers=config.lm_pretrain_layers_target,
         rnn_num_hidden=config.rnn_num_hidden,
         rnn_cell_type=config.rnn_cell_type,
         rnn_residual_connections=config.rnn_residual_connections,
         rnn_forget_bias=rnn_forget_bias,
         # Weight sharing happens here
+        embedding_prefix=C.TARGET_EMBEDDING_PREFIX,
+        rnn_prefix=C.DECODER_PREFIX+C.LM_TARGET_PREFIX,
         embedding_params=decoder.embedding.embed_weight,
         rnn_params=decoder.lm_pre_rnn.params,
         cls_w_params=decoder.cls_w,
         cls_b_params=decoder.cls_b
         )
+    return lmodel
 
 
 def get_lm_from_options(
@@ -105,6 +113,8 @@ class SharedLanguageModel:
                  rnn_cell_type,
                  rnn_residual_connections,
                  rnn_forget_bias,
+                 embedding_prefix=C.SOURCE_EMBEDDING_PREFIX,
+                 rnn_prefix=C.STACKEDRNN_PREFIX,
                  embedding_params=None,
                  rnn_params=None,
                  cls_w_params=None,
@@ -123,7 +133,7 @@ class SharedLanguageModel:
         self.embedding = sockeye.encoder.Embedding(
             num_embed=self.num_embed,
             vocab_size=self.vocab_size,
-            prefix=C.SOURCE_EMBEDDING_PREFIX,  # TODO: revisit these prefix decisions
+            prefix=embedding_prefix,
             dropout=self.dropout,
             params=embedding_params
         )
@@ -134,7 +144,7 @@ class SharedLanguageModel:
             num_hidden=self.rnn_num_hidden,
             num_layers=self.rnn_num_layers,
             dropout=self.dropout,
-            prefix=C.STACKEDRNN_PREFIX,  # TODO: revisit these prefix decisions
+            prefix=rnn_prefix,
             residual=self.rnn_residual_connections,
             forget_bias=self.rnn_forget_bias,
             params=rnn_params
@@ -144,11 +154,11 @@ class SharedLanguageModel:
         if cls_w_params is not None:
             self.cls_w = cls_w_params
         else:
-            self.cls_w = mx.sym.Variable("cls_weight")  # TODO: revisit prefix
+            self.cls_w = mx.sym.Variable("lm_cls_weight")  # TODO: revisit prefix
         if cls_b_params is not None:
             self.cls_b = cls_b_params
         else:
-            self.cls_b = mx.sym.Variable("cls_bias")  # TODO: revisit prefix
+            self.cls_b = mx.sym.Variable("lm_cls_bias")  # TODO: revisit prefix
 
     def encode(self, data, seq_len):
 

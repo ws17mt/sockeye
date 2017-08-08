@@ -272,9 +272,11 @@ class TrainableInferenceModel(sockeye.inference.InferenceModel):
                                           default_bucket_key=(self.max_input_len, self.max_input_len),
                                           context=self.context)
 
-    def set_params_inference_modules(self):        
-        # set params for inference module
-        arg_params, _ = self.module.get_params()
+    # set params for inference module
+    def set_params_inference_modules(self): 
+        # either way works properly!
+        arg_params, _ = self.module.get_params() # from training module self.module
+        #arg_params = self.params
         self.encoder_module.init_params(arg_params=arg_params, 
                                        aux_params=None, 
                                        allow_missing=False, 
@@ -298,7 +300,7 @@ class TrainableInferenceModel(sockeye.inference.InferenceModel):
             optimizer_params["clip_gradient"] = opt_configs[3]
         if opt_configs[2] is not None:
             optimizer_params["momentum"] = opt_configs[2]
-        optimizer_params["rescale_grad"] = 1.0
+        optimizer_params["rescale_grad"] = 0.015625
 
         self.module.init_optimizer(kvstore='local', 
                                    optimizer=optimizer, 
@@ -357,10 +359,20 @@ class TrainableInferenceModel(sockeye.inference.InferenceModel):
     def update_params(self, 
                       k: int,
                       agg_grads: List[List[mx.nd.NDArray]]):
-        for param_list, grad_list in zip(self.module._curr_module._exec_group.param_arrays, agg_grads):
-            for param, grad in zip(param_list, grad_list):
-                mx.ndarray.sgd_update(weight=param, grad=grad/float(k), lr=self.learning_rate, out=param)
+        #---------------- (manual update) --------------#
+        #for param_list, grad_list in zip(self.module._curr_module._exec_group.param_arrays, agg_grads):
+        #    for param, grad in zip(param_list, grad_list):
+        #        mx.ndarray.sgd_update(weight=param, grad=grad/float(k), lr=self.learning_rate, out=param)
+        #-----------------------------------------------#
+
+        #------------ (use mxnet.optimizer) ------------#
+        for old_grad_list, new_grad_list in zip(self.module._curr_module._exec_group.grad_arrays, agg_grads):
+            for old_grad, new_grad in zip(old_grad_list, new_grad_list):
+                old_grad = new_grad/float(k)
+        self.module.update()
+        #-----------------------------------------------#
     
+        # update self.params
         arg_params, _ = self.module.get_params()  # sync aux params across devices
         self.params.update(arg_params)
 

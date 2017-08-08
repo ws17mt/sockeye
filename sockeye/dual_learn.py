@@ -69,7 +69,7 @@ def _check_path(opath, logger, overwrite):
     else:
         os.makedirs(opath)
 
-def _read_lines(path: str, limit=None) -> Iterator[List[str]]:
+def _read_lines(path: str, len_limit=None , limit=None) -> Iterator[List[str]]:
     """
     Returns a list of lines in path up to a limit.
 
@@ -81,6 +81,7 @@ def _read_lines(path: str, limit=None) -> Iterator[List[str]]:
         for i, line in enumerate(indata):
             if limit is not None and i == limit:
                 break
+            if len_limit is not None and len(line.strip().split()) > len_limit: continue
             yield line.strip()
 
 def _get_inputs(tokens: List[str],
@@ -166,13 +167,13 @@ def _dual_learn(context: mx.context.Context,
     metric_val = mx.metric.create([mx.metric.Perplexity(ignore_label=C.PAD_ID, output_names=[C.SOFTMAX_OUTPUT_NAME])]) # FIXME: use cross-entropy loss instead
 
     # print the perplexities over dev (for debugging only)
-    logger.info("Perplexity over development set from source-to-target model:" + str(dec_s2t.models[0].evaluate_dev(all_data[0], metric_val)))
-    logger.info("Perplexity over development set from target-to-source model:" + str(dec_t2s.models[0].evaluate_dev(all_data[1], metric_val)))
+    best_dev_pplx_s2t = dec_s2t.models[0].evaluate_dev(all_data[0], metric_val)
+    best_dev_pplx_t2s = dec_t2s.models[0].evaluate_dev(all_data[1], metric_val)
+    logger.info("Perplexity over development set from source-to-target model:" + str(best_dev_pplx_s2t))
+    logger.info("Perplexity over development set from target-to-source model:" + str(best_dev_pplx_t2s))
 
     # start the dual learning algorithm
     logger.info("DEBUG - 8d (learning loop)")
-    best_dev_loss_s2t = 9e+99
-    best_dev_loss_t2s = 9e+99
     id_s = 0
     id_t = 0
     r = 0 # learning round
@@ -308,24 +309,24 @@ def _dual_learn(context: mx.context.Context,
         # testing over the development data (all_data[0] and all_data[1]) to check the improvements (after a desired number of rounds)
         if r == lmon[1]:
             # s2t model
-            dev_loss_s2t = dec_s2t.models[0].evaluate_dev(all_data[0], metric_val)
+            dev_pplx_s2t = dec_s2t.models[0].evaluate_dev(all_data[0], metric_val)
 
             # t2s model
-            dev_loss_t2s = dec_t2s.models[0].evaluate_dev(all_data[1], metric_val)
+            dev_pplx_t2s = dec_t2s.models[0].evaluate_dev(all_data[1], metric_val)
 
             # print the perplexities to the consoles
             logger.info("-------------------------------------------------------------------------")
-            logger.info("Perplexity over development set from source-to-target model:" + str(dev_loss_s2t))
-            logger.info("Perplexity over development set from target-to-source model:" + str(dev_loss_t2s))
+            logger.info("Perplexity over development set from source-to-target model:" + str(dev_pplx_s2t))
+            logger.info("Perplexity over development set from target-to-source model:" + str(dev_pplx_t2s))
             logger.info("-------------------------------------------------------------------------")
 
             # save the better model(s) if losses over dev are decreasing!
-            if best_dev_loss_s2t > dev_loss_s2t:
+            if best_dev_pplx_s2t > dev_pplx_s2t:
                 dec_s2t.models[0].save_params(model_folders[0], 1) # FIXME: add checkpoints
-                best_dev_loss_s2t = dev_loss_s2t
-            if best_dev_loss_t2s > dev_loss_t2s:
+                best_dev_pplx_s2t = dev_pplx_s2t
+            if best_dev_pplx_t2s > dev_pplx_t2s:
                 dec_t2s.models[0].save_params(model_folders[1], 1) # FIXME: add checkpoints
-                best_dev_loss_t2s = dev_loss_t2s
+                best_dev_pplx_t2s = dev_pplx_t2s
 
             r = 0 # reset the round
 
@@ -452,8 +453,8 @@ def main():
         # Note that monolingual source and target data may be different in sizes.
         # Assume that these monolingual corpora use the same vocabularies with parallel corpus,
         # otherwise, unknown words will be used in place of new words.
-        src_mono_data = list(_read_lines(os.path.abspath(args.mono_source))) # FIXME: how to do create a batch of these data?
-        trg_mono_data = list(_read_lines(os.path.abspath(args.mono_target)))
+        src_mono_data = list(_read_lines(os.path.abspath(args.mono_source), 20)) # limit the sentence length to 50 
+        trg_mono_data = list(_read_lines(os.path.abspath(args.mono_target), 20))
         logger.info("Passed!")
 
         # group all data

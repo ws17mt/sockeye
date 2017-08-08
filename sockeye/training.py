@@ -85,34 +85,32 @@ class TrainingModel(sockeye.model.SockeyeModel):
                  bucketing: bool,
                  lr_scheduler,
                  rnn_forget_bias: float,
-                 lm_pre_layers: int=0,
                  mono_source_iter: sockeye.data_io.MonoBucketSentenceIter=None,
                  mono_target_iter: sockeye.data_io.MonoBucketSentenceIter=None) -> None:
         super().__init__(model_config)
         self.context = context
         self.lr_scheduler = lr_scheduler
         self.bucketing = bucketing
-        self._build_model_components(self.config.max_seq_len, fused, rnn_forget_bias, lm_pre_layers)
+        self._build_model_components(self.config.max_seq_len, fused, rnn_forget_bias)
         self.module = self._build_module(train_iter, self.config.max_seq_len)
         self.module_list = [self.module]
         self.lm_source_module = None
         self.lm_target_module = None
-        if lm_pre_layers > 0 and mono_source_iter is not None:
+        if self.config.lm_pretrain_layers_source > 0 and mono_source_iter is not None:
             self.lm_source = sockeye.lm.get_lm_from_encoder(config=self.config,
-                                                            lm_pre_layers=lm_pre_layers,
                                                             encoder=self.encoder,
                                                             fused=fused,
                                                             rnn_forget_bias=rnn_forget_bias)
             # self.rnn_cells.append(self.lm_source.rnn)  # TODO: Does this need to be here since they will share params?
-            self.lm_source_module = self.build_lm_module(mono_source_iter, self.lm_source, self.config.max_seq_len)
+            self.lm_source_module = self._build_lm_module(mono_source_iter, self.lm_source, self.config.max_seq_len)
             self.module_list.append(self.lm_source_module)
-        if lm_pre_layers > 0 and mono_target_iter is not None:
+        if self.config.lm_pretrain_layers_target > 0 and mono_target_iter is not None:
             self.lm_target = sockeye.lm.get_lm_from_decoder(config=self.config,
-                                                            lm_pre_layers=lm_pre_layers,
                                                             decoder=self.decoder,
                                                             rnn_forget_bias=rnn_forget_bias)
+
             # self.rnn_cells.append(self.lm_target.rnn)  # TODO: Does this need to be here since they will share params?
-            self.lm_target_module = self.build_lm_module(mono_target_iter, self.lm_target, self.config.max_seq_len)
+            self.lm_target_module = self._build_lm_module(mono_target_iter, self.lm_target, self.config.max_seq_len)
             self.module_list.append(self.lm_target_module)
         self.training_monitor = None
 
@@ -124,7 +122,7 @@ class TrainingModel(sockeye.model.SockeyeModel):
         Build a sister module for training an LM
         """
         mono = mx.sym.Variable(C.MONO_NAME)
-        labels = mx.sym.reshape(data=mx.sym.Variable(C.MONO_LABEL_NAME))
+        labels = mx.sym.reshape(data=mx.sym.Variable(C.MONO_LABEL_NAME), shape=(-1,))
         loss = sockeye.loss.get_loss(self.config)
 
         data_names = [x[0] for x in mono_iter.provide_data]
@@ -330,6 +328,20 @@ class TrainingModel(sockeye.model.SockeyeModel):
             module.forward_backward(batch)
             module.update()
 
+            # manually sync params across batches
+            arg_params, aux_params = module.get_params()
+            for m2 in self.module_list:
+                if m2 is not module:
+                    # TODO - should get this key list somewhere and cache it to save
+                    #        on calls to m2.get_params()
+                    m2_params, _ = m2.get_params()
+                    # intersect the dictionaries
+                    inter = {k: arg_params[k] for k in arg_params if k in m2_params}
+                    m2.set_params(arg_params=inter,
+                                  aux_params=aux_params,
+                                  allow_missing=True,
+                                  force_init=True)
+
             if train_iter.iter_next():
                 # pre-fetch next batch
                 next_data_batch = train_iter.next()
@@ -475,7 +487,7 @@ class TrainingModel(sockeye.model.SockeyeModel):
         """
         self.params = dict()
         for module in self.module_list:
-            arg_params, aux_params = self.module.get_params()  # sync aux params across devices
+            arg_params, aux_params = module.get_params()  # sync aux params across devices
             module.set_params(arg_params, aux_params)
             self.params.update(arg_params)
         params_base_fname = C.PARAMS_NAME % checkpoint
