@@ -76,7 +76,7 @@ def main():
     resume_training = False
 
     output_folder_orig = output_folder
-    output_folder = os.path.join(output_folder, "joint_train")
+    output_folder = os.path.join(output_folder, "d_pretrain")
 
     training_state_dir = os.path.join(output_folder, C.TRAINING_STATE_DIRNAME)
 
@@ -291,14 +291,20 @@ def main():
         logger.info("Optimizer: %s", optimizer)
         logger.info("Optimizer Parameters: %s", optimizer_params)
 
-        ####################### JOINT TRAINING ################################
+        ####################### PRE_TRAINING D ################################
+        # Get the pre-trained params from G
+        pretrain_param_path = os.path.join(output_folder_orig, "g_pretrain", C.PARAMS_BEST_NAME)
+        assert os.path.exists(pretrain_param_path)
+        G_params = sockeye.utils.load_params(pretrain_param_path)[0]
+        # The params to keep fixed during the training of D.
 
-        # Learning rate scheduler for joint training
-        training_state_dir = os.path.join(output_folder, C.TRAINING_STATE_DIRNAME)
+        logger.info("Copying pre-trained params (G) and starting pre-training of D")
+
+        # Learning rate scheduler for pre-training G
         learning_rate_half_life = none_if_negative(args.learning_rate_half_life)
 
         if not resume_training:
-            lr_scheduler = sockeye.lr_scheduler.get_lr_scheduler(args.learning_rate_scheduler_type,
+            lr_scheduler = sockeye.lr_scheduler.get_lr_scheduler(args.learning_rate_scheduler_type_pre_d,
                                                                  args.checkpoint_frequency,
                                                                  learning_rate_half_life,
                                                                  args.learning_rate_reduce_factor,
@@ -309,7 +315,8 @@ def main():
 
         optimizer_params["lr_scheduler"] = lr_scheduler
 
-        model = sockeye.style_training.StyleTrainingModel(model_config=model_config,
+        # Initialize the pre-training model for D
+        D_pretrain_model = sockeye.style_training.StyleTrainingModel(model_config=model_config,
                                                           context=context,
                                                           train_iter=train_iter,
                                                           valid_iter=val_iter,
@@ -319,46 +326,51 @@ def main():
                                                           rnn_forget_bias=args.rnn_forget_bias,
                                                           vocab=vocab)
 
+        # Pack the RNN cells from the G-params
+        for cell in D_pretrain_model.rnn_cells:
+            G_params = cell.pack_weights(G_params)
+
+        # Keys to keep fixed
+        D_fixed_params = list(G_params.keys())
+        D_pretrain_model.module._fixed_param_names = D_fixed_params
+
         if resume_training:
             logger.info("Found partial training in directory %s. Resuming from saved state.", training_state_dir)
-            model.load_params_from_file(os.path.join(training_state_dir, C.TRAINING_STATE_PARAMS_NAME))
-        else:
-            # Get the pre-trained params from G
-            pretrain_param_path = os.path.join(output_folder_orig, "d_pretrain", C.PARAMS_BEST_NAME)
-            assert os.path.exists(pretrain_param_path)
-            model.load_params_from_file(pretrain_param_path)
-            # Copy params from D to joint model
-            # model.module.set_params(D_params[0], D_params[1], allow_missing=False)
+            D_pretrain_model.load_params_from_file(os.path.join(training_state_dir, C.TRAINING_STATE_PARAMS_NAME))
 
         # initialize memory for params
-        model.module.bind(data_shapes=train_iter.provide_data,
-                          label_shapes=train_iter.provide_label,
-                          for_training=True,
-                          force_rebind=True,
-                          grad_req='write')
+        D_pretrain_model.module.bind(data_shapes=train_iter.provide_data,
+                                     label_shapes=train_iter.provide_label,
+                                     for_training=True,
+                                     force_rebind=True,
+                                     grad_req='write')
         # Initialize params
-        model.module.init_params(initializer=initializer,
-                                 arg_params=model.params,
-                                 aux_params=None,
-                                 allow_missing=False,
-                                 force_init=False)
+        D_pretrain_model.module.init_params(initializer=initializer,
+                                            arg_params=D_pretrain_model.params,
+                                            aux_params=None,
+                                            allow_missing=False,
+                                            force_init=False)
 
-        # Don't overwrite params if this is the resume stage
+        if not resume_training:
+            # Copy params from G to D
+            D_pretrain_model.load_params_from_file(pretrain_param_path)
+            D_pretrain_model.module.set_params(G_params, None, allow_missing=True)
 
-
-        model.fit(train_iter=train_iter,
-                  val_iter=val_iter,
-                  output_folder=output_folder,
-                  metrics=args.metrics,
-                  initializer=initializer,
-                  max_updates=args.max_updates,
-                  checkpoint_frequency=args.checkpoint_frequency,
-                  optimizer=optimizer, optimizer_params=optimizer_params,
-                  optimized_metric=args.optimized_metric,
-                  max_num_not_improved=args.max_num_checkpoint_not_improved,
-                  min_num_epochs=args.min_num_epochs,
-                  monitor_bleu=args.monitor_bleu,
-                  use_tensorboard=args.use_tensorboard)
+        # Pre-train D
+        D_pretrain_model.fit(train_iter=train_iter,
+                             val_iter=None,
+                             output_folder=output_folder,
+                             metrics=args.metrics,
+                             initializer=initializer,
+                             max_updates=args.max_updates,
+                             checkpoint_frequency=args.checkpoint_frequency,
+                             optimizer=optimizer, optimizer_params=optimizer_params,
+                             optimized_metric=C.CROSS_ENTROPY,
+                             metric_threshold=0.1,
+                             max_num_not_improved=args.max_num_checkpoint_not_improved,
+                             min_num_epochs=args.min_num_epochs,
+                             monitor_bleu=args.monitor_bleu,
+                             use_tensorboard=args.use_tensorboard)
 
 
 if __name__ == "__main__":
