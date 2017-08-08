@@ -266,6 +266,8 @@ def main():
                                                  lm_pretrain_layers_target=(args.lm_pretrain_layers
                                                                             if args.lm_pretrain_layers_target is None
                                                                             else args.lm_pretrain_layers_target),
+                                                 residual_decoder=args.residual_decoder,
+                                                 residual_encoder=args.residual_encoder,
                                                  weight_tying=args.weight_tying,
                                                  context_gating=args.context_gating,
                                                  lexical_bias=args.lexical_bias,
@@ -288,8 +290,6 @@ def main():
                                                freeze_lm_model=args.freeze_lm_model,
                                                decoder_lm_file=args.load_decoder_lm,
                                                encoder_lm_file=args.load_encoder_lm,
-                                               residual_encoder=args.residual_encoder,
-                                               residual_decoder=args.residual_decoder,
                                                mono_source_iter=mono_source_iter,
                                                mono_target_iter=mono_target_iter)
 

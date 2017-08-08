@@ -51,6 +51,8 @@ ModelConfig = sockeye.utils.namedtuple_with_defaults('ModelConfig',
                                                       "rnn_residual_connections",
                                                       "lm_pretrain_layers_source",
                                                       "lm_pretrain_layers_target",
+                                                      "residual_decoder",
+                                                      "residual_encoder",
                                                       "weight_tying",
                                                       "context_gating",
                                                       "lexical_bias",
@@ -70,6 +72,8 @@ ModelConfig = sockeye.utils.namedtuple_with_defaults('ModelConfig',
                                                       "encoder": C.RNN_NAME,
                                                       "lm_pretrain_layers_source": 0,
                                                       "lm_pretrain_layers_target": 0,
+                                                      "residual_decoder": False,
+                                                      "residual_encoder": False,
                                                       "conv_embed_max_filter_width": 8,
                                                       "conv_embed_num_filters": None,
                                                       "conv_embed_pool_stride": 5,
@@ -239,8 +243,6 @@ class SockeyeModel:
 
     def _build_model_components(self, max_seq_len: int,
                                 fused_encoder: bool,
-                                residual_encoder: bool,
-                                residual_decoder: bool,
                                 rnn_forget_bias: float = 0.0):
         """
         Builds and sets model components given maximum sequence length.
@@ -251,7 +253,6 @@ class SockeyeModel:
         """
         self.encoder = sockeye.encoder.get_encoder(self.config,
                                                    rnn_forget_bias,
-                                                   residual_encoder,
                                                    fused_encoder)
 
         self.attention = sockeye.attention.get_attention(self.config.attention_use_prev_word,
@@ -275,7 +276,7 @@ class SockeyeModel:
                                                    self.config.rnn_cell_type,
                                                    self.config.rnn_residual_connections,
                                                    rnn_forget_bias,
-                                                   residual_decoder,
+                                                   self.config.residual_decoder,
                                                    self.config.dropout,
                                                    self.config.weight_tying,
                                                    self.lexicon,

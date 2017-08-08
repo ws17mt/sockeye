@@ -32,7 +32,6 @@ logger = logging.getLogger(__name__)
 # TODO break out EncoderConfig to allow use without populating options for full translation model
 def get_encoder(config: "ModelConfig",
                 forget_bias: float,
-                residual_encoder: bool,
                 fused: bool = False) -> 'Encoder':
     """
     Returns an encoder with embedding, batch2time-major conversion, and bidirectional RNN encoder.
@@ -561,7 +560,7 @@ class ConvolutionalEmbeddingEncoder(Encoder):
                                 pad_width=(0, 0, 0, 0, pad_before, pad_after, 0, 0))
             # (batch_size, num_filter, seq_len, num_scores=1)
             conv = mx.sym.Convolution(data=padded,
-                                      #cudnn_tune="off",
+                                      # cudnn_tune="off",
                                       kernel=(filter_width, self.num_embed),
                                       num_filter=num_filter,
                                       weight=self.conv_weight[filter_width],

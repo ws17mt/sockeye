@@ -89,15 +89,13 @@ class TrainingModel(sockeye.model.SockeyeModel):
                  freeze_lm_model: bool,
                  decoder_lm_file: str,
                  encoder_lm_file: str,
-                 residual_encoder: bool,
-                 residual_decoder: bool,
                  mono_source_iter: sockeye.data_io.MonoBucketSentenceIter=None,
                  mono_target_iter: sockeye.data_io.MonoBucketSentenceIter=None) -> None:
         super().__init__(model_config)
         self.context = context
         self.lr_scheduler = lr_scheduler
         self.bucketing = bucketing
-        self._build_model_components(self.config.max_seq_len, fused, residual_encoder, residual_decoder, rnn_forget_bias)
+        self._build_model_components(self.config.max_seq_len, fused, rnn_forget_bias)
         self.freeze_lm_embedding = freeze_lm_embedding
         self.freeze_lm_model = freeze_lm_model
         self.freeze_lm_names = self._get_lm_names(encoder_lm_file, self.encoder,
