@@ -76,7 +76,8 @@ class TrainingLModel(sockeye.training.TrainingModel):
                                                  self.config.rnn_num_hidden,
                                                  self.config.rnn_cell_type,
                                                  self.config.rnn_residual_connections,
-                                                 rnn_forget_bias)
+                                                 rnn_forget_bias,
+                                                 weight_tying=self.config.weight_tying)
 
         self.rnn_cells = [self.lm.rnn]
         self.built = True

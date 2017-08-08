@@ -83,7 +83,8 @@ def get_lm_from_options(
         rnn_num_hidden,
         rnn_cell_type,
         rnn_residual_connections,
-        rnn_forget_bias) -> 'SharedLanguageModel':
+        rnn_forget_bias,
+        weight_tying) -> 'SharedLanguageModel':
     """
     Language model with no weight sharing
     """
@@ -95,7 +96,8 @@ def get_lm_from_options(
         rnn_num_hidden,
         rnn_cell_type,
         rnn_residual_connections,
-        rnn_forget_bias
+        rnn_forget_bias,
+        weight_tying=weight_tying
         )
 
 
@@ -113,6 +115,7 @@ class SharedLanguageModel:
                  rnn_cell_type,
                  rnn_residual_connections,
                  rnn_forget_bias,
+                 weight_tying=False,
                  embedding_prefix=C.SOURCE_EMBEDDING_PREFIX,
                  rnn_prefix=C.STACKEDRNN_PREFIX,
                  embedding_params=None,
@@ -153,8 +156,11 @@ class SharedLanguageModel:
         # Build paramers - output layer
         if cls_w_params is not None:
             self.cls_w = cls_w_params
+        elif weight_tying:
+            self.cls_w = self.embedding.embed_weight
         else:
             self.cls_w = mx.sym.Variable("lm_cls_weight")  # TODO: revisit prefix
+
         if cls_b_params is not None:
             self.cls_b = cls_b_params
         else:
