@@ -5,11 +5,11 @@ set -e
 SOCKEYE=/home/ubuntu/sockeye/sockeye
 
 DATA_HOME=/efs/data/fr/processed
-OUT_FOLDER=/efs/gkumar/exp/par_100k_mono_100k
+OUT_FOLDER=/efs/gkumar/exp/par_10k_mono_100k
 
 ARGS="
-    -s ${DATA_HOME}/train.100k.bpe.fr \
-    -t ${DATA_HOME}/train.100k.bpe.en \
+    -s ${DATA_HOME}/train.10k.bpe.fr \
+    -t ${DATA_HOME}/train.10k.bpe.en \
     -ms ${DATA_HOME}/train.100k.bpe.fr \
     -mt ${DATA_HOME}/train.100k.bpe.en \
     -vs ${DATA_HOME}/dev1.bpe.fr \
