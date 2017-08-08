@@ -123,6 +123,220 @@ def _soft_dual_learn(context: mx.context.Context,
     logger.error("Soft dual learning not yet implemented yet!")
     sys.exit(1)
 
+def _dual_learn_batch(context: mx.context.Context, 
+                vocab_source: Dict[str, int],
+                vocab_target: Dict[str, int],
+                all_data: Tuple['ParallelBucketSentenceIter', 'ParallelBucketSentenceIter', List[str], List[str]], 
+                models: List[sockeye.dual_learning.TrainableInferenceModel], 
+                opt_configs: Tuple[str, float, float, float, sockeye.lr_scheduler.LearningRateScheduler], # optimizer-related stuffs
+                grad_alphas: Tuple[float, float, float], # hyper-parameters for gradient updates
+                lmon: Tuple[int, int], # extra stuffs for learning monitor
+                model_folders: Tuple[str, str],
+                k: int,
+                minibatch_size: int):
+    # set up decoders/translators
+    logger.info("DEBUG - 8a")
+    dec_s2t = sockeye.inference.Translator(context=context,
+                                           ensemble_mode="linear", #unused
+                                           set_bos=None, #unused
+                                           models=[models[0]], 
+                                           vocab_source=vocab_source, 
+                                           vocab_target=vocab_target)
+    dec_t2s = sockeye.inference.Translator(context=context,
+                                           ensemble_mode="linear", #unused
+                                           set_bos=None, #unused
+                                           models=[models[1]], 
+                                           vocab_source=vocab_target,
+                                           vocab_target=vocab_source)
+    logger.info("Passed!")
+
+    # set up monolingual data access/ids
+    logger.info("DEBUG - 8b")
+    orders_s = list(range(len(all_data[2])))
+    orders_t = list(range(len(all_data[3])))
+    np.random.shuffle(orders_s)
+    np.random.shuffle(orders_t)
+    logger.info("Passed!")
+
+    # set up optimizers
+    logger.info("DEBUG - 8c")
+    dec_s2t.models[0].setup_optimizer(initial_learning_rate=grad_alphas[1], opt_configs=opt_configs)
+    dec_t2s.models[0].setup_optimizer(initial_learning_rate=grad_alphas[2], opt_configs=opt_configs)
+    logger.info("Passed!")
+
+    # create eval metric
+    metric_val = mx.metric.create([mx.metric.Perplexity(ignore_label=C.PAD_ID, output_names=[C.SOFTMAX_OUTPUT_NAME])]) # FIXME: use cross-entropy loss instead
+
+    # print the perplexities over dev (for debugging only)
+    best_dev_pplx_s2t = dec_s2t.models[0].evaluate_dev(all_data[0], metric_val)
+    best_dev_pplx_t2s = dec_t2s.models[0].evaluate_dev(all_data[1], metric_val)
+    logger.info("Perplexity over development set from source-to-target model:" + str(best_dev_pplx_s2t))
+    logger.info("Perplexity over development set from target-to-source model:" + str(best_dev_pplx_t2s))
+
+    # start the dual learning algorithm
+    logger.info("DEBUG - 8d (learning loop)")
+    id_s = 0
+    id_t = 0
+    r = 0 # learning round
+    e_s = 0 # epoch over source mono data
+    e_t = 0 # epoch over target mono data
+    flag = True # role of source and target
+    while e_s < lmon[0] or e_t < lmon[0]: 
+        if id_s >= len(orders_s): # source monolingual data
+            # shuffle the data
+            np.random.shuffle(orders_s)
+            
+            # update epochs
+            e_s += 1
+            
+            # reset the data ids
+            id_s = id_s - len(orders_s)
+        if id_t >= len(orders_t): # target monoingual data
+            # shuffle the data
+            np.random.shuffle(orders_t)
+                    
+            # update epochs
+            e_t += 1
+            
+            # reset the data ids
+            id_t = id_t - len(orders_t)
+
+        # sample sentence sentA and sentB from mono_cor_s and mono_cor_t respectively
+        sents = []
+        if flag == True:
+            sents = [all_data[2][id_b] for id_b in orders_s[id_s:id_s + minibatch_size]]
+        else:
+            sents = [all_data[3][id_b] for id_b in orders_t[id_t:id_t + minibatch_size]]
+            
+        logger.info("Sampled sentences: " + str(sents))
+
+        def _process_samples(sents, tm_s2t, tm_t2s, lm):
+            agg_grads_s2t = None
+            agg_grads_t2s = None     
+            for sent in sents:
+                # generate K translated sentences s_{mid,1},...,s_{mid,K} using beam search according to translation model P(.|sentA; mod_am_s2t)
+                logger.info("DEBUG - 8d (learning loop) - K-best translation")
+                trans_input = tm_s2t.make_input(0, sent) # 0: unused for now!
+                trans_outputs = tm_s2t.translate_kbest(trans_input, k) # generate k-best translations
+                mid_hyps = [list(sockeye.data_io.get_tokens(trans[1])) for trans in trans_outputs]
+                mid_hyp_scores = [trans[4] for trans in trans_outputs]
+                logger.info(str(k) +"-best translations: " + str(mid_hyps))#mid_hyps)
+                logger.info("Scores: " + str(mid_hyp_scores))
+                logger.info("Passed!")
+
+                # create an input batch as input_iter
+                for mid_hyp in mid_hyps:
+                    if len(mid_hyp) == 0: continue
+                    logger.info("DEBUG - 8d (learning loop) - create data batches")
+                    infer_input_s2t = _get_inputs(trans_input[2], tm_s2t.vocab_source, tm_s2t.buckets)
+                    infer_input_t2s = _get_inputs(mid_hyp, tm_t2s.vocab_source, tm_t2s.buckets) 
+                    input_batch_s2t = mx.io.DataBatch(data=[infer_input_s2t[0], infer_input_s2t[2], infer_input_t2s[0]], 
+                                                      label=[infer_input_t2s[1]], # slice one position for label seq
+                                                      bucket_key=(infer_input_s2t[3],infer_input_t2s[3]),
+                                                      provide_data=[mx.io.DataDesc(name=C.SOURCE_NAME, shape=(1, infer_input_s2t[3]), layout=C.BATCH_MAJOR),
+                                                                    mx.io.DataDesc(name=C.SOURCE_LENGTH_NAME, shape=(1,), layout=C.BATCH_MAJOR),
+                                                                    mx.io.DataDesc(name=C.TARGET_NAME, shape=(1, infer_input_t2s[3]), layout=C.BATCH_MAJOR)],
+                                                      provide_label=[mx.io.DataDesc(name=C.TARGET_LABEL_NAME, shape=(1, infer_input_t2s[3]), layout=C.BATCH_MAJOR)])
+                    input_batch_t2s = mx.io.DataBatch(data=[infer_input_t2s[0], infer_input_t2s[2], infer_input_s2t[0]], 
+                                                      label=[infer_input_s2t[1]], #  slice one position for label seq
+                                                      bucket_key=(infer_input_t2s[3],infer_input_s2t[3]),
+                                                      provide_data=[mx.io.DataDesc(name=C.SOURCE_NAME, shape=(1, infer_input_t2s[3]), layout=C.BATCH_MAJOR),
+                                                                    mx.io.DataDesc(name=C.SOURCE_LENGTH_NAME, shape=(1,), layout=C.BATCH_MAJOR),
+                                                                    mx.io.DataDesc(name=C.TARGET_NAME, shape=(1, infer_input_s2t[3]), layout=C.BATCH_MAJOR)],
+                                                      provide_label=[mx.io.DataDesc(name=C.TARGET_LABEL_NAME, shape=(1, infer_input_s2t[3]), layout=C.BATCH_MAJOR)])
+                    input_batch_mono = mx.io.DataBatch(data=[infer_input_t2s[0]], 
+                                                       label=[infer_input_t2s[1]], #  slice one position for label seq
+                                                       bucket_key=infer_input_t2s[3],
+                                                       provide_data=[mx.io.DataDesc(name=C.MONO_NAME, shape=(1, infer_input_t2s[3]), layout=C.BATCH_MAJOR)],
+                                                       provide_label=[mx.io.DataDesc(name=C.MONO_LABEL_NAME, shape=(1, infer_input_t2s[3]), layout=C.BATCH_MAJOR)])
+                    logger.info("Passed!")
+
+                    logger.info("DEBUG - 8e (learning loop) - computing rewards")
+                    # set the language-model reward for currently-sampled sentence from P(mid_hyp; mod_mlm_t)
+                    # 1) bind the data {(mid_hyp,mid_hyp)} into the model's module
+                    # 2) do forward step --> get the r1 = P(mid_hyp; mod_mlm_t)
+                    print("Computing reward_1")
+                    reward_1 = lm.compute_ll(input_batch_mono, metric_val)
+                    logger.info("reward_1=" + str(reward_1))
+         
+                    # set the communication reward for currently-sampled sentence from P(sentA|mid_hype; mod_am_t2s)
+                    # do forward step --> get the r2 = P(sentA|mid_hyp; mod_am_t2s)
+                    print("Computing reward_2") 
+                    reward_2 = tm_t2s.models[0].compute_ll(input_batch_t2s, metric_val) # also includes forward step
+                    logger.info("reward_2=" + str(reward_2))
+
+                    # reward interpolation: r = alpha * r1 + (1 - alpha) * r2
+                    reward = grad_alphas[0] * reward_1 + (1.0 - grad_alphas[0]) * reward_2
+                    logger.info("total_reward=" + str(reward))
+                    logger.info("Passed!")
+        
+                    # do forward step for s2t model - FIXME: this step is done twice (one for inference and one for computing loss). Better way? 
+                    tm_s2t.models[0].forward(input_batch_s2t)
+
+                    # do backward steps & collect gradients 
+                    logger.info("DEBUG - 8g (learning loop) - backward and collect gradients")
+                    agg_grads_s2t = tm_s2t.models[0].backward_and_collect_gradients(reward=-reward, # gradient ascent
+                                                                                    agg_grads=agg_grads_s2t)
+                    agg_grads_t2s = tm_t2s.models[0].backward_and_collect_gradients(reward=-(1.0 - grad_alphas[0]), # gradient ascent
+                                                                                    agg_grads=agg_grads_t2s)
+                    logger.info("Passed!")
+        
+            if agg_grads_s2t != None and agg_grads_t2s != None:
+                # update model parameters
+                logger.info("DEBUG - 8h (learning loop) - update params for learning modules")
+                tm_s2t.models[0].update_params(k=k*minibatch_size, 
+                                               agg_grads=agg_grads_s2t)
+                tm_t2s.models[0].update_params(k=k*minibatch_size, 
+                                               agg_grads=agg_grads_t2s)
+                logger.info("Passed!")
+            
+                # re-set the params for inference modules after each update of model parameters
+                logger.info("DEBUG - 8i (learning loop) - update params for inference modules")
+                tm_s2t.models[0].set_params_inference_modules()
+                tm_t2s.models[0].set_params_inference_modules()
+                logger.info("Passed!")
+
+        if flag == False:   
+            _process_samples(sents, 
+                            dec_t2s, 
+                            dec_s2t, 
+                            models[3])
+            r += 1 # next round       
+            id_t += minibatch_size
+        else:
+            _process_samples(sents, 
+                            dec_s2t, 
+                            dec_t2s, 
+                            models[2])
+            id_s += minibatch_size
+   
+        # switch source and target roles
+        flag = not flag
+                                
+        # testing over the development data (all_data[0] and all_data[1]) to check the improvements (after a desired number of rounds)
+        if r >= lmon[1]:
+            # s2t model
+            dev_pplx_s2t = dec_s2t.models[0].evaluate_dev(all_data[0], metric_val)
+
+            # t2s model
+            dev_pplx_t2s = dec_t2s.models[0].evaluate_dev(all_data[1], metric_val)
+
+            # print the perplexities to the consoles
+            logger.info("-------------------------------------------------------------------------")
+            logger.info("Perplexity over development set from source-to-target model:" + str(dev_pplx_s2t))
+            logger.info("Perplexity over development set from target-to-source model:" + str(dev_pplx_t2s))
+            logger.info("-------------------------------------------------------------------------")
+
+            # save the better model(s) if losses over dev are decreasing!
+            if best_dev_pplx_s2t > dev_pplx_s2t:
+                dec_s2t.models[0].save_params(model_folders[0], 1) # FIXME: add checkpoints
+                best_dev_pplx_s2t = dev_pplx_s2t
+            if best_dev_pplx_t2s > dev_pplx_t2s:
+                dec_t2s.models[0].save_params(model_folders[1], 1) # FIXME: add checkpoints
+                best_dev_pplx_t2s = dev_pplx_t2s
+
+            r = 0 # reset the round
+
 def _dual_learn(context: mx.context.Context, 
                 vocab_source: Dict[str, int],
                 vocab_target: Dict[str, int],
@@ -453,8 +667,8 @@ def main():
         # Note that monolingual source and target data may be different in sizes.
         # Assume that these monolingual corpora use the same vocabularies with parallel corpus,
         # otherwise, unknown words will be used in place of new words.
-        src_mono_data = list(_read_lines(os.path.abspath(args.mono_source), 20)) # limit the sentence length to 50 
-        trg_mono_data = list(_read_lines(os.path.abspath(args.mono_target), 20))
+        src_mono_data = list(_read_lines(os.path.abspath(args.mono_source), 50)) # limit the sentence length to 50 
+        trg_mono_data = list(_read_lines(os.path.abspath(args.mono_target), 50))
         logger.info("Passed!")
 
         # group all data
@@ -505,6 +719,7 @@ def main():
 
         #--- execute dual-learning
         logger.info("DEBUG - 8 (_dual_learn)")
+        '''
         _dual_learn(context=context,
                     vocab_source=vocab_source, vocab_target=vocab_target, 
                     all_data=all_data, 
@@ -514,6 +729,17 @@ def main():
                     lmon=(args.epoch, args.dev_round), # extra stuffs for learning monitor
                     model_folders=(output_s2t_folder, output_t2s_folder), # output folders where the model files will live in!
                     k=args.k_best) # K in K-best translation
+        '''
+        _dual_learn_batch(context=context,
+                    vocab_source=vocab_source, vocab_target=vocab_target, 
+                    all_data=all_data, 
+                    models=models,
+                    opt_configs=(args.optimizer, args.weight_decay, args.momentum, args.clip_gradient, lr_scheduler), # optimizer-related stuffs
+                    grad_alphas=(args.alpha, args.initial_lr_gamma_s2t, args.initial_lr_gamma_t2s), # hyper-parameters for gradient updates
+                    lmon=(args.epoch, args.dev_round), # extra stuffs for learning monitor
+                    model_folders=(output_s2t_folder, output_t2s_folder), # output folders where the model files will live in!
+                    k=args.k_best,
+                    minibatch_size=args.minibatch_size) # K in K-best translation
         logger.info("Passed!")
 
     #--- bye bye message

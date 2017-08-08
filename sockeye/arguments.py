@@ -614,6 +614,12 @@ def add_dual_learning_args(params):
                                type=int,
                                default=5,
                                help='Size of the beam. Default: %(default)s.')
+
+    dl_params.add_argument('--minibatch-size',
+                               type=int,
+                               default=5,
+                               help='Size of the mini-batch. Default: %(default)s.')
+
     dl_params.add_argument('--k-best', '-K',
                                type=int,
                                default=2,
