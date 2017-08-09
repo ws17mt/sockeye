@@ -39,8 +39,9 @@ ARGS="
     --loss gan-loss \
     --valid-loss cross-entropy \
     --disc-loss-lambda 50000.0 \
-    --max-updates 10 \
-    --checkpoint-frequency 10
+    --max-updates 20 \
+    --checkpoint-frequency 10 \
+    --style-pretrain-auto
 "
     #--weight-tying
     #--disc-batch-norm \

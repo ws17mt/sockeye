@@ -83,7 +83,8 @@ class StylePreTrainingModel_G(sockeye.model.SockeyeModel):
                  bucketing: bool,
                  lr_scheduler,
                  rnn_forget_bias: float,
-                 vocab) -> None:
+                 vocab,
+                 train_auto=False) -> None:
         super().__init__(model_config)
         self.context = context
         self.lr_scheduler = lr_scheduler
@@ -94,8 +95,10 @@ class StylePreTrainingModel_G(sockeye.model.SockeyeModel):
                                                    prefix=C.EMBEDDING_PREFIX,
                                                    dropout=self.config.dropout)
         self._build_model_components(self.config.max_seq_len, fused, rnn_forget_bias, initialize_embedding=False, embedding=self.embedding)
+        self.train_auto = train_auto
         self.module = self._build_module(train_iter, self.config.max_seq_len)
         self.training_monitor = None
+
 
     def _build_module(self,
                       train_iter: mx.io.PrefetchingIter,
@@ -183,10 +186,15 @@ class StylePreTrainingModel_G(sockeye.model.SockeyeModel):
                                                        target_seq_len=e_seq_len,
                                                        embedding=self.embedding)
 
-            # outputs = loss.get_loss(mx.sym.concat(ef_logits_transfer, fe_logits_transfer, dim=0),
-            #                         mx.sym.concat(f_labels, e_labels, dim=0))
+
             loss_ef = loss.get_loss(ef_logits_transfer, f_labels, name=C.SOFTMAX_NAME + "_ef")
             loss_fe = loss.get_loss(fe_logits_transfer, e_labels, name=C.SOFTMAX_NAME + "_fe")
+
+            if self.train_auto:
+                logger.info("Will pre-train autoencoder in addition.")
+                loss_ee = loss.get_loss(ee_logits_autoencoder, e_labels, name=C.SOFTMAX_NAME + "_ee")
+                loss_ff = loss.get_loss(ff_logits_autoencoder, f_labels, name=C.SOFTMAX_NAME + "_ff")
+                return mx.sym.Group((loss_ef, loss_fe, loss_ee, loss_ff)), data_names, label_names
 
             return mx.sym.Group((loss_ef, loss_fe)), data_names, label_names
 
@@ -206,7 +214,7 @@ class StylePreTrainingModel_G(sockeye.model.SockeyeModel):
                                  context=self.context)
 
     @staticmethod
-    def _create_eval_metric(metric_names: List[AnyStr]) -> mx.metric.CompositeEvalMetric:
+    def _create_eval_metric(metric_names: List[AnyStr], train_auto=False) -> mx.metric.CompositeEvalMetric:
         """
         Creates a composite EvalMetric given a list of metric names.
         """
@@ -216,7 +224,12 @@ class StylePreTrainingModel_G(sockeye.model.SockeyeModel):
             if metric_name == C.ACCURACY:
                 metrics.append(sockeye.utils.Accuracy(ignore_label=C.PAD_ID, output_names=[C.SOFTMAX_NAME + "_ef_output", C.SOFTMAX_NAME + "_fe_output"]))
             elif metric_name == C.PERPLEXITY:
-                metrics.append(mx.metric.Perplexity(ignore_label=C.PAD_ID, output_names=[C.SOFTMAX_NAME + "_ef_output", C.SOFTMAX_NAME + "_fe_output"]))
+                metrics.append(mx.metric.Perplexity(ignore_label=C.PAD_ID, output_names=[C.SOFTMAX_NAME + "_ef_output", C.SOFTMAX_NAME + "_fe_output"]),)
+                if train_auto:
+                    metrics.append(mx.metric.Perplexity(ignore_label=C.PAD_ID,
+                                                          output_names=[C.SOFTMAX_NAME + "_ee_output",
+                                                                        C.SOFTMAX_NAME + "_ff_output"], name="ae-perplexity"),
+                                                        )
             else:
                 raise ValueError("unknown metric name")
         return mx.metric.create(metrics)
@@ -310,8 +323,8 @@ class StylePreTrainingModel_G(sockeye.model.SockeyeModel):
         :param max_num_not_improved: Maximum number of checkpoints until fitting is stopped if model does not improve.
         :param min_num_epochs: Minimum number of epochs to train, even if validation scores did not improve.
         """
-        metric_train = self._create_eval_metric(metrics)
-        metric_val = self._create_eval_metric(metrics)
+        metric_train = self._create_eval_metric(metrics, self.train_auto)
+        metric_val = self._create_eval_metric(metrics, self.train_auto)
         tic = time.time()
 
         training_state_dir = os.path.join(output_folder, C.TRAINING_STATE_DIRNAME)

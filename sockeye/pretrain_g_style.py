@@ -317,7 +317,8 @@ def main():
                                                                                bucketing=not args.no_bucketing,
                                                                                lr_scheduler=lr_scheduler,
                                                                                rnn_forget_bias=args.rnn_forget_bias,
-                                                                               vocab=vocab)
+                                                                               vocab=vocab,
+                                                                               train_auto=args.style_pretrain_auto)
 
         if resume_training:
             logger.info("Found partial training in directory %s. Resuming from saved state.", training_state_dir)
