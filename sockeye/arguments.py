@@ -263,6 +263,10 @@ def add_model_parameters(params):
                               help="Enables a context gate which adaptively weighs the decoder input against the"
                                    "source context vector before each update of the decoder hidden state.")
 
+    model_params.add_argument('--style-pretrain-auto', action="store_true",
+                              help="Whether or not to pretrain the autoencoder in Style transfer."
+                                   "By default, pretraining will only train e<->f ano not e->e and f->f")
+
 
 def add_training_args(params):
     train_params = params.add_argument_group("Training parameters")
@@ -360,6 +364,14 @@ def add_training_args(params):
                               type=float,
                               default=0.0003,
                               help='Initial learning rate. Default: %(default)s.')
+    train_params.add_argument('--initial-learning-rate-g',
+                              type=float,
+                              default=0.0003,
+                              help='Initial learning rate for pre-training G. Default: %(default)s.')
+    train_params.add_argument('--initial-learning-rate-d',
+                              type=float,
+                              default=0.0003,
+                              help='Initial learning rate for pre-training D. Default: %(default)s.')
     train_params.add_argument('--weight-decay',
                               type=float,
                               default=0.0,

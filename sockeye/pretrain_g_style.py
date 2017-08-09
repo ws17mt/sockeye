@@ -75,8 +75,7 @@ def main():
 
     resume_training = False
 
-    output_folder_orig = output_folder
-    output_folder = os.path.join(output_folder, "joint_train")
+    output_folder = os.path.join(output_folder, "g_pretrain")
 
     training_state_dir = os.path.join(output_folder, C.TRAINING_STATE_DIRNAME)
 
@@ -176,22 +175,11 @@ def main():
         # This will return a ParallelBucketIterator
         # For these, target is always = source (autenc target output)
         # Vocabularies are shared across e and f
-        # e->e
-        e_train_iter = sockeye.data_io.get_style_training_data_iters(
-                                source=data_info.e_mono,
-                                vocab=vocab,
-                                batch_size=batch_size,
-                                fill_up=args.fill_up,
-                                max_seq_len=max_seq_len,
-                                bucketing=not args.no_bucketing,
-                                bucket_width=args.bucket_width,
-                                target_bos_symbol=C.E_BOS_SYMBOL,
-                                suffix='_e'
-                            )
 
-        # Similar iter for f->f
-        f_train_iter = sockeye.data_io.get_style_training_data_iters(
-                                source=data_info.f_mono,
+        # Similar iter for e->f
+        ef_train_iter = sockeye.data_io.get_style_training_data_iters(
+                                source=data_info.e,
+                                target=data_info.f,
                                 vocab=vocab,
                                 batch_size=batch_size,
                                 fill_up=args.fill_up,
@@ -199,42 +187,59 @@ def main():
                                 bucketing=not args.no_bucketing,
                                 bucket_width=args.bucket_width,
                                 target_bos_symbol=C.F_BOS_SYMBOL,
-                                suffix='_f'
+                                suffix='_e',
+                                target_suffix='_f'
                             )
 
-        # Validation iters
-        e_val_iter = sockeye.data_io.get_style_training_data_iters(
-            source=data_info.e_val,
-            vocab=vocab,
-            batch_size=batch_size,
-            fill_up='replicate_first',
-            max_seq_len=max_seq_len,
-            bucketing=not args.no_bucketing,
-            bucket_width=args.bucket_width,
-            target_bos_symbol=C.E_BOS_SYMBOL,
-            suffix='_val_e',
-            do_not_shuffle=True
-        )
+        # Similar iter for f->e
+        fe_train_iter = sockeye.data_io.get_style_training_data_iters(
+                                source=data_info.f,
+                                target=data_info.e,
+                                vocab=vocab,
+                                batch_size=batch_size,
+                                fill_up=args.fill_up,
+                                max_seq_len=max_seq_len,
+                                bucketing=not args.no_bucketing,
+                                bucket_width=args.bucket_width,
+                                target_bos_symbol=C.E_BOS_SYMBOL,
+                                suffix='_f',
+                                target_suffix='_e'
+                            )
 
-        f_val_iter = sockeye.data_io.get_style_training_data_iters(
-            source=data_info.f_val,
-            vocab=vocab,
-            batch_size=batch_size,
-            fill_up='replicate_first',
-            max_seq_len=max_seq_len,
-            bucketing=not args.no_bucketing,
-            bucket_width=args.bucket_width,
-            target_bos_symbol=C.F_BOS_SYMBOL,
-            suffix='_val_f',
-            do_not_shuffle=True
-        )
+        ef_val_iter = sockeye.data_io.get_style_training_data_iters(
+                                source=data_info.e_val,
+                                target=data_info.f_val,
+                                vocab=vocab,
+                                batch_size=batch_size,
+                                fill_up=args.fill_up,
+                                max_seq_len=max_seq_len,
+                                bucketing=not args.no_bucketing,
+                                bucket_width=args.bucket_width,
+                                target_bos_symbol=C.F_BOS_SYMBOL,
+                                suffix='_val_e',
+                                target_suffix='_val_f'
+                            )
+
+        fe_val_iter = sockeye.data_io.get_style_training_data_iters(
+                                source=data_info.f_val,
+                                target=data_info.e_val,
+                                vocab=vocab,
+                                batch_size=batch_size,
+                                fill_up=args.fill_up,
+                                max_seq_len=max_seq_len,
+                                bucketing=not args.no_bucketing,
+                                bucket_width=args.bucket_width,
+                                target_bos_symbol=C.E_BOS_SYMBOL,
+                                suffix='_val_f',
+                                target_suffix='_val_e'
+                            )
 
         # Merge the two iterators to get one.
-        make_iters_same_length(e_train_iter, f_train_iter, logger)
-        train_iter = mx.io.PrefetchingIter([e_train_iter, f_train_iter])
+        make_iters_same_length(ef_train_iter, fe_train_iter, logger)
+        pretrain_iter = mx.io.PrefetchingIter([ef_train_iter, fe_train_iter])
 
-        make_iters_same_length(e_val_iter, f_val_iter, logger)
-        val_iter = mx.io.PrefetchingIter([e_val_iter, f_val_iter])
+        make_iters_same_length(ef_val_iter, fe_val_iter, logger)
+        pretrain_val_iter = mx.io.PrefetchingIter([ef_val_iter, fe_val_iter])
 
         model_config = sockeye.model.ModelConfig(max_seq_len=max_seq_len,
                                                  vocab_source_size=vocab_size,
@@ -275,7 +280,7 @@ def main():
 
         optimizer = args.optimizer
         optimizer_params = {'wd': args.weight_decay,
-                            "learning_rate": args.initial_learning_rate}
+                            "learning_rate": args.initial_learning_rate_g}
         clip_gradient = none_if_negative(args.clip_gradient)
         if clip_gradient is not None:
             optimizer_params["clip_gradient"] = clip_gradient
@@ -291,14 +296,10 @@ def main():
         logger.info("Optimizer: %s", optimizer)
         logger.info("Optimizer Parameters: %s", optimizer_params)
 
-        ####################### JOINT TRAINING ################################
-
-        # Learning rate scheduler for joint training
-        training_state_dir = os.path.join(output_folder, C.TRAINING_STATE_DIRNAME)
         learning_rate_half_life = none_if_negative(args.learning_rate_half_life)
 
         if not resume_training:
-            lr_scheduler = sockeye.lr_scheduler.get_lr_scheduler(args.learning_rate_scheduler_type,
+            lr_scheduler = sockeye.lr_scheduler.get_lr_scheduler(args.learning_rate_scheduler_type_pre_g,
                                                                  args.checkpoint_frequency,
                                                                  learning_rate_half_life,
                                                                  args.learning_rate_reduce_factor,
@@ -309,45 +310,35 @@ def main():
 
         optimizer_params["lr_scheduler"] = lr_scheduler
 
-        model = sockeye.style_training.StyleTrainingModel(model_config=model_config,
-                                                          context=context,
-                                                          train_iter=train_iter,
-                                                          valid_iter=val_iter,
-                                                          fused=args.use_fused_rnn,
-                                                          bucketing=not args.no_bucketing,
-                                                          lr_scheduler=lr_scheduler,
-                                                          rnn_forget_bias=args.rnn_forget_bias,
-                                                          vocab=vocab)
+        G_pretrain_model = sockeye.style_pretraining_G.StylePreTrainingModel_G(model_config=model_config,
+                                                                               context=context,
+                                                                               train_iter=pretrain_iter,
+                                                                               fused=args.use_fused_rnn,
+                                                                               bucketing=not args.no_bucketing,
+                                                                               lr_scheduler=lr_scheduler,
+                                                                               rnn_forget_bias=args.rnn_forget_bias,
+                                                                               vocab=vocab,
+                                                                               train_auto=args.style_pretrain_auto)
 
         if resume_training:
             logger.info("Found partial training in directory %s. Resuming from saved state.", training_state_dir)
-            model.load_params_from_file(os.path.join(training_state_dir, C.TRAINING_STATE_PARAMS_NAME))
-        else:
-            # Get the pre-trained params from G
-            pretrain_param_path = os.path.join(output_folder_orig, "d_pretrain", C.PARAMS_BEST_NAME)
-            assert os.path.exists(pretrain_param_path)
-            model.load_params_from_file(pretrain_param_path)
-            # Copy params from D to joint model
-            # model.module.set_params(D_params[0], D_params[1], allow_missing=False)
+            G_pretrain_model.load_params_from_file(os.path.join(training_state_dir, C.TRAINING_STATE_PARAMS_NAME))
 
-        # initialize memory for params
-        model.module.bind(data_shapes=train_iter.provide_data,
-                          label_shapes=train_iter.provide_label,
-                          for_training=True,
-                          force_rebind=True,
-                          grad_req='write')
-        # Initialize params
-        model.module.init_params(initializer=initializer,
-                                 arg_params=model.params,
-                                 aux_params=None,
-                                 allow_missing=False,
-                                 force_init=False)
+        G_pretrain_model.module.bind(data_shapes=pretrain_iter.provide_data,
+                                     label_shapes=pretrain_iter.provide_label,
+                                     for_training=True, force_rebind=True, grad_req='write')
 
-        # Don't overwrite params if this is the resume stage
+        G_pretrain_model.module.init_params(initializer=initializer,
+                                            arg_params=G_pretrain_model.params,
+                                            aux_params=None,
+                                            allow_missing=False, force_init=False)
 
 
-        model.fit(train_iter=train_iter,
-                  val_iter=val_iter,
+        logger.info("Starting pre-training of G")
+
+        # Pre-train G
+        G_pretrain_model.fit(train_iter=pretrain_iter,
+                  val_iter=pretrain_val_iter,
                   output_folder=output_folder,
                   metrics=args.metrics,
                   initializer=initializer,

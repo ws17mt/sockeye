@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 
+set -e
+
 cd ..
 python setup.py install --user
 cd sockeye
 
 DATA_HOME=/Users/gaurav/Dropbox/Projects/JSALT17-NMT-Lab/data/multi30k
-OUT_FOLDER=tmp
+OUT_FOLDER=tmp2
 
-python train_style.py \
+ARGS="
     -s ${DATA_HOME}/train-toy.de.atok \
     -t ${DATA_HOME}/train-toy.en.atok \
     -ms ${DATA_HOME}/train-toy.de.atok \
@@ -21,7 +23,7 @@ python train_style.py \
     --attention-type mlp \
     --rnn-cell-type gru \
     --rnn-num-layers 1 \
-    --rnn-num-hidden 4 \
+    --rnn-num-hidden 8 \
     --dropout 0.2 \
     --initial-learning-rate 0.0002 \
     --num-words 10000 \
@@ -37,9 +39,31 @@ python train_style.py \
     --loss gan-loss \
     --valid-loss cross-entropy \
     --disc-loss-lambda 50000.0 \
-    --max-updates 10 \
+    --max-updates 20 \
     --checkpoint-frequency 10 \
-    --weight-tying
-
-
+    --style-pretrain-auto
+"
+    #--weight-tying
+    #--disc-batch-norm \
+    #--normalize-loss
 #    --joint_vocab None
+
+if [ ! -d ${OUT_FOLDER}/g_pretrain/training_state ] && [ -f ${OUT_FOLDER}/g_pretrain/params.best ]; then
+  echo "[RUN:] Skipping pre-training of G. Complete model exists at $OUT_FOLDER/g_pretrain/params.best"
+else
+  echo "[RUN:] Starting pre-training of G "
+  python pretrain_g_style.py $ARGS
+  echo "[RUN:] Finished pre-training of G "
+fi
+
+if [ ! -d ${OUT_FOLDER}/d_pretrain/training_state ] && [ -f ${OUT_FOLDER}/d_pretrain/params.best ]; then
+  echo "[RUN:] Skipping pre-training of D. Complete model exists at $OUT_FOLDER/d_pretrain/params.best"
+else
+  echo "[RUN:] Starting pre-training of D "
+  python pretrain_d_style.py $ARGS
+  echo "[RUN:] Starting pre-training of D "
+fi
+
+echo "[RUN:] Starting joint training "
+python train_style.py $ARGS
+echo "[RUN:] Finished joint training "
