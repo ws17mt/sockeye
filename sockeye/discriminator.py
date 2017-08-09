@@ -23,16 +23,17 @@ import sockeye.constants as C
 from sockeye.grl import *
 import sockeye.utils
 
-
 def get_discriminator(act: str,
                       num_hidden: int,
                       num_layers: int,
                       dropout: float,
                       loss_lambda: float,
                       batch_norm: bool,
-                      prefix: str) -> 'Discriminator':
+                      prefix: str,
+                      cell_type: str,
+                      disc_type: str) -> 'Discriminator':
     """
-    Returns a MLPDiscriminator with the following properties.
+    Returns a Discriminator with the following properties.
     
     :param act: Activation function.
     :param num_hidden: Number of hidden units.
@@ -40,11 +41,18 @@ def get_discriminator(act: str,
     :param dropout: Dropout probability.
     :param batch_norm: Whether to use batch normalization.
     :param prefix: Symbol prefix for MLP.
+    :param cell_type: RNN cell type (GRU or LSTM).
+    :param disc_type: Discriminator type (rnn or mlp)
     :returns: Discriminator instance.
     """
-    return MLPDiscriminator(act, num_hidden, num_layers, dropout, loss_lambda,
-                            batch_norm, prefix)
-
+    if disc_type == C.MLP_DISC_TYPE:
+        return MLPDiscriminator(act, num_hidden, num_layers, dropout,
+                                loss_lambda, batch_norm, prefix)
+    elif disc_type == C.RNN_DISC_TYPE:
+        return RNNDiscriminator(num_hidden, num_layers, dropout, loss_lambda,
+                                batch_norm, cell_type, prefix)
+    else:
+        raise NotImplementedError()
 
 class Discriminator:
     """
@@ -59,11 +67,79 @@ class Discriminator:
         """
         raise NotImplementedError()
 
+class RNNDiscriminator(Discriminator):
+    """
+    Class to generate an RNN descriminator for the computation graph in GAN models.
+
+    :param num_hidden: Number of hidden units in the discriminator.
+    :param num_layers: Number of layers in the discriminator.
+    :param dropout: Dropout probability on discriminator outputs.
+    :param loss_lambda: Weight for the discriminator loss.
+    :param batch_norm: Whether to perform batch normalization.
+    :param cell_type: RNN cell type for discriminator (GRU or LSTM).
+    :param prefix: Discriminator symbol prefix.
+    """
+
+    def __init__(self,
+                 num_hidden: int,
+                 num_layers: int,
+                 dropout: float,
+                 loss_lambda: float,
+                 batch_norm: bool,
+                 cell_type: str,
+                 prefix: str):
+        self.prefix = prefix
+        self.num_hidden = num_hidden
+        self.num_layers = num_layers
+        self.dropout = dropout
+        self.loss_lambda = loss_lambda
+        # TODO add batch normalization!
+        self.batch_norm = batch_norm
+        self.cell_type = cell_type
+        # initialize weights and biases (input and output layer only)
+        self.in_w = mx.sym.Variable('%sin_weight' % prefix)
+        self.in_b = mx.sym.Variable('%sin_bias' % prefix)
+        self.out_w = mx.sym.Variable('%sout_weight' % prefix)
+        self.out_b = mx.sym.Variable('%sout_bias' % prefix)
+        # create the actual RNN
+        self.rnn = sockeye.rnn.get_stacked_rnn(self.cell_type, self.num_hidden, self.num_layers,
+                                              self.dropout, self.prefix)
+        # TODO do we need all those arguments in our case??
+
+    def discriminate(self,
+                     data: mx.sym.Symbol,
+                     target_seq_len: int,
+                     target_vocab_size: int,
+                     target_length: mx.sym.Symbol) -> mx.sym.Symbol:
+        """
+        Given a sequence of decoder hidden states, decide whether they are from the real or generated data.
+
+        :param data: Input data (hidden states from decoder). Shape: (batch_size, tar_seq_len, rnn_num_hidden).
+        :param target_seq_len: Maximum length of target sequences.
+        :param target_vocab_size: Target vocabulary size.
+        :param target_length: Lengths of target sequences. Shape: (batch_size,).
+        :return: Logits of discriminator decision for target sequence. Shape: (batch_size, 2).
+        """
+        # TODO: check __init__, add batch norm, get rid of params we don't actually use (if any)
+        # start with a gradient reversal layer
+        reverse_grad = mx.symbol.Custom(data=data, op_type='gradientreversallayer',
+                                        loss_lambda=self.loss_lambda)
+        # apply tanh to the decoder hidden states
+        target = mx.sym.tanh(reverse_grad)
+        # unroll the RNN to get the outputs of shape (batch_size, max_len, num_hidden)
+        outputs, _ = self.rnn.unroll(target_seq_len, inputs=target, merge_outputs=True, layout='NTC')
+        # to classify, apply a fully connected layer and a sigmoid activation to SequenceLast
+        # for SequenceLast, need (max_len, batch_size, num_hidden)
+        logits = mx.sym.swapaxes(data=outputs, dim1=0, dim2=1)
+        logits = mx.sym.SequenceLast(data=logits, sequence_length=target_length, use_sequence_length=True)
+        logits = mx.sym.FullyConnected(data=logits, num_hidden=2, weight=self.out_w, bias=self.out_b)
+        logits = mx.sym.sigmoid(data=logits)
+        return logits
+
 
 class MLPDiscriminator(Discriminator):
     """
-    Class to generate the discriminator part of the computation graph in GAN models.
-    Currently can only use an MLP; later will add CNN or RNN.
+    Class to generate an MLP discriminator for the computation graph in GAN models.
     
     :param act: Activation function.
     :param num_hidden: Number of hidden units in the discriminator.
@@ -129,22 +205,21 @@ class MLPDiscriminator(Discriminator):
         """
         Given a sequence of decoder hidden states, decide whether they are from the real or generated data.
         
-        :param data: Input data. Shape: (target_seq_len*batch_size, target_vocab_size).
+        :param data: Input data (hidden states from decoder). Shape: (batch_size, tar_seq_len, rnn_num_hidden).
         :param target_seq_len: Maximum length of target sequences.
         :param target_vocab_size: Target vocabulary size.
         :param target_length: Lengths of target sequences. Shape: (batch_size,).
         :return: Logits of discriminator decision for target sequence. Shape: (batch_size, 2).
         """
-        # reshape the data so it's max len x batch size x vocab size
-        target = mx.sym.reshape(data=data, shape=(-1, target_seq_len, target_vocab_size))
-        target = mx.sym.swapaxes(data=target, dim1=0, dim2=1)
+        # reshape the data so it's (max_len, batch_size, rnn_num_hidden)
+        target = mx.sym.swapaxes(data=data, dim1=0, dim2=1)
         decoder_last_state = mx.sym.SequenceLast(data=target, sequence_length=target_length,
                                                  use_sequence_length=True)
-        # Apply tanh to the input of the GAN: https://github.com/soumith/ganhacks
-        decoder_last_state = mx.sym.tanh(decoder_last_state)
         # add a gradient reversal layer before the discriminators
         reverse_grad = mx.symbol.Custom(data=decoder_last_state, op_type='gradientreversallayer',
                                         loss_lambda=self.loss_lambda)
+        # Apply tanh to the input of the GAN: https://github.com/soumith/ganhacks
+        reverse_grad = mx.sym.tanh(reverse_grad)
         # input layer
         logits = mx.sym.FullyConnected(data=reverse_grad, num_hidden=self.num_hidden,
                                        weight=self.in_w, bias=self.in_b)

@@ -191,6 +191,9 @@ class StackedRNNDecoder(Decoder):
         self.cls_b = mx.sym.Variable("%scls_bias" % prefix)
 
         self.lexicon = lexicon
+        # keep track of hidden states from most recent decode
+        self.current_hidden_concat = None
+
 
     def get_num_hidden(self) -> int:
         """
@@ -402,6 +405,8 @@ class StackedRNNDecoder(Decoder):
         # concatenate along time axis
         # hidden_concat: (batch_size, target_seq_len, rnn_num_hidden)
         hidden_concat = mx.sym.concat(*hidden_all, dim=1, name="%shidden_concat" % self.prefix)
+        # keep track of this
+        self.current_hidden_concat = hidden_concat
         # hidden_concat: (batch_size * target_seq_len, rnn_num_hidden)
         hidden_concat = mx.sym.reshape(data=hidden_concat, shape=(-1, self.num_hidden))
 

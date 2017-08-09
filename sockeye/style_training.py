@@ -180,8 +180,10 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
                                                          dropout=self.config.dropout)
         self.vocab = vocab
         self._build_model_components(self.config.max_seq_len, fused, rnn_forget_bias, initialize_embedding=False, embedding=self.embedding)
-        self._build_discriminators(self.config.disc_act, self.config.disc_num_hidden, self.config.disc_num_layers,
-                                   self.config.disc_dropout, self.config.loss_lambda, self.config.disc_batch_norm)
+        self._build_discriminators(self.config.disc_act, self.config.disc_num_hidden,
+                                   self.config.disc_num_layers, self.config.disc_dropout,
+                                   self.config.loss_lambda, self.config.disc_batch_norm,
+                                   self.config.rnn_cell_type, self.config.disc_type)
         self.module = self._build_module(train_iter, self.config.max_seq_len, self.config.max_seq_len, fixed_param_names)
 
         self._build_inference_model_components(self.config.max_seq_len, fused, rnn_forget_bias, initialize_embedding=False, embedding=self.valid_embedding)
@@ -190,7 +192,8 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
         self.initializer = None
         self.training_monitor = None
 
-    def _build_discriminators(self, act: str, num_hidden: int, num_layers: int, dropout: float, loss_lambda: float, batch_norm: bool):
+    def _build_discriminators(self, act: str, num_hidden: int, num_layers: int, dropout: float,
+                              loss_lambda: float, batch_norm: bool, cell_type: str, disc_type: str):
         """
         Builds and sets discriminators for style transfer.
 
@@ -200,15 +203,19 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
         :param dropout: Dropout probability for the discriminators.
         :param loss_lambda: Weight for the discriminator losses.
         :param batch_norm: Whether to use batch normalization.
+        :param cell_type: RNN cell type for RNN discriminators.
+        :param disc_type: Type of discriminators (MLP or RNN) to use.
         """
         self.discriminator_e = sockeye.discriminator.get_discriminator(act, num_hidden,
                                                                        num_layers, dropout,
                                                                        loss_lambda, batch_norm,
-                                                                       prefix=C.DISCRIMINATOR_E_PREFIX)
+                                                                       C.DISCRIMINATOR_E_PREFIX,
+                                                                       cell_type, disc_type)
         self.discriminator_f = sockeye.discriminator.get_discriminator(act, num_hidden,
                                                                        num_layers, dropout,
                                                                        loss_lambda, batch_norm,
-                                                                       prefix=C.DISCRIMINATOR_F_PREFIX)
+                                                                       C.DISCRIMINATOR_F_PREFIX,
+                                                                       cell_type, disc_type)
 
     def _build_module(self,
                       train_iter: mx.io.PrefetchingIter,
@@ -276,12 +283,14 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
 
             # The autoencoders for e and f
             # e_logits_autoencoder, f_logits_autoencoder: (bs * seq_len, vocab_size)
+            # also need the hidden states for the discriminators (batch_size, tar_seq_len, rnn_num_hidden)
             e_logits_autoencoder = self.decoder.decode(source_encoded=e_encoded,
                                                        source_seq_len=e_seq_len,
                                                        source_length=e_source_length,
                                                        target=e_target,
                                                        target_seq_len=e_seq_len,
                                                        embedding=self.embedding)
+            e_hidden_autoencoder = self.decoder.current_hidden_concat
 
             f_logits_autoencoder = self.decoder.decode(source_encoded=f_encoded,
                                                        source_seq_len=f_seq_len,
@@ -289,6 +298,7 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
                                                        target=f_target,
                                                        target_seq_len=f_seq_len,
                                                        embedding=self.embedding)
+            f_hidden_autoencoder = self.decoder.current_hidden_concat
 
             #####################
             def sym_gen_transfer(source_encoded, source_length, seq_len, word_id_initial):
@@ -318,6 +328,8 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
 
                 # We'll accumulate the pre-softmax logits for each timestep here
                 transfer_logits_list = []
+                # track hidden states -- hidden_all: target_seq_len * (batch_size, 1, rnn_num_hidden)
+                hidden_all = []
 
                 # Used to bypass embedding the input word when it is an
                 # expected word (and embedding of)
@@ -337,6 +349,8 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
                                               )
                     # Expand logits to : (bs, 1, vocab_size) : to concat later along axis 1
                     transfer_logits_list.append(mx.sym.expand_dims(local_logits, axis=1))
+                    # hidden_expanded: (batch_size, 1, rnn_num_hidden)
+                    hidden_all.append(mx.sym.expand_dims(data=decoder_state.hidden, axis=1))
 
                     # The input to the next time step will be the expected word
                     # (bs, vocab_size) * (vocab_size, num_embed)
@@ -345,10 +359,14 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
                     word_id_prev = mx.sym.dot(softmax_out, self.embedding.embed_weight)
                     input_is_embedding = True
 
+                # concatenate along time axis
+                # hidden_concat: (batch_size, target_seq_len, rnn_num_hidden)
+                hidden_concat = mx.sym.concat(*hidden_all, dim=1)
+
                 # (bs * seq_len) x vocab_size
                 transfer_logits = mx.sym.reshape(mx.sym.concat(*transfer_logits_list, dim=1),
                                                  shape=(-1, vocab_size))
-                return transfer_logits
+                return transfer_logits, hidden_concat
             ################
 
             # Initialize the first words for the two generators
@@ -364,18 +382,19 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
                                            dtype=np.float32))
 
             # f_logits_transfer: (bs * seq_len, vocab_size)
+            # f_hidden_transfer: (batch_size, target_seq_len, rnn_num_hidden)
             #TODO: Only send the last input to e_encoded
-            f_logits_transfer = sym_gen_transfer(e_encoded, e_source_length, e_seq_len, f_first_word)
-            e_logits_transfer = sym_gen_transfer(f_encoded, f_source_length, f_seq_len, e_first_word)
-            #f_logits_transfer = e_logits_autoencoder
-            #e_logits_transfer = f_logits_autoencoder
-            
+            f_logits_transfer, f_hidden_transfer = sym_gen_transfer(e_encoded, e_source_length,
+                                                                    e_seq_len, f_first_word)
+            e_logits_transfer, e_hidden_transfer = sym_gen_transfer(f_encoded, f_source_length,
+                                                                    f_seq_len, e_first_word)
+
             # feed the autoencoder output to the discriminator
             # f_D_autoencoder, e_D_autoencoder: (bs, 2) (2 = binary decisions)
-            f_D_autoencoder = self.discriminator_f.discriminate(f_logits_autoencoder, f_seq_len,
+            f_D_autoencoder = self.discriminator_f.discriminate(f_hidden_autoencoder, f_seq_len,
                                                                 vocab_size, f_source_length)
 
-            e_D_autoencoder = self.discriminator_e.discriminate(e_logits_autoencoder, e_seq_len,
+            e_D_autoencoder = self.discriminator_e.discriminate(e_hidden_autoencoder, e_seq_len,
                                                                 vocab_size, e_source_length)
 
             # Logits_transfer keeps generating to max_seq_len since there's no stopping condition
@@ -390,9 +409,9 @@ class StyleTrainingModel(sockeye.model.SockeyeModel):
 
             # e_logits_transfer come from f->e, so we use f_batch_size, etc. for e_D_transfer
             # f_D_transfer, e_D_transfer: (bs, 2) (2 = binary decisions)
-            e_D_transfer = self.discriminator_e.discriminate(e_logits_transfer, f_seq_len, vocab_size,
+            e_D_transfer = self.discriminator_e.discriminate(e_hidden_transfer, f_seq_len, vocab_size,
                                                              e_transfer_length)
-            f_D_transfer = self.discriminator_f.discriminate(f_logits_transfer, e_seq_len, vocab_size,
+            f_D_transfer = self.discriminator_f.discriminate(f_hidden_transfer, e_seq_len, vocab_size,
                                                              f_transfer_length)
 
             # get labels to train the discriminators
