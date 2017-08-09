@@ -266,7 +266,8 @@ def main():
                                                  disc_dropout=disc_dropout,
                                                  loss_lambda=args.disc_loss_lambda,
                                                  g_loss_weight=args.g_loss_weight,
-                                                 disc_batch_norm=args.disc_batch_norm)
+                                                 disc_batch_norm=args.disc_batch_norm,
+                                                 disc_type=args.discriminator_type)
 
         # For lexical bias, set to None
         lexicon = None

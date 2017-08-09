@@ -183,6 +183,10 @@ def add_model_parameters(params):
                                    "(see Wu ETAL'16). Default: %(default)s.")
 
     # For the discriminator in style transfer
+    model_params.add_argument('--discriminator-type',
+                              choices=[C.MLP_DISC_TYPE, C.RNN_DISC_TYPE],
+                              default=C.MLP_DISC_TYPE,
+                              help='Discriminator type (MLP or RNN). Default: %(default)s.')
     model_params.add_argument('--disc-num-hidden',
                               type=int_greater_or_equal(1),
                               default=1024,
