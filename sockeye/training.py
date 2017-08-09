@@ -283,6 +283,8 @@ class TrainingModel(sockeye.model.SockeyeModel):
             monitor_bleu: int = 0,
             use_tensorboard: bool = False,
             lm_pretrain_steps: int = 1,
+            lm_warmup: int = -1,
+            stop_lm_after_warmup: bool = False,
             mono_source_iter: sockeye.data_io.MonoBucketSentenceIter=None,
             mono_target_iter: sockeye.data_io.MonoBucketSentenceIter=None):
         """
@@ -355,7 +357,9 @@ class TrainingModel(sockeye.model.SockeyeModel):
                   min_num_epochs=min_num_epochs,
                   lm_pretrain_steps=lm_pretrain_steps,
                   mono_source_iter=mono_source_iter,
-                  mono_target_iter=mono_target_iter)
+                  mono_target_iter=mono_target_iter,
+                  lm_warmup=lm_warmup,
+                  stop_lm_after_warmup=stop_lm_after_warmup)
 
         logger.info("Training finished. Best checkpoint: %d. Best validation %s: %.6f",
                     self.training_monitor.get_best_checkpoint(),
@@ -421,7 +425,9 @@ class TrainingModel(sockeye.model.SockeyeModel):
              min_num_epochs: Optional[int] = None,
              lm_pretrain_steps: int = 1,
              mono_source_iter: sockeye.data_io.MonoBucketSentenceIter=None,
-             mono_target_iter: sockeye.data_io.MonoBucketSentenceIter=None):
+             mono_target_iter: sockeye.data_io.MonoBucketSentenceIter=None,
+             lm_warmup: int = -1,
+             stop_lm_after_warmup: bool = False):
         """
         Internal fit method. Runtime determined by early stopping.
 
@@ -472,16 +478,24 @@ class TrainingModel(sockeye.model.SockeyeModel):
 
         while max_updates == -1 or train_state.updates < max_updates:
 
-            next_data_batch = self._update(train_iter, self.module, 1,
-                                           next_data_batch, train_state, metric_train, self.training_monitor)
+            lm_samples = -1
+            if source_train_state is not None:
+                lm_samples = max(lm_samples, source_train_state.samples)
+            if target_train_state is not None:
+                lm_samples = max(lm_samples, target_train_state.samples)
 
-            next_source_batch = self._update(mono_source_iter, self.lm_source_module, lm_pretrain_steps,
-                                             next_source_batch, source_train_state, metric_train_source_lm,
-                                             self.lm_source_training_monitor)
+            if lm_samples == -1 or lm_samples >= lm_warmup:
+                next_data_batch = self._update(train_iter, self.module, 1,
+                                               next_data_batch, train_state, metric_train, self.training_monitor)
 
-            next_target_batch = self._update(mono_target_iter, self.lm_target_module, lm_pretrain_steps,
-                                             next_target_batch, target_train_state, metric_train_target_lm,
-                                             self.lm_target_training_monitor)
+            if lm_samples == - 1 or lm_samples < lm_warmup or not stop_lm_after_warmup:
+                next_source_batch = self._update(mono_source_iter, self.lm_source_module, lm_pretrain_steps,
+                                                 next_source_batch, source_train_state, metric_train_source_lm,
+                                                 self.lm_source_training_monitor)
+
+                next_target_batch = self._update(mono_target_iter, self.lm_target_module, lm_pretrain_steps,
+                                                 next_target_batch, target_train_state, metric_train_target_lm,
+                                                 self.lm_target_training_monitor)
 
             if train_state.updates > 0 and train_state.updates % checkpoint_frequency == 0:
                 train_state.checkpoint += 1

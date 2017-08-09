@@ -348,6 +348,8 @@ def main():
                   monitor_bleu=args.monitor_bleu,
                   use_tensorboard=args.use_tensorboard,
                   lm_pretrain_steps=args.lm_pretrain_steps,
+                  lm_warmup=args.lm_warmup,
+                  stop_lm_after_warmup=args.stop_lm_after_warmup,
                   mono_source_iter=mono_source_iter,
                   mono_target_iter=mono_target_iter)
 

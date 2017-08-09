@@ -217,6 +217,13 @@ def add_model_parameters(params):
                               type=int_greater_or_equal(0),
                               default=1,
                               help='Number of LM pretrain steps to take for each TM step. Default: %s(default)s.')
+    model_params.add_argument('--lm-warmup',
+                              type=int_greater_or_equal(0),
+                              default=1,
+                              help='Number of LM pretrain samples to observe before first TM step. Default: %s(default)s.')
+    model_params.add_argument('--stop-lm-after-warmup',
+                              action='store_true',
+                              help='Stop training the LM after the warmup samples have been seen (LM for initialization only)')
 
     model_params.add_argument('--rnn-num-layers',
                               type=int_greater_or_equal(1),
