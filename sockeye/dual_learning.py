@@ -308,8 +308,8 @@ class TrainableInferenceModel(sockeye.inference.InferenceModel):
 
     # get the log-likelihood given a batch of data
     def compute_ll(self, 
-                     batch: mx.io.DataBatch, 
-                     val_metric: mx.metric.CompositeEvalMetric) -> float:
+                   batch: mx.io.DataBatch, 
+                   val_metric: mx.metric.CompositeEvalMetric) -> float:
         val_metric.reset()
         
         self.module.forward(data_batch=batch, is_train=True)
@@ -322,6 +322,11 @@ class TrainableInferenceModel(sockeye.inference.InferenceModel):
     def forward(self, 
                 batch: mx.io.DataBatch):         
         self.module.forward(data_batch=batch, is_train=True)  
+
+    def fit(self, 
+            batch: mx.io.DataBatch):         
+        self.module.forward_backward(batch)
+        self.module.update()
 
     def backward_and_collect_gradients(self, 
                                        reward: float,
