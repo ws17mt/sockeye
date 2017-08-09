@@ -364,6 +364,14 @@ def add_training_args(params):
                               type=float,
                               default=0.0003,
                               help='Initial learning rate. Default: %(default)s.')
+    train_params.add_argument('--initial-learning-rate-g',
+                              type=float,
+                              default=0.0003,
+                              help='Initial learning rate for pre-training G. Default: %(default)s.')
+    train_params.add_argument('--initial-learning-rate-d',
+                              type=float,
+                              default=0.0003,
+                              help='Initial learning rate for pre-training D. Default: %(default)s.')
     train_params.add_argument('--weight-decay',
                               type=float,
                               default=0.0,

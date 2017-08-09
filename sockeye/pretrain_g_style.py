@@ -280,7 +280,7 @@ def main():
 
         optimizer = args.optimizer
         optimizer_params = {'wd': args.weight_decay,
-                            "learning_rate": args.initial_learning_rate}
+                            "learning_rate": args.initial_learning_rate_g}
         clip_gradient = none_if_negative(args.clip_gradient)
         if clip_gradient is not None:
             optimizer_params["clip_gradient"] = clip_gradient
