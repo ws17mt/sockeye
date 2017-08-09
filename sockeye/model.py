@@ -26,6 +26,11 @@ from sockeye import constants as C
 
 logger = logging.getLogger(__name__)
 
+"""
+ModelConfig defines model parameters defined at training time which are relevant to model inference.
+Add new model parameters here. If you want backwards compatibility for models trained with code that did not
+contain these parameters, provide a reasonable default under default_values.
+"""
 ModelConfig = sockeye.utils.namedtuple_with_defaults('ModelConfig',
                                                      [
                                                       "max_seq_len",
@@ -56,6 +61,7 @@ ModelConfig = sockeye.utils.namedtuple_with_defaults('ModelConfig',
                                                       "disc_num_hidden",
                                                       "disc_num_layers",
                                                       "disc_dropout",
+                                                      "disc_type",
                                                       "loss_lambda",
                                                       "g_loss_weight",
                                                       "disc_batch_norm"
@@ -65,19 +71,15 @@ ModelConfig = sockeye.utils.namedtuple_with_defaults('ModelConfig',
                                                       "context_gating": False,
                                                       "loss": C.CROSS_ENTROPY,
                                                       "normalize_loss": False,
-                                                      "disc_act": "relu",
+                                                      "disc_act": "softrelu",
                                                       "disc_num_hidden": 50,
                                                       "disc_num_layers": 1,
                                                       "disc_dropout": 0.,
+                                                      "disc_type": "rnn",
                                                       "loss_lambda": 1.,
                                                       "g_loss_weight": 1.,
                                                       "disc_batch_norm": False
                                                   })
-"""
-ModelConfig defines model parameters defined at training time which are relevant to model inference.
-Add new model parameters here. If you want backwards compatibility for models trained with code that did not
-contain these parameters, provide a reasonable default under default_values.
-"""
 
 
 class SockeyeModel:

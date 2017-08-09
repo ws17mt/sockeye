@@ -41,6 +41,10 @@ EMBEDDING_PREFIX = "embed_"
 LSTM_TYPE = 'lstm'
 GRU_TYPE = 'gru'
 
+# disc types
+MLP_DISC_TYPE = "mlp"
+RNN_DISC_TYPE = "rnn"
+
 # init types
 RNN_INIT_ORTHOGONAL = 'orthogonal'
 RNN_INIT_ORTHOGONAL_STACKED = 'orthogonal_stacked'
