@@ -202,7 +202,7 @@ class SockeyeModel:
                         self.params['%s%s_weight' % (c._prefix, group_name)] = mx.ndarray.concatenate(weight)
                         self.params['%s%s_bias' % (c._prefix, group_name)] = mx.ndarray.concatenate(bias)
 
-    def load_encoder_lm_from_file(self, fname: str):
+    def load_encoder_lm_from_file(self, fname: str, is_joint: bool = False):
 
         assert self.built
 
@@ -217,14 +217,17 @@ class SockeyeModel:
 
         rp[C.SOURCE_NAME + '_embed_weight'] = temp_params[C.SOURCE_NAME + '_embed_weight']
 
+        if is_joint:
+            if "lm_cls_weight" in temp_params:
+                rp["lm_cls_weight"] = temp_params["lm_cls_weight"]
+            if "lm_cls_bias" in temp_params:
+                rp["lm_cls_bias"] = temp_params["lm_cls_bias"]
+
         logger.info('Loaded encoder LM params frpm "%s"', fname)
 
         if self.params is not None:
-
             self.params.update(rp)
-
         else:
-
             self.params = rp
 
         for cell in self.rnn_cells:

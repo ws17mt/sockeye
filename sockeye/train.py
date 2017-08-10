@@ -298,7 +298,7 @@ def main():
         if args.load_decoder_lm is not None:
             model.load_decoder_lm_from_file(args.load_decoder_lm)
         if args.load_encoder_lm is not None:
-            model.load_encoder_lm_from_file(args.load_encoder_lm)
+            model.load_encoder_lm_from_file(args.load_encoder_lm, is_joint=args.mono_source is not None)
 
         # We may consider loading the params in TrainingModule, for consistency
         # with the training state saving
