@@ -104,6 +104,7 @@ def get_encoder(num_embed: int,
             for i in range(1, gcn_num_layers):
                 encoders.append(GraphConvEncoder(gcn_num_hidden, gcn_num_hidden, 
                                                  gcn_num_tensor, use_gcn_gating, 0.0,
+                                                 residual=True,
                                                  prefix=C.GCN_PREFIX + str(i+1) + '_'))
 
     logger.info(encoders)    
@@ -459,11 +460,13 @@ class GraphConvEncoder(Encoder):
                  tensor_dim: int,
                  use_gcn_gating: bool,
                  dropout: float,
+                 residual: bool = False,
                  prefix: str = C.GCN_PREFIX,
                  layout: str = C.TIME_MAJOR,
                  fused: bool = False):
         self.layout = layout
         self.fused = fused
+        self._residual = residual
         self._num_hidden = output_dim
         self.gcn = sockeye.gcn.get_gcn(input_dim, output_dim, tensor_dim,
                                        use_gcn_gating, dropout, prefix)
@@ -477,6 +480,8 @@ class GraphConvEncoder(Encoder):
         with mx.AttrScope(__layout__=C.BATCH_MAJOR):
             data = mx.sym.swapaxes(data=data, dim1=0, dim2=1)
         outputs = self.gcn.convolve(adj, data, seq_len)
+        if self._residual:
+            outputs = outputs + data
         with mx.AttrScope(__layout__=C.TIME_MAJOR):
             outputs = mx.sym.swapaxes(data=outputs, dim1=0, dim2=1)
         return outputs
